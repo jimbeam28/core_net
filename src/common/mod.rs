@@ -25,11 +25,7 @@ pub use types::{
 };
 
 // 导出Packet相关类型
-pub use packet::{
-    Packet,
-    PacketMetadata,
-    InterfaceId,
-};
+pub use packet::Packet;
 
 // 导出队列相关类型
 pub use queue::{
@@ -70,12 +66,12 @@ pub use pool::{
     PoolStats,
     PoolStatus,
 
-    // Packet 适配层
-    PacketPool,
-    PacketPoolConfig,
-    PacketPoolStats,
-    PacketBuilder,
-    PooledPacket,
+    // Packet 适配层 - 暂时禁用，需要根据新 Packet API 重新设计
+    // PacketPool,
+    // PacketPoolConfig,
+    // PacketPoolStats,
+    // PacketBuilder,
+    // PooledPacket,
 };
 
 // 导出上电启动模块类型

@@ -15,7 +15,7 @@ pub use common::{
     MacAddr, IpAddr, IpVersion, EtherType, IpProtocol, Layer,
 
     // Packet相关
-    Packet, PacketMetadata, InterfaceId,
+    Packet,
 
     // 队列相关
     RingQueue, SpscQueue, SafeQueue,

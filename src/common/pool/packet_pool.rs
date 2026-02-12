@@ -1,5 +1,14 @@
 // src/common/pool/packet_pool.rs
 // Packet object pool adapter
+//
+// NOTE: This module is temporarily disabled because it depends on the old Packet API
+// which had capacity-based allocation, reserve_header, set_interface, etc.
+// The new Packet design (based on docs/design/packet.md) uses a simpler buffer chain
+// model focused on reading.
+//
+// To re-enable this module, it needs to be redesigned to work with the new Packet API,
+// or a new PooledPacket wrapper type needs to be created that extends Packet with
+// the required pool functionality.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

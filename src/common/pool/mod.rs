@@ -13,7 +13,8 @@ mod stats;
 pub use clear::Clear;
 pub use config::{AllocStrategy, PoolConfig, WaitStrategy};
 pub use error::PoolError;
-pub use packet_pool::{PacketPool, PacketPoolConfig, PacketPoolStats, PacketBuilder, PooledPacket};
+// PacketPool exports temporarily disabled - needs redesign for new Packet API
+// pub use packet_pool::{PacketPool, PacketPoolConfig, PacketPoolStats, PacketBuilder, PooledPacket};
 pub use pooled::Pooled;
 pub use pool::Pool;
 pub use stats::{PoolStats, PoolStatus};
