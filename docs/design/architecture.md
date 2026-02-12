@@ -151,12 +151,12 @@ core_net/
 
 ## 6. 详细设计文档
 
-- [队列设计](detail/queue.md) - 环形队列实现细节
-- [报文描述符](detail/packet.md) - Packet结构设计
-- [通用类型](detail/types.md) - MacAddr、IpAddr等类型定义
-- [模拟网卡](detail/nic.md) - 模拟网卡接口设计
-- [错误处理](detail/error.md) - 错误类型定义和处理
-- [测试工具](detail/test.md) - 报文注入和结果输出设计
+- [队列设计](queue.md) - 环形队列实现细节
+- [报文描述符](packet.md) - Packet结构设计
+- [通用类型](types.md) - MacAddr、IpAddr等类型定义
+- [模拟网卡](nic.md) - 模拟网卡接口设计
+- [错误处理](error.md) - 错误类型定义和处理
+- [测试工具](test.md) - 报文注入和结果输出设计
 
 ## 7. 实现计划
 
