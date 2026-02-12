@@ -31,12 +31,9 @@ pub use packet::Packet;
 pub use queue::{
     // 基础队列结构
     RingQueue,
-    SpscQueue,
-    SafeQueue,
 
-    // 错误和策略（重命名 WaitStrategy 避免与 pool 冲突）
+    // 错误
     QueueError,
-    WaitStrategy as QueueWaitStrategy,
 
     // 队列配置
     QueueConfig,
@@ -45,8 +42,6 @@ pub use queue::{
     DEFAULT_QUEUE_CAPACITY,
     MIN_QUEUE_CAPACITY,
     MAX_QUEUE_CAPACITY,
-    DEFAULT_SPIN_COUNT,
-    DEFAULT_TIMEOUT_MS,
 };
 
 // 导出对象池相关类型
