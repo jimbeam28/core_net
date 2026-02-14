@@ -25,6 +25,11 @@
 - 生成“方案设计”和“代码实现”这两个skill
 - 生成“代码修改”这个skill
 - 打通报文处理流程
+- 优化如下问题：
+    - 错误类型统一性：CoreError、ProcessError、ScheduleError 三套错误类型互不转换，添加 From<T> trait 实现。
+    - Scheduler dequeue 语义：dequeue() 返回 Result<Option<T>, QueueError>，Ok(None) 和 Err(Empty) 语义重叠，将其简化为 Option<T>
+    - shutdown() 文档不清晰，未明确说明资源释放行为，已增强文档，明确说明 clear() 会触发 Packet 的 drop 并释放 Vec<u8> 内存
 
 ### 下一步计划
-- 实现ARP协议的处理
+- 写一个协议分析、设计和实现的skill
+- 生成ARP设计文档，实现ARP协议的处理
