@@ -135,19 +135,18 @@ impl<T> RingQueue<T> {
     /// 出队
     ///
     /// # 返回
-    /// - `Ok(Some(item))`: 出队成功，返回元素
-    /// - `Ok(None)`: 队列为空（仅在特殊情况下）
-    /// - `Err(QueueError::Empty)`: 队列为空
-    pub fn dequeue(&mut self) -> std::result::Result<Option<T>, QueueError> {
+    /// - `Some(item)`: 出队成功，返回元素
+    /// - `None`: 队列为空
+    pub fn dequeue(&mut self) -> Option<T> {
         if self.count == 0 {
-            return Err(QueueError::Empty);
+            return None;
         }
 
         let item = self.buffer[self.head].take();
         self.head = (self.head + 1) % self.capacity;
         self.count -= 1;
 
-        Ok(item)
+        item
     }
 
     /// 队列是否为空

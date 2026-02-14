@@ -23,11 +23,18 @@ pub fn boot(config: SystemConfig) -> SystemContext {
 
 /// 下电释放
 ///
-/// 释放系统资源（清空队列）
+/// 释放系统资源（清空队列并释放内存）
+///
+/// # 行为
+/// 1. 清空接收队列，丢弃所有未处理的报文
+/// 2. 清空发送队列，丢弃所有未发送的报文
+/// 3. 每个 Packet 被 drop，释放其持有的 buffer 内存
 ///
 /// # 参数
 /// - `context`: 可变引用的系统上下文
 pub fn shutdown(context: &mut SystemContext) {
+    // 清空队列，遍历 buffer 并将每个 slot 设为 None
+    // 这会触发 Packet 的 drop，释放 Vec<u8> 内存
     context.rxq.clear();
     context.txq.clear();
 }

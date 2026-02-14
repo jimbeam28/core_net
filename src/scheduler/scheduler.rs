@@ -3,7 +3,7 @@
 // 调度器实现
 // 负责从接收队列中取出报文并调度给协议处理引擎
 
-use crate::common::queue::{RingQueue, QueueError};
+use crate::common::queue::RingQueue;
 use crate::common::Packet;
 use crate::engine::PacketProcessor;
 
@@ -34,16 +34,27 @@ impl std::fmt::Display for ScheduleError {
 
 impl std::error::Error for ScheduleError {}
 
-/// 从 QueueError 转换
-impl From<QueueError> for ScheduleError {
-    fn from(err: QueueError) -> Self {
+// ========== 错误转换 ==========
+
+/// 从 CoreError 转换
+impl From<crate::common::CoreError> for ScheduleError {
+    fn from(err: crate::common::CoreError) -> Self {
         match err {
-            QueueError::Empty => {
-                // 队列空是正常退出条件，不应该转换为错误
-                ScheduleError::Other("意外的队列空错误".to_string())
+            crate::common::CoreError::QueueFull => {
+                ScheduleError::QueueError("队列已满".to_string())
             }
-            QueueError::Full => ScheduleError::QueueError("队列已满".to_string()),
+            crate::common::CoreError::QueueEmpty => {
+                ScheduleError::QueueError("队列为空".to_string())
+            }
+            _ => ScheduleError::Other(format!("{:?}", err)),
         }
+    }
+}
+
+/// 从 ProcessError 转换
+impl From<crate::engine::ProcessError> for ScheduleError {
+    fn from(err: crate::engine::ProcessError) -> Self {
+        ScheduleError::ProcessorError(err.to_string())
     }
 }
 
@@ -125,7 +136,7 @@ impl Scheduler {
 
         loop {
             match rxq.dequeue() {
-                Ok(Some(packet)) => {
+                Some(packet) => {
                     // 根据是否有自定义处理器选择处理方式
                     let result = match &self.processor {
                         Some(processor) => processor.process(packet),
@@ -141,22 +152,9 @@ impl Scheduler {
                         count += 1;
                     }
                 }
-                Ok(None) => {
-                    // 不应该出现这种情况，dequeue 返回 None 只在 buffer 有 None 占位时
-                    // 这属于内部错误
-                    return Err(ScheduleError::Other(
-                        "队列内部状态错误: dequeue 返回 None".to_string()
-                    ));
-                }
-                Err(QueueError::Empty) => {
+                None => {
                     // 队列为空，正常退出循环
                     break;
-                }
-                Err(QueueError::Full) => {
-                    // dequeue 不应该返回 Full 错误
-                    return Err(ScheduleError::Other(
-                        "队列内部状态错误: dequeue 返回 Full".to_string()
-                    ));
                 }
             }
         }

@@ -37,6 +37,26 @@ impl std::fmt::Display for ProcessError {
 
 impl std::error::Error for ProcessError {}
 
+// ========== 错误转换 ==========
+
+/// 从 CoreError 转换
+impl From<crate::common::CoreError> for ProcessError {
+    fn from(err: crate::common::CoreError) -> Self {
+        match err {
+            crate::common::CoreError::ParseError(msg) => {
+                ProcessError::ParseError(msg)
+            }
+            crate::common::CoreError::InvalidPacket(msg) => {
+                ProcessError::InvalidPacket(msg)
+            }
+            crate::common::CoreError::UnsupportedProtocol(proto) => {
+                ProcessError::UnsupportedProtocol(proto)
+            }
+            _ => ProcessError::EncapError(format!("{:?}", err)),
+        }
+    }
+}
+
 /// 报文处理器
 ///
 /// 负责对报文进行协议解析（上行）或封装（下行）处理。
