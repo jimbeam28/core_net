@@ -6,6 +6,7 @@
 // 公共模块声明
 pub mod common;
 pub mod engine;
+pub mod scheduler;
 
 // 重新导出常用类型
 pub use common::{
@@ -32,4 +33,13 @@ pub use common::{
     boot_default,
     boot_with_capacity,
     shutdown,
+};
+
+// 导出 scheduler 模块
+pub use scheduler::{
+    Scheduler,
+    ScheduleError,
+    ScheduleResult,
+    schedule_packets,
+    schedule_packets_verbose,
 };
