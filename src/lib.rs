@@ -5,6 +5,7 @@
 
 // 公共模块声明
 pub mod common;
+pub mod engine;
 
 // 重新导出常用类型
 pub use common::{
