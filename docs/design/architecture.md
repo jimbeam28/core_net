@@ -126,12 +126,17 @@ core_net/
 │   ├── main.rs              # 主入口
 │   ├── lib.rs               # 库入口
 │   ├── common/              # 通用模块
-│   │   ├── mod.rs
-│   │   ├── error.rs         # 错误类型定义
-│   │   ├── packet.rs        # 报文描述符
-│   │   ├── queue.rs         # 环形队列实现
-│   │   └── types.rs         # 通用类型（MacAddr, IpAddr等）
-│   ├── protocols/           # 协议实现
+│   │   ├── mod.rs          # ✅ 模块入口
+│   │   ├── error.rs        # ✅ 错误类型定义
+│   │   ├── packet/         # ✅ 报文描述符
+│   │   │   └── mod.rs
+│   │   ├── queue/          # ✅ 环形队列实现
+│   │   │   └── mod.rs
+│   │   └── poweron/        # ✅ 上电启动模块
+│   │       ├── mod.rs
+│   │       ├── config.rs
+│   │       └── context.rs
+│   ├── protocols/           # 协议实现（待实现）
 │   │   ├── mod.rs
 │   │   ├── ethernet/        # 以太网层
 │   │   ├── ipv4/           # IPv4层
@@ -142,8 +147,8 @@ core_net/
 │   │   ├── icmpv6/         # ICMPv6协议
 │   │   ├── arp/            # ARP协议
 │   │   └── nd/            # 邻居发现
-│   ├── engine/             # 协议处理引擎
-│   └── test/              # 测试工具
+│   ├── engine/             # 协议处理引擎（待实现）
+│   └── test/              # 测试工具（待实现）
 │       ├── mod.rs
 │       ├── injector.rs      # 报文注入器
 │       └── output.rs        # 结果输出
@@ -151,23 +156,25 @@ core_net/
 
 ## 6. 详细设计文档
 
-- [队列设计](queue.md) - 环形队列实现细节
-- [报文描述符](packet.md) - Packet结构设计
-- [通用类型](types.md) - MacAddr、IpAddr等类型定义
-- [模拟网卡](nic.md) - 模拟网卡接口设计
-- [错误处理](error.md) - 错误类型定义和处理
-- [测试工具](test.md) - 报文注入和结果输出设计
+- [报文描述符](packet.md) - Packet结构设计 ✅
+- [上电启动模块](poweron.md) - 系统资源初始化和释放 ✅
+- [环形队列设计](queue.md) - 环形队列实现细节 ✅
+- [通用类型](types.md) - MacAddr、IpAddr等类型定义（待实现）
+- [模拟网卡](nic.md) - 模拟网卡接口设计（待实现）
+- [错误处理](error.md) - 错误类型定义和处理（待实现）
+- [测试工具](test.md) - 报文注入和结果输出设计（待实现）
 
 ## 7. 实现计划
 
 > **当前目标**: 先跑通基本流程，实现一个可以ping通的简单网络栈
 
 ### 阶段一：基础框架
-- [ ] common模块基础结构
-- [ ] 通用类型定义
-- [ ] 错误类型定义
-- [ ] 报文描述符实现
-- [ ] 环形队列实现
+- [x] common模块基础结构
+- [x] 错误类型定义
+- [x] 报文描述符实现
+- [x] 环形队列实现
+- [x] 上电启动模块实现
+- [ ] 通用类型定义（MacAddr, IpAddr等）
 - [ ] 报文注入器
 - [ ] 结果输出模块
 - [ ] 主处理循环

@@ -11,20 +11,24 @@ pub use common::{
     // 错误类型
     CoreError, Result,
 
-    // 网络类型
-    MacAddr, IpAddr, IpVersion, EtherType, IpProtocol, Layer,
-
     // Packet相关
     Packet,
 
     // 队列相关
-    RingQueue, SpscQueue, SafeQueue,
-    QueueError, WaitStrategy, QueueConfig,
+    RingQueue,
+    QueueError,
+    QueueConfig,
 
     // 队列常量
     DEFAULT_QUEUE_CAPACITY,
     MIN_QUEUE_CAPACITY,
     MAX_QUEUE_CAPACITY,
-    DEFAULT_SPIN_COUNT,
-    DEFAULT_TIMEOUT_MS,
+
+    // 上电启动模块
+    SystemConfig,
+    SystemContext,
+    boot,
+    boot_default,
+    boot_with_capacity,
+    shutdown,
 };

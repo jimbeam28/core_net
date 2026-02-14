@@ -3,7 +3,7 @@
 // 环形队列实现
 // 单线程场景下的环形缓冲区
 
-use crate::common::{CoreError, Result};
+use crate::common::CoreError;
 
 // ========== 常量定义 ==========
 
