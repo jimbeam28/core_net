@@ -35,6 +35,15 @@ pub use common::{
     shutdown,
 };
 
+// 导出 engine 模块
+pub use engine::{
+    PacketProcessor,
+    ProcessResult,
+    ProcessError,
+    process_packet,
+    process_packet_verbose,
+};
+
 // 导出 scheduler 模块
 pub use scheduler::{
     Scheduler,
