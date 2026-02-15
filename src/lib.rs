@@ -7,6 +7,7 @@
 pub mod common;
 pub mod engine;
 pub mod scheduler;
+pub mod protocols;
 
 // 重新导出常用类型
 pub use common::{
@@ -15,6 +16,9 @@ pub use common::{
 
     // Packet相关
     Packet,
+
+    // 地址类型
+    MacAddr, Ipv4Addr,
 
     // 队列相关
     RingQueue,

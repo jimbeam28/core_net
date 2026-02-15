@@ -4,13 +4,32 @@
 
 报文处理模块（Engine）是 CoreNet 协议栈的核心处理单元，负责对接收到的报文进行逐层协议解析（上行）或对发送数据进行逐层协议封装（下行）。
 
-**当前阶段目标**：实现基础框架，提供报文处理接口。处理函数内部暂时简化为打印报文内容，用于验证数据流的正确性。
+**当前阶段目标**：实现链路层协议处理（VLAN、ARP），建立完整的报文处理流程。
 
 ---
 
-## 一、架构设计
+## 一、需求介绍
 
-### 模块定位
+### 1.1 功能需求
+
+1. **协议解析（上行）**：从以太网帧开始，逐层解析协议头，提取有效载荷
+2. **协议封装（下行）**：从应用数据开始，逐层添加协议头，生成完整报文
+3. **VLAN 支持**：处理 802.1Q VLAN 标签，支持单层和双层标签
+4. **ARP 处理**：处理地址解析协议，维护 ARP 缓存表
+5. **错误处理**：提供清晰的错误信息和传播机制
+
+### 1.2 非功能需求
+
+- **零外部依赖**：仅使用 Rust 标准库
+- **纯内存模拟**：所有数据通过内存队列传递
+- **可读性优先**：代码结构清晰，便于学习理解
+- **渐进式实现**：协议处理按层级逐步完善
+
+---
+
+## 二、架构设计
+
+### 2.1 模块定位
 
 ```
 ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
@@ -25,39 +44,59 @@
 └──────────────┘         └──────────────┘         └──────────────┘
 ```
 
-### 数据流向
+### 2.2 协议处理层次
+
+```
+┌─────────────────────────────────────────────────┐
+│           Application Layer (规划中)          │
+├─────────────────────────────────────────────────┤
+│      Transport Layer (TCP/UDP/ICMP 规划中)   │
+├─────────────────────────────────────────────────┤
+│         Network Layer (IPv4/IPv6 规划中)      │
+├─────────────────────────────────────────────────┤
+│    Link Layer (Ethernet/VLAN/ARP ✅ 已实现)   │
+└─────────────────────────────────────────────────┘
+```
+
+### 2.3 数据流向
 
 **上行（解析）流程**：
 ```
-测试报文 -> RxQ -> Engine::process() -> 协议解析 -> TxQ（响应）
+原始字节流 -> Packet 描述符 -> 链路层解析 -> 协议分发 -> TxQ
+    |
+    +-> VLAN 解析 (可选)
+    +-> ARP 处理
+    +-> 以太网类型判断
 ```
 
-**下行（封装）流程**：
+**下行（封装）流程**（规划中）：
 ```
-应用数据 -> Engine::encap() -> 协议封装 -> TxQ
+应用数据 -> 传输层封装 -> 网络层封装 -> 链路层封装 -> TxQ
 ```
 
-### 处理模型
+### 2.4 处理模型
 
 ```
-┌─────────────────────────────────────────────┐
-│            PacketProcessor                 │
-│  ┌─────────────────────────────────────┐  │
-│  │        process(packet)               │  │
-│  │                                     │  │
-│  │  阶段一：打印报文信息（当前实现）    │  │
-│  │  阶段二：以太网层解析（后续）        │  │
-│  │  阶段三：IP层解析（后续）            │  │
-│  │  阶段四：传输层解析（后续）          │  │
-│  └─────────────────────────────────────┘  │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│              PacketProcessor                    │
+│  ┌───────────────────────────────────────────┐  │
+│  │        process(packet)                     │  │
+│  │                                         │  │
+│  │  1. 打印报文信息（调试）                 │  │
+│  │  2. VLAN 解析（如存在）                  │  │
+│  │  3. 协议类型分发                         │  │
+│  │     - ARP: 处理 ARP 报文                  │  │
+│  │     - IPv4: 网络层处理（规划中）         │  │
+│  │     - 其他: 不支持的协议                  │  │
+│  └───────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 二、核心数据结构
+## 三、核心数据结构
 
-### PacketProcessor
+### 3.1 PacketProcessor
 
 报文处理器，负责报文的协议处理。
 
@@ -72,7 +111,7 @@ pub struct PacketProcessor {
 }
 ```
 
-### ProcessError
+### 3.2 ProcessError
 
 处理错误类型。
 
@@ -95,9 +134,9 @@ pub enum ProcessError {
 
 ---
 
-## 三、接口定义
+## 四、接口定义
 
-### 3.1 PacketProcessor 核心 API
+### 4.1 PacketProcessor 核心 API
 
 ```rust
 impl PacketProcessor {
@@ -125,7 +164,7 @@ impl PacketProcessor {
 }
 ```
 
-### 3.2 便捷函数
+### 4.2 便捷函数
 
 ```rust
 /// 使用默认处理器处理报文
@@ -137,127 +176,126 @@ pub fn process_packet_verbose(packet: Packet) -> ProcessResult;
 
 ---
 
-## 四、当前实现（Phase 1）
+## 五、协议处理流程
 
-### 4.1 处理行为
+### 5.1 VLAN 处理
 
-**简化版本（当前）**：
-1. 接收 Packet 入参
-2. 打印报文基本信息（长度、偏移量）
-3. 如启用 verbose，打印十六进制 dump
-4. 返回 Ok(())
+**VLAN 模块位置**：[src/common/protocols/vlan/](src/common/protocols/vlan/)
 
-### 4.2 输出格式
-
-**普通模式**：
+**处理逻辑**：
 ```
-报文处理 [DefaultProcessor]: 长度=64 字节
+1. 检查以太网类型字段
+2. 如果是 VLAN TPID (0x8100 或 0x88A8)
+   - 解析 VLAN 标签 (TCI, TCI, DEI, PCP, VID)
+   - 继续解析内层类型
+3. 支持 QinQ (双层标签)
 ```
 
-**详细模式**：
+**相关类型**：
+- `VlanTag`: VLAN 标签结构
+- `VlanFrame`: 带标签的帧结构
+- `VlanError`: VLAN 处理错误
+
+### 5.2 ARP 处理
+
+**ARP 模块位置**：
+- 协议定义：[src/protocols/arp/mod.rs](src/protocols/arp/mod.rs)
+- 缓存表：[src/common/tables/arp.rs](src/common/tables/arp.rs)
+
+**处理逻辑**：
 ```
-=== 报文处理 [DefaultProcessor] ===
-报文长度: 64 字节
-当前偏移: 0 字节
-剩余数据: 64 字节
-报文内容:
-0000: ff ff ff ff ff ff aa bb cc dd ee ff 08 00 45 00  |..............E.
-0010: 00 3c 00 00 40 00 40 11 xx xx xx xx xx xx xx xx  |.<..@.@.........
-0020: xx xx xx xx xx xx 00 14 00 35 00 28 xx xx 61 62  |.........5.(..ab
-0030: 63 64 65 66 67 68 69 6a 6b 6c 6d 6e 6f 70 71 72  |cdefghijklmnopqr
-0040: 73 74 75 76 77 61 62 63 64 65 66 67 68 69        |stuvwabcdefghi
-====================
+收到 ARP 报文：
+1. 解析 ARP 头部
+2. 更新 ARP 缓存（自动学习）
+3. 判断操作类型：
+   - 请求 (Operation=1): 检查目标IP，匹配则发送响应
+   - 响应 (Operation=2): 处理等待队列
+4. 更新缓存条目状态
 ```
 
----
-
-## 五、后续扩展（Phase 2+）
-
-### 5.1 协议解析流程
-
+**ARP 缓存状态**：
 ```
-process(packet) {
-    // 1. 以太网层解析
-    let eth_hdr = parse_ethernet(packet)?;
-    match eth_hdr.ether_type {
-        ETH_P_IP => {
-            // 2. IPv4 层解析
-            let ip_hdr = parse_ipv4(packet)?;
-            match ip_hdr.protocol {
-                IP_PROTO_ICMP => {
-                    // 3. ICMP 处理
-                    handle_icmp(packet)?;
-                }
-                IP_PROTO_TCP => {
-                    // 3. TCP 处理
-                    handle_tcp(packet)?;
-                }
-                IP_PROTO_UDP => {
-                    // 3. UDP 处理
-                    handle_udp(packet)?;
-                }
-                _ => { /* 忽略 */ }
-            }
-        }
-        ETH_P_ARP => {
-            // 2. ARP 处理
-            handle_arp(packet)?;
-        }
-        ETH_P_IPV6 => {
-            // 2. IPv6 层解析
-            parse_ipv6(packet)?;
-        }
-        _ => { /* 忽略 */ }
+NONE -> INCOMPLETE -> REACHABLE -> STALE -> DELAY -> PROBE -> NONE
+```
+
+**相关类型**：
+- `ArpPacket`: ARP 报文结构
+- `ArpOperation`: ARP 操作码
+- `ArpCache`: ARP 缓存表
+- `ArpEntry`: ARP 缓存条目
+- `ArpState`: ARP 条目状态
+- `ArpConfig`: ARP 配置参数
+
+### 5.3 协议类型分发
+
+```rust
+// 伪代码示例
+match ether_type {
+    ETHER_TYPE_ARP => {
+        // 处理 ARP
+        let arp_pkt = ArpPacket::from_packet(&mut packet)?;
+        handle_arp(arp_pkt);
+    }
+    ETHER_TYPE_IP => {
+        // IPv4 处理（规划中）
+        handle_ipv4(packet)?;
+    }
+    ETHER_TYPE_IPV6 => {
+        // IPv6 处理（规划中）
+        handle_ipv6(packet)?;
+    }
+    ETHER_TYPE_VLAN | ETHER_TYPE_VLAN_QINQ => {
+        // VLAN 处理
+        let vlan_tag = VlanTag::parse(&mut packet)?;
+        handle_vlan_inner(vlan_tag, packet)?;
+    }
+    _ => {
+        return Err(ProcessError::UnsupportedProtocol(
+            format!("未知的以太网类型: 0x{:04x}", ether_type)
+        ));
     }
 }
 ```
 
-### 5.2 协议封装流程
+---
 
-```
-encap(data, dest) -> Packet {
-    // 1. 传输层封装
-    add_transport_header(data)?;
+## 六、错误处理
 
-    // 2. 网络层封装
-    add_network_header(dest)?;
-
-    // 3. 链路层封装
-    add_ethernet_header(dest)?;
-
-    // 4. 返回完整报文
-    packet
-}
-```
-
-### 5.3 错误处理增强
+### 6.1 错误转换
 
 ```rust
-pub enum ProcessError {
-    // 当前
-    ParseError(String),
-    EncapError(String),
-    UnsupportedProtocol(String),
-    InvalidPacket(String),
-
-    // 后续扩展
-    ChecksumError { expected: u16, calculated: u16 },
-    RoutingError(String),
-    FragmentationError(String),
-    TimeoutError(Duration),
+/// 从 CoreError 转换
+impl From<crate::common::CoreError> for ProcessError {
+    fn from(err: crate::common::CoreError) -> Self {
+        match err {
+            CoreError::ParseError(msg) => ProcessError::ParseError(msg),
+            CoreError::InvalidPacket(msg) => ProcessError::InvalidPacket(msg),
+            CoreError::UnsupportedProtocol(proto) => {
+                ProcessError::UnsupportedProtocol(proto)
+            }
+            _ => ProcessError::EncapError(format!("{:?}", err)),
+        }
+    }
 }
 ```
+
+### 6.2 错误处理策略
+
+1. **解析失败**：返回 `ParseError`，终止处理
+2. **不支持的协议**：返回 `UnsupportedProtocol`，记录日志
+3. **格式错误**：返回 `InvalidPacket`，丢弃报文
+4. **错误传播**：使用 `?` 操作符向上传播
 
 ---
 
-## 六、模块结构
+## 七、模块结构
 
 ```
 src/engine/
 ├── mod.rs           # 模块入口
-├── processor.rs     # PacketProcessor 实现
-├── engine.rs       # 报文处理引擎核心逻辑（后续）
-└── context.rs      # 处理上下文（后续）
+├── processor.rs     # PacketProcessor 实现 ✅ 已实现
+├── engine.rs       # 报文处理引擎核心逻辑（规划中）
+└── context.rs      # 处理上下文（规划中）
 ```
 
 ### 模块导出
@@ -276,9 +314,9 @@ pub use processor::{
 
 ---
 
-## 七、测试策略
+## 八、测试策略
 
-### 7.1 单元测试
+### 8.1 单元测试
 
 ```rust
 #[cfg(test)]
@@ -291,33 +329,47 @@ mod tests {
 }
 ```
 
-### 7.2 集成测试（后续）
+### 8.2 集成测试
 
-```
-测试场景：
-- 注入完整以太网帧 -> 验证解析结果
-- 注入 IP 报文 -> 验证协议识别
-- 注入 TCP 报文 -> 验证端口解析
-- 注入非法报文 -> 验证错误处理
-```
+**VLAN 测试**：
+- 注入带 VLAN 标签的以太网帧
+- 验证 VLAN 解析结果
+- 测试 QinQ 双层标签
+
+**ARP 测试**：
+- 注入 ARP 请求报文
+- 验证缓存更新和响应生成
+- 测试 Gratuitous ARP
 
 ---
 
-## 八、实现路线图
+## 九、实现路线图
 
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| Phase 1 | 基础框架 + 打印功能 | 待实现 |
-| Phase 2 | 以太网层解析 | 待规划 |
-| Phase 3 | ARP 协议 | 待规划 |
-| Phase 4 | IPv4 基础 | 待规划 |
-| Phase 5 | ICMP（ping） | 待规划 |
+| Phase 1 | 基础框架 + 打印功能 | ✅ 已完成 |
+| Phase 2 | VLAN 协议支持 | ✅ 已完成 |
+| Phase 3 | ARP 协议处理 | ✅ 已完成 |
+| Phase 4 | 以太网类型分发 | 🔄 进行中 |
+| Phase 5 | IPv4 协议 | 📋 待规划 |
+| Phase 6 | ICMP（ping） | 📋 待规划 |
+| Phase 7 | 传输层（TCP/UDP） | 📋 待规划 |
 
 ---
 
-## 九、设计原则
+## 十、设计原则
 
-1. **简化优先**：当前阶段仅实现基础接口，验证数据流
-2. **渐进完善**：协议解析按层级逐步实现
+1. **简化优先**：当前阶段仅实现必要功能，验证数据流
+2. **渐进完善**：协议处理按层级逐步实现
 3. **错误透明**：处理错误向上传播，不吞没错误信息
 4. **测试驱动**：每阶段添加对应测试用例
+5. **模块独立**：各协议模块职责清晰，相互独立
+
+---
+
+## 十一、相关文档
+
+- [ARP 协议设计](protocols/arp.md)
+- [VLAN 协议设计](common/protocols/vlan.md)
+- [数据包描述符](packet.md)
+- [环形队列](queue.md)

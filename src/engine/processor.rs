@@ -1,26 +1,17 @@
 // src/engine/processor.rs
 //
 // 报文处理器
-// 提供报文处理接口，负责逐层解析/封装报文
+// 提供报文处理接口，负责逐层解析/分发报文
 
-use crate::common::Packet;
+use crate::common::{Packet, EthernetHeader, VlanTag};
 
-/// 报文处理结果
 pub type ProcessResult = Result<(), ProcessError>;
 
-/// 报文处理错误
 #[derive(Debug)]
 pub enum ProcessError {
-    /// 报文解析错误
     ParseError(String),
-
-    /// 报文封装错误
     EncapError(String),
-
-    /// 不支持的协议
     UnsupportedProtocol(String),
-
-    /// 报文格式错误
     InvalidPacket(String),
 }
 
@@ -37,9 +28,6 @@ impl std::fmt::Display for ProcessError {
 
 impl std::error::Error for ProcessError {}
 
-// ========== 错误转换 ==========
-
-/// 从 CoreError 转换
 impl From<crate::common::CoreError> for ProcessError {
     fn from(err: crate::common::CoreError) -> Self {
         match err {
@@ -57,28 +45,31 @@ impl From<crate::common::CoreError> for ProcessError {
     }
 }
 
-/// 报文处理器
-///
-/// 负责对报文进行协议解析（上行）或封装（下行）处理。
-/// 目前为简化实现，仅打印报文内容，后续会逐步完善。
-pub struct PacketProcessor {
-    /// 处理器名称
-    name: String,
+impl From<crate::protocols::vlan::VlanError> for ProcessError {
+    fn from(err: crate::protocols::vlan::VlanError) -> Self {
+        ProcessError::ParseError(format!("VLAN错误: {}", err))
+    }
+}
 
-    /// 是否启用详细输出
+impl From<String> for ProcessError {
+    fn from(msg: String) -> Self {
+        ProcessError::ParseError(msg)
+    }
+}
+
+pub struct PacketProcessor {
+    name: String,
     verbose: bool,
 }
 
 impl PacketProcessor {
-    /// 创建新的报文处理器
     pub fn new() -> Self {
         Self {
-            name: "DefaultProcessor".to_string(),
+            name: String::from("DefaultProcessor"),
             verbose: false,
         }
     }
 
-    /// 创建命名处理器
     pub fn with_name(name: String) -> Self {
         Self {
             name,
@@ -86,81 +77,170 @@ impl PacketProcessor {
         }
     }
 
-    /// 启用详细输出
     pub fn with_verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
         self
     }
 
-    /// 获取处理器名称
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// 处理报文（上行解析）
-    ///
-    /// # 参数
-    /// - packet: 要处理的报文（按值传递，取得所有权）
-    ///
-    /// # 返回
-    /// - Ok(()): 处理成功
-    /// - Err(ProcessError): 处理失败
-    pub fn process(&self, packet: Packet) -> ProcessResult {
-        self.print_packet(&packet);
+    pub fn process(&self, mut packet: Packet) -> ProcessResult {
+        self.print_packet_info(&packet);
+        let eth_hdr = EthernetHeader::from_packet(&mut packet)?;
+        if self.verbose {
+            self.print_eth_header(&eth_hdr);
+        }
+        self.dispatch_by_ether_type(eth_hdr, packet)
+    }
+
+    fn dispatch_by_ether_type(
+        &self,
+        eth_hdr: EthernetHeader,
+        mut packet: Packet,
+    ) -> ProcessResult {
+        use crate::common::{ETH_P_IP, ETH_P_ARP, ETH_P_IPV6, ETH_P_8021Q, ETH_P_8021AD};
+
+        match eth_hdr.ether_type() {
+            ETH_P_8021Q | ETH_P_8021AD => {
+                self.handle_vlan(eth_hdr, packet)?;
+            }
+            ETH_P_ARP => {
+                self.handle_arp(eth_hdr, packet)?;
+            }
+            ETH_P_IP => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    String::from("IPv4 protocol not implemented")
+                ));
+            }
+            ETH_P_IPV6 => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    String::from("IPv6 protocol not implemented")
+                ));
+            }
+            _ => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    format!("Unknown ethernet type: 0x{:04x}", eth_hdr.ether_type())
+                ));
+            }
+        }
         Ok(())
     }
 
-    /// 打印报文信息（简化实现）
-    fn print_packet(&self, packet: &Packet) {
+    fn handle_vlan(&self, _eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
+        let tpid_opt = crate::common::has_vlan_tag(&packet);
+        let tpid = match tpid_opt {
+            Some(t) => t,
+            None => {
+                return Err(ProcessError::ParseError(String::from("No VLAN tag detected")));
+            }
+        };
+
+        let vlan_tag = VlanTag::parse_from_packet(&mut packet)?;
+
         if self.verbose {
-            println!("=== 报文处理 [{}] ===", self.name);
-            println!("报文长度: {} 字节", packet.len());
-            println!("当前偏移: {} 字节", packet.get_offset());
-            println!("剩余数据: {} 字节", packet.remaining());
-            println!("报文内容:");
-            self.print_hexdump(packet.as_slice());
-            println!("====================");
+            println!("VLAN tag: TPID=0x{:04x}, PCP={}, DEI={}, VID={}",
+                tpid, vlan_tag.pcp, vlan_tag.dei, vlan_tag.vid);
+        }
+
+        let inner_vlan_opt = crate::common::has_vlan_tag(&packet);
+
+        if inner_vlan_opt.is_some() {
+            let inner_vlan = VlanTag::parse_from_packet(&mut packet)?;
+            if self.verbose {
+                println!("Inner VLAN: PCP={}, DEI={}, VID={}",
+                    inner_vlan.pcp, inner_vlan.dei, inner_vlan.vid);
+            }
+            if packet.remaining() < 2 {
+                return Err(ProcessError::InvalidPacket(String::from("Packet too short")));
+            }
+            let inner_type_bytes = packet.read(2)
+                .ok_or_else(|| ProcessError::ParseError(String::from("Failed to read inner ethertype")))?;
+            let inner_type = u16::from_be_bytes([inner_type_bytes[0], inner_type_bytes[1]]);
+            if self.verbose {
+                println!("Inner ethertype: 0x{:04x}", inner_type);
+            }
+            self.dispatch_inner_vlan(_eth_hdr, Some(vlan_tag), Some(inner_vlan), inner_type, packet)?;
         } else {
-            println!("报文处理 [{}]: 长度={} 字节", self.name, packet.len());
+            if packet.remaining() < 2 {
+                return Err(ProcessError::InvalidPacket(String::from("Packet too short")));
+            }
+            let inner_type_bytes = packet.read(2)
+                .ok_or_else(|| ProcessError::ParseError(String::from("Failed to read inner ethertype")))?;
+            let inner_type = u16::from_be_bytes([inner_type_bytes[0], inner_type_bytes[1]]);
+            if self.verbose {
+                println!("Inner ethertype: 0x{:04x}", inner_type);
+            }
+            self.dispatch_inner_vlan(_eth_hdr, Some(vlan_tag), None, inner_type, packet)?;
+        }
+        Ok(())
+    }
+
+    fn dispatch_inner_vlan(
+        &self,
+        _eth_hdr: EthernetHeader,
+        _outer_vlan: Option<VlanTag>,
+        _inner_vlan: Option<VlanTag>,
+        inner_type: u16,
+        packet: Packet,
+    ) -> ProcessResult {
+        use crate::common::ETH_P_ARP;
+        use crate::common::ETH_P_IP;
+
+        match inner_type {
+            ETH_P_ARP => {
+                self.handle_arp_ip(packet)?;
+            }
+            ETH_P_IP => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    String::from("IPv4 in VLAN not implemented")
+                ));
+            }
+            _ => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    format!("Unsupported protocol in VLAN: 0x{:04x}", inner_type)
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_arp(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
+        if !eth_hdr.dst_mac().is_broadcast() && !eth_hdr.dst_mac().is_zero() {
+            return Err(ProcessError::InvalidPacket(
+                format!("Invalid ARP destination MAC: {}", eth_hdr.dst_mac())
+            ));
+        }
+
+        let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
+        crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
+
+        Ok(())
+    }
+
+    fn handle_arp_ip(&self, mut packet: Packet) -> ProcessResult {
+        let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
+        crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
+        Ok(())
+    }
+
+    fn print_packet_info(&self, packet: &Packet) {
+        if self.verbose {
+            println!("=== [{}] ===", self.name);
+            println!("Length: {} bytes", packet.len());
+            println!("Offset: {} bytes", packet.get_offset());
+            println!("Remaining: {} bytes", packet.remaining());
+        } else {
+            println!("[{}]: {} bytes", self.name, packet.len());
         }
     }
 
-    /// 打印十六进制格式
-    fn print_hexdump(&self, data: &[u8]) {
-        let mut i = 0;
-        while i < data.len() {
-            // 打印偏移量
-            print!("{:04x}: ", i);
-
-            // 打印十六进制（每行16字节）
-            for j in 0..16 {
-                if i + j < data.len() {
-                    print!("{:02x} ", data[i + j]);
-                } else {
-                    print!("   ");
-                }
-                if j == 7 {
-                    print!(" ");
-                }
-            }
-
-            print!(" |");
-
-            // 打印ASCII
-            for j in 0..16 {
-                if i + j < data.len() {
-                    let b = data[i + j];
-                    if b.is_ascii_graphic() || b == b' ' {
-                        print!("{}", b as char);
-                    } else {
-                        print!(".");
-                    }
-                }
-            }
-
-            println!("|");
-            i += 16;
-        }
+    fn print_eth_header(&self, hdr: &EthernetHeader) {
+        println!("Ethernet header:");
+        println!("  DST: {}", hdr.dst_mac());
+        println!("  SRC: {}", hdr.src_mac());
+        println!("  Type: 0x{:04x}", hdr.ether_type());
     }
 }
 
@@ -170,30 +250,10 @@ impl Default for PacketProcessor {
     }
 }
 
-/// 便捷函数：处理报文
-///
-/// 使用默认处理器处理报文。
-///
-/// # 参数
-/// - packet: 要处理的报文
-///
-/// # 返回
-/// - Ok(()): 处理成功
-/// - Err(ProcessError): 处理失败
 pub fn process_packet(packet: Packet) -> ProcessResult {
     PacketProcessor::new().process(packet)
 }
 
-/// 便捷函数：详细模式处理报文
-///
-/// 使用详细输出模式处理报文。
-///
-/// # 参数
-/// - packet: 要处理的报文
-///
-/// # 返回
-/// - Ok(()): 处理成功
-/// - Err(ProcessError): 处理失败
 pub fn process_packet_verbose(packet: Packet) -> ProcessResult {
     PacketProcessor::new().with_verbose(true).process(packet)
 }

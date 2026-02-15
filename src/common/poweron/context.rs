@@ -1,6 +1,6 @@
 /// 系统上下文，持有队列资源的所有权
 use crate::common::queue::RingQueue;
-use crate::common::packet::Packet;
+use crate::protocols::Packet;
 
 /// 系统上下文
 ///
