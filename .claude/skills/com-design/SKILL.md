@@ -1,5 +1,5 @@
 ---
-name: design-doc-generator
+name: com-design
 description: Generate or update detailed design documents for Rust modules. Use when user asks to create design docs, writes technical specifications, or needs architecture documentation for implementation.
 allowed-tools: Read, Write, Edit, AskUserQuestion, Glob, Grep
 ---

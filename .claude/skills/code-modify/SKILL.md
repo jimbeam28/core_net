@@ -1,5 +1,5 @@
 ---
-name: code-changer
+name: code-modify
 description: 执行代码修改任务，支持跨模块的代码变更。当用户提出修改需求时，理解需求、分析影响范围、进行修改并验证编译。
 allowed-tools: Read, Edit, Write, AskUserQuestion, Glob, Grep, Bash, TodoWrite
 ---

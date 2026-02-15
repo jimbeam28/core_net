@@ -1,5 +1,5 @@
 ---
-name: code-implementer
+name: com-apply
 description: 根据设计文档实现 Rust 代码。严格按照设计文档定义的数据结构、接口和模块结构进行实现，不生成单元测试用例。
 allowed-tools: Read, Write, Edit, AskUserQuestion, Glob, Grep, Bash, TodoWrite
 ---

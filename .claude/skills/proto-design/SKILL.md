@@ -1,5 +1,5 @@
 ---
-name: protocol-doc-generator
+name: proto-design
 description: Generate detailed protocol analysis documents for TCP/IP stack protocols. Use when user asks to create protocol design docs for network protocols like TCP, UDP, ICMP, IPv4, IPv6, Ethernet, etc.
 allowed-tools: Read, Write, Edit, AskUserQuestion, WebSearch, WebFetch
 ---
