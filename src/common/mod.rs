@@ -1,13 +1,15 @@
 // src/common/mod.rs
 //
 // 通用模块
-// 包含错误类型、队列、上电启动等通用功能
+// 包含错误类型、队列、上电启动、报文描述符、地址类型等通用功能
 
 // 模块声明
 pub mod error;
 pub mod queue;
 pub mod poweron;
 pub mod tables;
+pub mod packet;
+pub mod addr;
 
 // 导出错误类型
 pub use error::{CoreError, Result};
@@ -42,11 +44,14 @@ pub use poweron::{
 // 导出表相关类型
 pub use tables::Table;
 
-// 重新导出协议模块的公共类型（保持向后兼容）
+// 导出报文描述符
+pub use packet::Packet;
+
+// 导出地址类型
+pub use addr::{MacAddr, Ipv4Addr, AddrError};
+
+// 重新导出协议模块的类型（保持向后兼容）
 pub use crate::protocols::{
-    Packet,
-    MacAddr,
-    Ipv4Addr,
     EthernetHeader,
     ETH_P_IP,
     ETH_P_ARP,

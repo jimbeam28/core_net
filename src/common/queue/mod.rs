@@ -86,6 +86,17 @@ pub struct RingQueue<T> {
     count: usize,
 }
 
+impl<T: std::fmt::Debug> std::fmt::Debug for RingQueue<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RingQueue")
+            .field("capacity", &self.capacity)
+            .field("count", &self.count)
+            .field("head", &self.head)
+            .field("tail", &self.tail)
+            .finish()
+    }
+}
+
 impl<T> RingQueue<T> {
     /// 创建新的环形队列
     ///
@@ -109,9 +120,7 @@ impl<T> RingQueue<T> {
     pub fn with_config(config: QueueConfig) -> Self {
         Self::new(config.capacity)
     }
-}
 
-impl<T> RingQueue<T> {
     /// 入队
     ///
     /// # 参数

@@ -2,9 +2,6 @@
 //
 // 协议模块声明
 
-// 公共模块（Packet、地址类型等）
-pub mod common;
-
 // 以太网协议
 pub mod ethernet;
 
@@ -14,8 +11,8 @@ pub mod vlan;
 // ARP协议
 pub mod arp;
 
-// 导出常用类型
-pub use common::{
+// 从 common 模块重新导出类型
+pub use crate::common::{
     Packet,
     MacAddr,
     Ipv4Addr,

@@ -8,6 +8,7 @@ pub mod common;
 pub mod engine;
 pub mod scheduler;
 pub mod protocols;
+pub mod interface;
 
 // 重新导出常用类型
 pub use common::{
@@ -18,7 +19,7 @@ pub use common::{
     Packet,
 
     // 地址类型
-    MacAddr, Ipv4Addr,
+    MacAddr, Ipv4Addr, AddrError,
 
     // 队列相关
     RingQueue,
@@ -37,6 +38,16 @@ pub use common::{
     boot_default,
     boot_with_capacity,
     shutdown,
+};
+
+// 导出 interface 模块
+pub use interface::{
+    NetworkInterface, InterfaceState, InterfaceType,
+    InterfaceManager, InterfaceConfig,
+    load_config, save_config,
+    InterfaceError,
+    // 全局接口管理器
+    init_global_manager, init_from_config, global_manager,
 };
 
 // 导出 engine 模块

@@ -1,9 +1,10 @@
-// src/common/packet/mod.rs
+// src/common/packet.rs
 //
 // 报文描述符设计
 // Packet是CoreNet的核心数据结构，用于在协议栈各层之间传递报文数据
 
 /// 报文描述符
+#[derive(Debug, Clone)]
 pub struct Packet {
     /// 数据缓冲区
     pub data: Vec<u8>,
@@ -89,7 +90,7 @@ impl Packet {
     // ========== 复制相关 ==========
 
     /// 复制Packet（深拷贝数据）
-    pub fn clone(&self) -> Self {
+    pub fn clone_data(&self) -> Self {
         Packet {
             data: self.data.clone(),
             offset: self.offset,
@@ -141,16 +142,5 @@ impl Packet {
 impl Default for Packet {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// ========== 实现 Clone trait ==========
-
-impl Clone for Packet {
-    fn clone(&self) -> Self {
-        Packet {
-            data: self.data.clone(),
-            offset: self.offset,
-        }
     }
 }

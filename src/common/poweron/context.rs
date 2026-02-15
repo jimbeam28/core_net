@@ -1,60 +1,84 @@
-/// 系统上下文，持有队列资源的所有权
-use crate::common::queue::RingQueue;
-use crate::protocols::Packet;
+/// 系统上下文，持有接口管理器的所有权
+use crate::interface::InterfaceManager;
 
 /// 系统上下文
 ///
-/// 持有接收队列和发送队列的所有权
+/// 持有接口管理器的所有权（每个接口内部有自己的队列）
 pub struct SystemContext {
-    /// 接收队列（注入器 -> 处理线程）
-    pub rxq: RingQueue<Packet>,
-
-    /// 发送队列（处理线程 -> 输出）
-    pub txq: RingQueue<Packet>,
+    /// 接口管理器（包含所有接口及其队列）
+    pub interfaces: InterfaceManager,
 }
 
 impl SystemContext {
     /// 创建新的系统上下文
     ///
     /// # 参数
-    /// - `rxq_capacity`: 接收队列容量
-    /// - `txq_capacity`: 发送队列容量
-    pub fn new(rxq_capacity: usize, txq_capacity: usize) -> Self {
+    /// - `rxq_capacity`: 每个接口的接收队列容量
+    /// - `txq_capacity`: 每个接口的发送队列容量
+    /// - `interface_config_path`: 接口配置文件路径
+    ///
+    /// # 返回
+    /// 包含接口管理器和队列资源的 SystemContext
+    ///
+    /// # 行为
+    /// 1. 从配置文件加载接口配置
+    /// 2. 为每个接口创建独立的 RxQ 和 TxQ
+    /// 3. 初始化全局接口管理器
+    pub fn new(rxq_capacity: usize, txq_capacity: usize, interface_config_path: &str) -> Self {
+        // 尝试从配置文件加载接口配置并初始化全局接口管理器
+        let global_init_result = crate::interface::init_from_config(
+            interface_config_path,
+            rxq_capacity,
+            txq_capacity,
+        );
+
+        // 为 SystemContext 创建独立的接口管理器
+        let interface_manager = match crate::interface::load_config(
+            interface_config_path,
+            rxq_capacity,
+            txq_capacity,
+        ) {
+            Ok(manager) => manager,
+            Err(e) => {
+                eprintln!("[警告] 加载接口配置失败: {}, 使用空接口管理器", e);
+                InterfaceManager::new(rxq_capacity, txq_capacity)
+            }
+        };
+
+        // 如果全局初始化失败，打印警告
+        if let Err(e) = global_init_result {
+            eprintln!("[警告] 初始化全局接口管理器失败: {}", e);
+        }
+
         SystemContext {
-            rxq: RingQueue::new(rxq_capacity),
-            txq: RingQueue::new(txq_capacity),
+            interfaces: interface_manager,
         }
     }
 
     // ========== 辅助接口 ==========
 
-    /// 接收队列当前长度
-    pub fn rxq_len(&self) -> usize {
-        self.rxq.len()
+    /// 获取接口数量
+    pub fn interface_count(&self) -> usize {
+        self.interfaces.len()
     }
 
-    /// 发送队列当前长度
-    pub fn txq_len(&self) -> usize {
-        self.txq.len()
+    /// 通过名称获取接口
+    pub fn get_interface(&self, name: &str) -> Option<&crate::interface::NetworkInterface> {
+        self.interfaces.get_by_name(name).ok()
     }
 
-    /// 接收队列是否为空
-    pub fn rxq_is_empty(&self) -> bool {
-        self.rxq.is_empty()
+    /// 通过名称获取可变接口
+    pub fn get_interface_mut(&mut self, name: &str) -> Option<&mut crate::interface::NetworkInterface> {
+        self.interfaces.get_by_name_mut(name).ok()
     }
 
-    /// 发送队列是否为空
-    pub fn txq_is_empty(&self) -> bool {
-        self.txq.is_empty()
+    /// 通过索引获取接口
+    pub fn get_interface_by_index(&self, index: u32) -> Option<&crate::interface::NetworkInterface> {
+        self.interfaces.get_by_index(index).ok()
     }
 
-    /// 接收队列是否已满
-    pub fn rxq_is_full(&self) -> bool {
-        self.rxq.is_full()
-    }
-
-    /// 发送队列是否已满
-    pub fn txq_is_full(&self) -> bool {
-        self.txq.is_full()
+    /// 通过索引获取可变接口
+    pub fn get_interface_by_index_mut(&mut self, index: u32) -> Option<&mut crate::interface::NetworkInterface> {
+        self.interfaces.get_by_index_mut(index).ok()
     }
 }

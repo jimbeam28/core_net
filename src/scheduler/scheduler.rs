@@ -6,6 +6,7 @@
 use crate::common::queue::RingQueue;
 use crate::common::Packet;
 use crate::engine::PacketProcessor;
+use crate::interface::InterfaceManager;
 
 // ========== 错误类型定义 ==========
 
@@ -164,6 +165,79 @@ impl Scheduler {
         }
 
         Ok(count)
+    }
+
+    /// 运行调度循环，遍历所有接口的接收队列
+    ///
+    /// 从所有接口的接收队列中取出报文进行处理，直到所有队列为空。
+    ///
+    /// # 参数
+    /// - `interfaces`: 接口管理器的可变引用
+    ///
+    /// # 行为
+    /// 1. 遍历所有接口
+    /// 2. 对每个接口的接收队列循环出队
+    /// 3. 若队列为空，继续处理下一个接口
+    /// 4. 若成功取出报文，调用 processor.process() 处理
+    /// 5. 处理结果仅记录，不中断调度
+    ///
+    /// # 返回
+    /// - `Ok(count)`: 成功处理的报文总数
+    /// - `Err(ScheduleError)`: 调度过程中发生严重错误
+    pub fn run_all_interfaces(&self, interfaces: &mut InterfaceManager) -> ScheduleResult<usize> {
+        let mut total_count = 0;
+
+        if self.verbose {
+            println!("=== 调度器 [{}] 开始运行（多接口模式）===", self.name);
+            println!("接口数量: {}", interfaces.len());
+        }
+
+        // 遍历所有接口
+        for index in 0..interfaces.len() {
+            if let Ok(iface) = interfaces.get_by_index_mut(index as u32) {
+                if self.verbose {
+                    println!("--- 处理接口 [{}] ({}) ---", iface.index, iface.name);
+                }
+
+                let mut iface_count = 0;
+                loop {
+                    match iface.rxq.dequeue() {
+                        Some(packet) => {
+                            // 根据是否有自定义处理器选择处理方式
+                            let result = match &self.processor {
+                                Some(processor) => processor.process(packet),
+                                None => PacketProcessor::new().process(packet),
+                            };
+
+                            // 处理失败，记录但继续处理后续报文
+                            if let Err(e) = result {
+                                if self.verbose {
+                                    println!("  报文处理失败: {}", e);
+                                }
+                            } else {
+                                iface_count += 1;
+                            }
+                        }
+                        None => {
+                            // 队列为空，处理下一个接口
+                            break;
+                        }
+                    }
+                }
+
+                if self.verbose {
+                    println!("--- 接口 [{}] 处理完成，处理了 {} 个报文 ---", iface.name, iface_count);
+                }
+
+                total_count += iface_count;
+            }
+        }
+
+        if self.verbose {
+            println!("=== 调度器 [{}] 完成，共处理了 {} 个报文 ===", self.name, total_count);
+        }
+
+        Ok(total_count)
     }
 }
 

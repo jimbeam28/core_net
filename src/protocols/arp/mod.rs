@@ -152,7 +152,7 @@ impl ArpPacket {
                 None => return Err(CoreError::parse_error("读取发送方协议地址失败")),
             };
         }
-        let sender_protocol_addr = Ipv4Addr::new(sender_protocol_bytes);
+        let sender_protocol_addr = Ipv4Addr::from_bytes(sender_protocol_bytes);
 
         // 读取目标硬件地址
         let mut target_hardware_bytes = [0u8; 6];
@@ -172,7 +172,7 @@ impl ArpPacket {
                 None => return Err(CoreError::parse_error("读取目标协议地址失败")),
             };
         }
-        let target_protocol_addr = Ipv4Addr::new(target_protocol_bytes);
+        let target_protocol_addr = Ipv4Addr::from_bytes(target_protocol_bytes);
 
         Ok(ArpPacket {
             hardware_type,
