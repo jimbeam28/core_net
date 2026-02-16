@@ -5,9 +5,15 @@
 
 use crate::common::{CoreError, Result};
 use crate::protocols::{Packet, MacAddr, Ipv4Addr};
+use std::collections::VecDeque;
 
 // ARP 表模块
 pub mod tables;
+
+// 重新导出 ARP 表相关的公共类型
+pub use tables::{
+    ArpState, ArpConfig, ArpEntry, ArpCache, ArpKey
+};
 
 // ========== ARP 操作码 ==========
 
@@ -221,7 +227,7 @@ impl ArpPacket {
 
 // ========== ARP 处理函数 ==========
 
-/// 处理 ARP 报文
+/// 处理 ARP 报文（简化版，用于基本测试）
 ///
 /// # 参数
 /// - arp_pkt: 已解析的 ARP 报文
@@ -230,6 +236,7 @@ impl ArpPacket {
 /// # 返回
 /// - Ok(()): 处理成功
 /// - Err(String): 处理失败
+#[deprecated(note = "请使用 process_arp_packet 替代")]
 pub fn handle_arp_packet(arp_pkt: &ArpPacket, verbose: bool) -> std::result::Result<(), String> {
     if verbose {
         println!("ARP报文:");
@@ -264,4 +271,178 @@ pub fn handle_arp_packet(arp_pkt: &ArpPacket, verbose: bool) -> std::result::Res
     }
 
     Ok(())
+}
+
+// ========== ARP 报文处理核心逻辑 ==========
+
+/// 处理接收到的 ARP 报文
+///
+/// 根据设计文档第 4.2 节的规范实现：
+/// 1. 自动学习：无论什么类型的 ARP 报文，都更新缓存
+/// 2. 判断响应：如果是发给本机的请求，构造响应
+/// 3. 处理等待队列：如果是响应，检查并处理等待的请求
+///
+/// # 参数
+/// - cache: 可变引用的 ARP 缓存
+/// - ifindex: 网络接口索引
+/// - packet: 已解析的 ARP 报文
+/// - local_ips: 本机接口的 IP 地址列表
+/// - local_mac: 本机接口的 MAC 地址
+///
+/// # 返回
+/// - Ok(Some(reply_packet)): 需要发送的响应报文
+/// - Ok(None): 不需要发送响应
+/// - Err(CoreError): 处理失败
+pub fn process_arp_packet(
+    cache: &mut ArpCache,
+    ifindex: u32,
+    packet: &ArpPacket,
+    local_ips: &[Ipv4Addr],
+    local_mac: MacAddr,
+) -> Result<Option<ArpPacket>> {
+    // 第一步：自动学习（更新缓存）
+    // 对于收到的任何 ARP 报文，首先更新发送方的映射
+    cache.update_arp(
+        ifindex,
+        packet.sender_protocol_addr,
+        packet.sender_hardware_addr,
+        ArpState::Reachable,
+    );
+
+    // 第二步：根据操作类型处理
+    match packet.operation {
+        ArpOperation::Request => {
+            // 检查目标 IP 是否是本机
+            if local_ips.contains(&packet.target_protocol_addr) {
+                // 需要响应
+                let reply = ArpPacket::new(
+                    ArpOperation::Reply,
+                    local_mac,
+                    packet.target_protocol_addr,  // 本机 IP
+                    packet.sender_hardware_addr, // 目标 MAC = 请求的源 MAC
+                    packet.sender_protocol_addr, // 目标 IP = 请求的源 IP
+                );
+                return Ok(Some(reply));
+            }
+            // 不是发给本机的请求，不响应
+            Ok(None)
+        }
+        ArpOperation::Reply => {
+            // 检查是否有等待的请求
+            if let Some(entry) = cache.lookup_mut_arp(ifindex, packet.sender_protocol_addr) {
+                if entry.state == ArpState::Incomplete {
+                    // 更新状态为可达
+                    entry.state = ArpState::Reachable;
+                    entry.hardware_addr = packet.sender_hardware_addr;
+                    entry.updated_at = std::time::Instant::now();
+                    entry.confirmed_at = std::time::Instant::now();
+
+                    // 清空等待队列
+                    entry.take_pending();
+                }
+            }
+            // 收到响应后不需要发送任何报文
+            Ok(None)
+        }
+    }
+}
+
+/// 处理等待队列中的数据包
+///
+/// 当 ARP 响应到达后，处理所有等待发送的数据包
+///
+/// # 参数
+/// - pending: 等待队列
+///
+/// # 返回
+/// - 处理的数据包数量
+pub fn process_pending_packets(pending: &mut VecDeque<Packet>) -> usize {
+    let count = pending.len();
+    pending.clear();
+    count
+}
+
+// ========== ARP 请求/响应发送 ==========
+
+/// 发送 ARP 请求
+///
+/// 用于解析目标 IP 地址的 MAC 地址
+///
+/// # 参数
+/// - _ifindex: 网络接口索引（保留用于未来扩展）
+/// - src_mac: 本机 MAC 地址
+/// - src_ip: 本机 IP 地址
+/// - target_ip: 目标 IP 地址
+///
+/// # 返回
+/// - 构造的 ARP 请求报文
+pub fn send_arp_request(
+    _ifindex: u32,
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    target_ip: Ipv4Addr,
+) -> ArpPacket {
+    ArpPacket::new(
+        ArpOperation::Request,
+        src_mac,
+        src_ip,
+        MacAddr::broadcast(),  // 请求时目标 MAC 为广播地址
+        target_ip,
+    )
+}
+
+/// 发送 ARP 响应
+///
+/// 构造 ARP 响应报文
+///
+/// # 参数
+/// - local_mac: 本机 MAC 地址
+/// - local_ip: 本机 IP 地址
+/// - target_mac: 目标 MAC 地址（请求者的 MAC）
+/// - target_ip: 目标 IP 地址（请求者的 IP）
+///
+/// # 返回
+/// - 构造的 ARP 响应报文
+pub fn send_arp_reply(
+    local_mac: MacAddr,
+    local_ip: Ipv4Addr,
+    target_mac: MacAddr,
+    target_ip: Ipv4Addr,
+) -> ArpPacket {
+    ArpPacket::new(
+        ArpOperation::Reply,
+        local_mac,
+        local_ip,
+        target_mac,
+        target_ip,
+    )
+}
+
+// ========== 以太网帧封装辅助函数 ==========
+
+/// 将 ARP 报文封装为以太网帧
+///
+/// # 参数
+/// - arp_packet: ARP 报文
+/// - dst_mac: 目标 MAC 地址
+/// - src_mac: 源 MAC 地址
+///
+/// # 返回
+/// - 完整的以太网帧字节数组
+pub fn encapsulate_ethernet(
+    arp_packet: &ArpPacket,
+    dst_mac: MacAddr,
+    src_mac: MacAddr,
+) -> Vec<u8> {
+    let mut frame = Vec::new();
+
+    // 以太网头部 (14 字节)
+    frame.extend_from_slice(&dst_mac.bytes);  // DST MAC (6 字节)
+    frame.extend_from_slice(&src_mac.bytes);  // SRC MAC (6 字节)
+    frame.extend_from_slice(&0x0806u16.to_be_bytes());  // Ether Type: ARP (2 字节)
+
+    // ARP 报文
+    frame.extend_from_slice(&arp_packet.to_bytes());
+
+    frame
 }

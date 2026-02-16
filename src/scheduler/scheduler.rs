@@ -115,20 +115,23 @@ impl Scheduler {
     /// 运行调度循环
     ///
     /// 从接收队列中持续取出报文进行处理，直到队列为空。
+    /// 如果协议处理返回响应报文（如 ARP Reply），将其放入发送队列。
     ///
     /// # 参数
     /// - `rxq`: 接收队列的可变引用
+    /// - `txq`: 发送队列的可变引用（用于接收响应报文）
     ///
     /// # 行为
     /// 1. 循环从 rxq 中尝试出队
     /// 2. 若队列为空（QueueError::Empty），退出循环
     /// 3. 若成功取出报文，调用 processor.process() 处理
-    /// 4. 处理结果仅记录，不中断调度
+    /// 4. 若返回响应报文，将其放入 txq
+    /// 5. 处理失败仅记录，不中断调度
     ///
     /// # 返回
     /// - `Ok(count)`: 成功处理的报文数量
     /// - `Err(ScheduleError)`: 调度过程中发生严重错误
-    pub fn run(&self, rxq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
+    pub fn run(&self, rxq: &mut RingQueue<Packet>, txq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
         let mut count = 0;
 
         if self.verbose {
@@ -144,13 +147,27 @@ impl Scheduler {
                         None => PacketProcessor::new().process(packet),
                     };
 
-                    // 处理失败，记录但继续处理后续报文
-                    if let Err(e) = result {
-                        if self.verbose {
-                            println!("报文处理失败: {}", e);
+                    // 处理结果
+                    match result {
+                        Ok(response) => {
+                            count += 1;
+                            // 如果返回响应报文，放入 TxQ
+                            if let Some(response_packet) = response {
+                                if let Err(_) = txq.enqueue(response_packet) {
+                                    if self.verbose {
+                                        println!("警告: TxQ 已满，响应报文丢失");
+                                    }
+                                } else if self.verbose {
+                                    println!("响应报文已放入 TxQ");
+                                }
+                            }
                         }
-                    } else {
-                        count += 1;
+                        Err(e) => {
+                            // 处理失败，记录但继续处理后续报文
+                            if self.verbose {
+                                println!("报文处理失败: {}", e);
+                            }
+                        }
                     }
                 }
                 None => {
@@ -170,6 +187,7 @@ impl Scheduler {
     /// 运行调度循环，遍历所有接口的接收队列
     ///
     /// 从所有接口的接收队列中取出报文进行处理，直到所有队列为空。
+    /// 如果协议处理返回响应报文，将其放入对应接口的发送队列。
     ///
     /// # 参数
     /// - `interfaces`: 接口管理器的可变引用
@@ -179,7 +197,8 @@ impl Scheduler {
     /// 2. 对每个接口的接收队列循环出队
     /// 3. 若队列为空，继续处理下一个接口
     /// 4. 若成功取出报文，调用 processor.process() 处理
-    /// 5. 处理结果仅记录，不中断调度
+    /// 5. 若返回响应报文，将其放入该接口的 txq
+    /// 6. 处理失败仅记录，不中断调度
     ///
     /// # 返回
     /// - `Ok(count)`: 成功处理的报文总数
@@ -209,13 +228,27 @@ impl Scheduler {
                                 None => PacketProcessor::new().process(packet),
                             };
 
-                            // 处理失败，记录但继续处理后续报文
-                            if let Err(e) = result {
-                                if self.verbose {
-                                    println!("  报文处理失败: {}", e);
+                            // 处理结果
+                            match result {
+                                Ok(response) => {
+                                    iface_count += 1;
+                                    // 如果返回响应报文，放入该接口的 TxQ
+                                    if let Some(response_packet) = response {
+                                        if let Err(_) = iface.txq.enqueue(response_packet) {
+                                            if self.verbose {
+                                                println!("  警告: 接口 [{}] TxQ 已满，响应报文丢失", iface.name);
+                                            }
+                                        } else if self.verbose {
+                                            println!("  响应报文已放入接口 [{}] TxQ", iface.name);
+                                        }
+                                    }
                                 }
-                            } else {
-                                iface_count += 1;
+                                Err(e) => {
+                                    // 处理失败，记录但继续处理后续报文
+                                    if self.verbose {
+                                        println!("  报文处理失败: {}", e);
+                                    }
+                                }
                             }
                         }
                         None => {
@@ -247,24 +280,26 @@ impl Scheduler {
 ///
 /// # 参数
 /// - `rxq`: 接收队列的可变引用
+/// - `txq`: 发送队列的可变引用（用于接收响应报文）
 ///
 /// # 返回
 /// - `Ok(count)`: 成功处理的报文数量
 /// - `Err(ScheduleError)`: 调度失败
-pub fn schedule_packets(rxq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
-    Scheduler::new("DefaultScheduler".to_string()).run(rxq)
+pub fn schedule_packets(rxq: &mut RingQueue<Packet>, txq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
+    Scheduler::new("DefaultScheduler".to_string()).run(rxq, txq)
 }
 
 /// 使用详细输出模式调度
 ///
 /// # 参数
 /// - `rxq`: 接收队列的可变引用
+/// - `txq`: 发送队列的可变引用（用于接收响应报文）
 ///
 /// # 返回
 /// - `Ok(count)`: 成功处理的报文数量
 /// - `Err(ScheduleError)`: 调度失败
-pub fn schedule_packets_verbose(rxq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
+pub fn schedule_packets_verbose(rxq: &mut RingQueue<Packet>, txq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
     Scheduler::new("VerboseScheduler".to_string())
         .with_verbose(true)
-        .run(rxq)
+        .run(rxq, txq)
 }

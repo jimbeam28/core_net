@@ -5,7 +5,7 @@
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
 
-pub type ProcessResult = Result<(), ProcessError>;
+pub type ProcessResult = Result<Option<Packet>, ProcessError>;
 
 #[derive(Debug)]
 pub enum ProcessError {
@@ -98,7 +98,7 @@ impl PacketProcessor {
     fn dispatch_by_ether_type(
         &self,
         eth_hdr: EthernetHeader,
-        mut packet: Packet,
+        packet: Packet,
     ) -> ProcessResult {
         use crate::common::{ETH_P_IP, ETH_P_ARP, ETH_P_IPV6, ETH_P_8021Q, ETH_P_8021AD};
 
@@ -125,7 +125,7 @@ impl PacketProcessor {
                 ));
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     fn handle_vlan(&self, _eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
@@ -174,7 +174,7 @@ impl PacketProcessor {
             }
             self.dispatch_inner_vlan(_eth_hdr, Some(vlan_tag), None, inner_type, packet)?;
         }
-        Ok(())
+        Ok(None)
     }
 
     fn dispatch_inner_vlan(
@@ -203,7 +203,7 @@ impl PacketProcessor {
                 ));
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     fn handle_arp(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
@@ -216,13 +216,13 @@ impl PacketProcessor {
         let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
         crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
 
-        Ok(())
+        Ok(None)
     }
 
     fn handle_arp_ip(&self, mut packet: Packet) -> ProcessResult {
         let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
         crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
-        Ok(())
+        Ok(None)
     }
 
     fn print_packet_info(&self, packet: &Packet) {
