@@ -6,7 +6,6 @@
 // 模块声明
 pub mod error;
 pub mod queue;
-pub mod poweron;
 pub mod tables;
 pub mod packet;
 pub mod addr;
@@ -29,16 +28,6 @@ pub use queue::{
     DEFAULT_QUEUE_CAPACITY,
     MIN_QUEUE_CAPACITY,
     MAX_QUEUE_CAPACITY,
-};
-
-// 导出上电启动模块类型
-pub use poweron::{
-    SystemConfig,
-    SystemContext,
-    boot,
-    boot_default,
-    boot_with_capacity,
-    shutdown,
 };
 
 // 导出表相关类型

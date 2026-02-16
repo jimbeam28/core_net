@@ -133,18 +133,15 @@ pub fn interface_down(name: &str) -> Result<(), InterfaceError> {
     update_interface(name, |iface| iface.down())
 }
 
-/// 使用默认配置路径初始化全局接口管理器
+/// 使用默认配置文件初始化全局接口管理器
 ///
-/// # 参数
-/// - `config_path`: 配置文件路径
-/// - `rxq_capacity`: 每个接口的接收队列容量
-/// - `txq_capacity`: 每个接口的发送队列容量
+/// 使用默认配置文件路径 (src/interface/interface.toml) 初始化全局接口管理器
 ///
 /// # 返回
 /// - `Ok(())`: 初始化成功
 /// - `Err(InterfaceError)`: 初始化失败
-pub fn init_from_config(config_path: &str, rxq_capacity: usize, txq_capacity: usize) -> Result<(), InterfaceError> {
-    let manager = crate::interface::load_config(config_path, rxq_capacity, txq_capacity)?;
+pub fn init_default() -> Result<(), InterfaceError> {
+    let manager = crate::interface::load_default_config()?;
     init_global_manager(manager)
 }
 
@@ -153,6 +150,6 @@ pub fn init_from_config(config_path: &str, rxq_capacity: usize, txq_capacity: us
 macro_rules! get_interfaces {
     () => {
         $crate::interface::global::global_manager()
-            .expect("全局接口管理器未初始化，请先调用 init_global_manager() 或 init_from_config()")
+            .expect("全局接口管理器未初始化，请先调用 init_global_manager() 或 init_default()")
     };
 }

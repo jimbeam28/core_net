@@ -2,7 +2,12 @@
 
 ## 概述
 
-上电启动模块（PowerOn）负责 CoreNet 系统资源的初始化和释放。在系统启动时创建接口管理器并为每个接口创建收发队列，在系统关闭时释放资源。
+上电启动模块（PowerOn）负责 CoreNet 系统资源的初始化和释放。在系统启动时调用 interface 模块的默认初始化接口，在系统关闭时释放资源。
+
+**设计原则：**
+- `poweron` 模块只负责系统启动和下电
+- 接口配置文件路径由 `interface` 模块自己管理
+- 队列容量配置由 `interface` 模块管理
 
 ---
 
@@ -42,20 +47,19 @@
 - 不同接口的报文流相互隔离，提高并发处理能力
 - 符合真实网络设备的驱动模型
 
-**全局接口管理器**：
-- 通过 `OnceLock` 提供全局访问接口
-- 所有协议模块可以直接查询接口信息和队列
-- 线程安全的单例模式
+**职责分离**：
+- `interface` 模块管理配置文件路径和队列容量配置
+- `poweron` 模块只负责调用 interface 的初始化接口
 
 ### 上电/下电流程
 
 ```
-上电：boot(config) -> SystemContext
+上电：boot_default() -> SystemContext
      ↓
-  1. 读取接口配置文件（interface.toml）
-  2. 解析接口配置，创建 InterfaceManager
-  3. 为每个接口创建独立的 RxQ 和 TxQ
-  4. 初始化全局接口管理器（OnceLock）
+  1. 调用 interface::init_default() 初始化全局接口管理器
+  2. 调用 interface::load_default_config() 加载配置
+  3. 从默认配置文件读取队列容量配置
+  4. 为每个接口创建独立的 RxQ 和 TxQ
   5. 返回 SystemContext
 
 下电：shutdown(context)
@@ -63,7 +67,6 @@
   1. 清空所有接口的 RxQ
   2. 清空所有接口的 TxQ
   3. 释放队列资源
-  4. 释放接口管理器资源
 ```
 
 ### 报文流向
@@ -80,38 +83,9 @@
    └─────> 接口选择（根据路由） ────────┘
 ```
 
-### 接口与队列绑定
-
-**绑定关系**：
-- 接口索引（Interface Index）与队列一一对应
-- `Interface[0]` 拥有 `RxQ[0]` 和 `TxQ[0]`
-- 接口通过索引直接访问自己的队列
-
-**队列分配策略**：
-- 所有接口使用相同的队列容量配置
-- 队列容量在 SystemConfig 中统一指定
-- 添加新接口时自动分配新队列
-
 ---
 
 ## 二、核心数据结构
-
-### SystemConfig
-
-系统配置结构，定义队列创建参数和接口配置路径。
-
-```rust
-pub struct SystemConfig {
-    /// 接口配置文件路径
-    pub interface_config_path: String,
-
-    /// 每个接口的接收队列容量
-    pub rxq_capacity: usize,
-
-    /// 每个接口的发送队列容量
-    pub txq_capacity: usize,
-}
-```
 
 ### SystemContext
 
@@ -130,24 +104,21 @@ pub struct SystemContext {
 
 ## 三、接口定义
 
-### 3.1 上电初始化
+### 3.1 系统启动
 
 ```rust
-pub fn boot(config: SystemConfig) -> SystemContext
+pub fn boot_default() -> SystemContext
 ```
 
-**功能：** 使用指定配置初始化系统资源和接口
-
-**参数：**
-- `config`: 系统配置（接口配置路径、队列容量）
+**功能：** 使用默认配置初始化系统资源和接口
 
 **返回：** 包含接口管理器和队列资源的 SystemContext
 
 **流程：**
-1. 读取接口配置文件
-2. 解析 TOML 格式的接口配置
-3. 为每个接口创建独立的 RxQ 和 TxQ
-4. 初始化全局接口管理器（存储到 OnceLock）
+1. 调用 `interface::init_default()` 初始化全局接口管理器
+2. 调用 `interface::load_default_config()` 加载配置
+3. 从默认配置文件 `src/interface/interface.toml` 读取队列容量配置
+4. 为每个接口创建独立的 RxQ 和 TxQ
 5. 返回 SystemContext
 
 ### 3.2 下电释放
@@ -162,39 +133,10 @@ pub fn shutdown(context: &mut SystemContext)
 1. 清空所有接口的接收队列
 2. 清空所有接口的发送队列
 3. 释放队列内存
-4. （可选）保存接口配置到文件
-
-### 3.3 快捷方法
-
-```rust
-pub fn boot_default() -> SystemContext
-
-pub fn boot_with_config(config_path: &str) -> SystemContext
-
-pub fn boot_with_capacity(config_path: &str, rxq_cap: usize, txq_cap: usize) -> SystemContext
-```
-
-**功能：** 使用默认配置或指定参数快速启动
 
 ---
 
-## 四、默认配置
-
-```rust
-impl Default for SystemConfig {
-    fn default() -> Self {
-        Self {
-            interface_config_path: "src/config/interface.toml".to_string(),
-            rxq_capacity: 256,
-            txq_capacity: 256,
-        }
-    }
-}
-```
-
----
-
-## 五、辅助接口
+## 四、辅助接口
 
 ### SystemContext 方法
 
@@ -206,23 +148,6 @@ impl Default for SystemConfig {
 | `get_interface_by_index(&self, index: u32) -> Option<&NetworkInterface>` | 通过索引获取接口 |
 | `get_interface_by_index_mut(&mut self, index: u32) -> Option<&mut NetworkInterface>` | 通过索引获取可变接口 |
 
-### 接口队列访问接口
-
-每个接口提供队列访问方法：
-
-| 方法 | 说明 |
-|------|------|
-| `rxq(&self) -> &RingQueue<Packet>` | 获取接收队列引用 |
-| `rxq_mut(&mut self) -> &mut RingQueue<Packet>` | 获取接收队列可变引用 |
-| `txq(&self) -> &RingQueue<Packet>` | 获取发送队列引用 |
-| `txq_mut(&mut self) -> &mut RingQueue<Packet>` | 获取发送队列可变引用 |
-| `rxq_len(&self) -> usize` | 接收队列当前长度 |
-| `txq_len(&self) -> usize` | 发送队列当前长度 |
-| `rxq_enqueue(&mut self, packet: Packet) -> Result<(), QueueError>` | 向接收队列加入报文 |
-| `rxq_dequeue(&mut self) -> Option<Packet>` | 从接收队列取出报文 |
-| `txq_enqueue(&mut self, packet: Packet) -> Result<(), QueueError>` | 向发送队列加入报文 |
-| `txq_dequeue(&mut self) -> Option<Packet>` | 从发送队列取出报文 |
-
 ### 全局接口访问
 
 任何模块都可以访问全局接口管理器：
@@ -233,8 +158,8 @@ let manager = interface::global_manager()?;
 
 // 查询接口
 let eth0 = manager.get_by_name("eth0")?;
-let rxq = eth0.rxq();
-let txq = eth0.txq();
+let rxq = &eth0.rxq;
+let txq = &eth0.txq;
 
 // 操作队列
 rxq.enqueue(packet)?;
@@ -243,20 +168,20 @@ let packet = txq.dequeue()?;
 
 ---
 
-## 六、模块结构
+## 五、模块结构
 
 ```
-src/common/poweron/
-├── mod.rs       # 模块入口，公共接口导出
-├── config.rs    # SystemConfig 定义
+src/poweron/
+├── mod.rs       # 模块入口，导出 boot_default() 和 shutdown()
 └── context.rs   # SystemContext 实现
 
 src/interface/
-├── mod.rs           # 模块入口，公共类型导出
+├── mod.rs           # 模块入口，导出公共类型
 ├── types.rs         # MacAddr, Ipv4Addr, InterfaceState 等类型定义
 ├── iface.rs         # NetworkInterface 实现（包含队列）
 ├── manager.rs       # InterfaceManager 实现
 ├── config.rs        # 接口配置文件加载
+├── interface.toml   # 接口配置文件（包含队列配置）
 └── global.rs        # 全局接口管理器（OnceLock）
 ```
 
@@ -264,14 +189,10 @@ src/interface/
 
 **poweron 模块导出：**
 ```rust
-pub use config::SystemConfig;
 pub use context::SystemContext;
 
-pub fn boot(config: SystemConfig) -> SystemContext;
-pub fn shutdown(context: &mut SystemContext);
 pub fn boot_default() -> SystemContext;
-pub fn boot_with_config(config_path: &str) -> SystemContext;
-pub fn boot_with_capacity(config_path: &str, rxq_cap: usize, txq_cap: usize) -> SystemContext;
+pub fn shutdown(context: &mut SystemContext);
 ```
 
 **interface 模块导出：**
@@ -279,41 +200,58 @@ pub fn boot_with_capacity(config_path: &str, rxq_cap: usize, txq_cap: usize) -> 
 pub use types::{MacAddr, Ipv4Addr, InterfaceState, InterfaceType, InterfaceError};
 pub use iface::{NetworkInterface, InterfaceConfig};
 pub use manager::InterfaceManager;
-pub use config::{load_config, save_config};
-pub use global::{init_global_manager, init_from_config, global_manager};
+pub use config::{load_default_config, save_config, DEFAULT_CONFIG_PATH};
+pub use global::{
+    init_global_manager,
+    init_default,
+    global_manager,
+    update_interface,
+    set_interface_ip,
+    set_interface_mac,
+    set_interface_netmask,
+    set_interface_gateway,
+    set_interface_mtu,
+    interface_up,
+    interface_down,
+};
 ```
 
 ---
 
-## 七、设计变更说明
+## 六、设计变更说明
 
 ### 变更原因
 
-1. **支持多接口**：真实网络设备有多个网络接口，每个接口需要独立的队列
-2. **隔离报文流**：不同接口的报文流相互隔离，提高安全性和可维护性
-3. **符合实际模型**：真实网络接口卡的驱动程序为每个接口维护独立的收发队列
+1. **职责分离**：配置文件路径和队列容量应该由 interface 模块管理，而不是 poweron 模块
+2. **简化接口**：poweron 模块只提供唯一的启动方式 `boot_default()`，简化 API
+3. **消除冗余**：删除不需要的 `SystemConfig` 和 `boot()` 函数
 
-### 兼容性说明
+### 当前设计
 
-- 旧版本的 SystemContext 中的全局 `rxq` 和 `txq` 已移除
-- 队列现在由接口管理器内部的每个接口持有
-- 需要通过接口名称或索引来访问特定接口的队列
-- 全局接口管理器提供线程安全的访问接口
+- **配置文件路径**：由 `interface` 模块的 `DEFAULT_CONFIG_PATH` 常量定义
+- **队列容量配置**：在 `src/interface/interface.toml` 的 `[queue]` 部分配置
+- **系统启动**：只需调用 `boot_default()`，无需传递任何参数
 
-### 迁移指南
+### 使用示例
 
-**旧代码：**
 ```rust
-let context = boot_default();
-context.rxq.enqueue(packet)?;
-let output = context.txq.dequeue()?;
+// 系统启动
+let context = core_net::boot_default();
+
+// 使用接口
+let eth0 = context.get_interface_by_index(0).unwrap();
+println!("接口: {}, 队列容量: {}", eth0.name, eth0.rxq.capacity());
+
+// 系统下电
+core_net::shutdown(&mut context);
 ```
 
-**新代码：**
-```rust
-let context = boot_default();
-let manager = interface::global_manager()?;
-let eth0 = manager.get_by_name("eth0")?;
-eth0.rxq_mut().enqueue(packet)?;
-let output = eth0.txq_mut().dequeue()?;
-```
+---
+
+## 七、设计原则
+
+1. **职责单一**：poweron 模块只负责系统启动和下电
+2. **配置自治**：interface 模块管理自己的配置文件和队列配置
+3. **接口简洁**：只提供 `boot_default()` 和 `shutdown()` 两个公共函数
+4. **零依赖**：仅使用 Rust 标准库
+5. **可读性优先**：代码结构清晰，便于学习

@@ -2,9 +2,14 @@
 
 ## 概述
 
-网络接口模块（Interface）负责管理网络接口的配置和状态。每个接口拥有独立的属性（MAC地址、IP地址、MTU等）和状态（启用/禁用）。模块支持从配置文件加载接口配置，提供运行时动态修改接口配置的接口，并提供全局访问能力。
+网络接口模块（Interface）负责管理网络接口的配置和状态。每个接口拥有独立的属性（MAC地址、IP地址、MTU等）和状态（启用/禁用）。模块支持从默认配置文件加载接口配置，提供运行时动态修改接口配置的接口，并提供全局访问能力。
 
 **当前阶段目标：** 实现全局接口管理，支持上电时从配置文件加载，所有模块可直接访问接口信息。
+
+**设计原则：**
+- 配置文件路径由 interface 模块自己管理
+- 队列容量配置在 interface.toml 中
+- 只提供默认配置文件加载，不提供指定路径的加载接口
 
 ---
 
@@ -15,7 +20,7 @@
 - **需求1**：接口需要维护自己的状态（启用/禁用/错误等）
 - **需求2**：接口需要存储网络地址信息（MAC地址、IPv4地址）
 - **需求3**：接口需要存储网络参数（MTU、接口名称、索引）
-- **需求4**：系统上电时从配置文件加载接口配置
+- **需求4**：系统上电时从默认配置文件加载接口配置
 - **需求5**：提供接口查询接口属性（状态、地址等）
 - **需求6**：提供接口修改接口配置（IP、MAC、状态等）
 - **需求7**：支持多接口管理
@@ -42,7 +47,7 @@
 │                        全局访问层                               │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │       全局接口管理器 (OnceLock<Mutex<InterfaceManager>>) │  │
-│  │              init_from_config() -> &InterfaceManager       │  │
+│  │              init_default() -> &InterfaceManager          │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
                               │
@@ -65,9 +70,9 @@
 ### 2.2 数据流向
 
 ```
-配置文件 (src/config/interface.toml)
+配置文件 (src/interface/interface.toml)
     │
-    │ 上电时：init_from_config()
+    │ 上电时：init_default()
     ▼
 全局接口管理器 (OnceLock<Mutex<InterfaceManager>>)
     │
@@ -84,8 +89,9 @@
 ### 2.3 处理模型
 
 1. **上电初始化阶段**：
-   - 系统上电时调用 `init_from_config("src/config/interface.toml")`
-   - 解析配置文件，创建 `InterfaceManager`
+   - 系统上电时调用 `init_default()`
+   - 从默认配置文件 `src/interface/interface.toml` 解析配置
+   - 创建 `InterfaceManager`
    - 将管理器存储到全局 `OnceLock` 中
 
 2. **协议栈运行阶段**：
@@ -100,13 +106,13 @@
 ### 2.4 上电集成流程
 
 ```
-main() or boot()
+main() or boot_default()
     │
-    ├─► init_from_config("src/config/interface.toml")
+    ├─► init_default()
     │       │
-    │       ├─► 读取文件内容
-    │       ├─► 解析 TOML 格式
-    │       ├─► 创建 InterfaceManager
+    │       ├─► 读取 src/interface/interface.toml
+    │       ├─► 解析 TOML 格式（包含队列配置）
+    │       ├─► 创建 InterfaceManager（使用配置的队列容量）
     │       └─► 存储到全局 OnceLock
     │
     └─► 协议栈处理...
@@ -156,7 +162,7 @@ pub enum InterfaceType {
 
 ```rust
 /// 网络接口
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NetworkInterface {
     /// 接口名称（如 eth0）
     pub name: String,
@@ -184,6 +190,12 @@ pub struct NetworkInterface {
 
     /// 接口类型
     pub if_type: InterfaceType,
+
+    /// 接收队列
+    pub rxq: RingQueue<Packet>,
+
+    /// 发送队列
+    pub txq: RingQueue<Packet>,
 }
 ```
 
@@ -216,7 +228,22 @@ pub struct InterfaceConfig {
 }
 ```
 
-### 3.5 接口管理器
+### 3.5 接口模块配置（包含队列配置）
+
+```rust
+/// 接口模块配置（包含队列配置和接口列表）
+#[derive(Debug, Clone)]
+pub struct InterfaceModuleConfig {
+    /// 接收队列容量
+    pub rxq_capacity: usize,
+    /// 发送队列容量
+    pub txq_capacity: usize,
+    /// 接口配置列表
+    pub interfaces: Vec<InterfaceConfig>,
+}
+```
+
+### 3.6 接口管理器
 
 ```rust
 /// 接口管理器
@@ -226,11 +253,17 @@ pub struct InterfaceManager {
     interfaces: Vec<NetworkInterface>,
 
     /// 名称到索引的映射
-    name_to_index: std::collections::HashMap<String, u32>,
+    name_to_index: HashMap<String, u32>,
+
+    /// 接收队列容量（用于创建新接口）
+    rxq_capacity: usize,
+
+    /// 发送队列容量（用于创建新接口）
+    txq_capacity: usize,
 }
 ```
 
-### 3.6 全局接口管理器
+### 3.7 全局接口管理器
 
 ```rust
 /// 全局接口管理器
@@ -243,14 +276,21 @@ static GLOBAL_MANAGER: OnceLock<Mutex<InterfaceManager>> = OnceLock::new();
 
 ## 四、接口定义
 
-### 4.1 NetworkInterface 接口
+### 4.1 配置文件常量
+
+```rust
+/// 接口模块默认配置文件路径
+pub const DEFAULT_CONFIG_PATH: &str = "src/interface/interface.toml";
+```
+
+### 4.2 NetworkInterface 接口
 
 NetworkInterface 提供网络接口的配置和状态管理功能。
 
 | 方法签名 | 功能说明 |
 |---------|---------|
-| `pub fn new(name: String, index: u32, mac_addr: MacAddr, ip_addr: Ipv4Addr) -> Self` | 创建新接口 |
-| `pub fn from_config(config: InterfaceConfig, index: u32) -> Self` | 从配置创建接口 |
+| `pub fn new(name: String, index: u32, mac_addr: MacAddr, ip_addr: Ipv4Addr, rxq_capacity: usize, txq_capacity: usize) -> Self` | 创建新接口 |
+| `pub fn from_config(config: InterfaceConfig, index: u32, rxq_capacity: usize, txq_capacity: usize) -> Self` | 从配置创建接口 |
 | `pub fn name(&self) -> &str` | 获取接口名称 |
 | `pub fn index(&self) -> u32` | 获取接口索引 |
 | `pub fn set_ip_addr(&mut self, addr: Ipv4Addr)` | 设置 IP 地址 |
@@ -264,13 +304,13 @@ NetworkInterface 提供网络接口的配置和状态管理功能。
 | `pub fn network_address(&self) -> Ipv4Addr` | 计算网络地址 |
 | `pub fn broadcast_address(&self) -> Ipv4Addr` | 计算广播地址 |
 
-### 4.2 InterfaceManager 接口
+### 4.3 InterfaceManager 接口
 
 InterfaceManager 提供多接口的管理和查询功能。
 
 | 方法签名 | 功能说明 | 返回值 |
 |---------|---------|--------|
-| `pub fn new() -> Self` | 创建新的接口管理器 | InterfaceManager |
+| `pub fn new(rxq_capacity: usize, txq_capacity: usize) -> Self` | 创建新的接口管理器 | InterfaceManager |
 | `pub fn add_interface(&mut self, interface: NetworkInterface)` | 添加接口 | Result<(), InterfaceError> |
 | `pub fn add_from_config(&mut self, config: InterfaceConfig)` | 从配置添加接口 | Result<(), InterfaceError> |
 | `pub fn get_by_name(&self, name: &str)` | 通过名称获取接口 | Result<&NetworkInterface, InterfaceError> |
@@ -278,18 +318,25 @@ InterfaceManager 提供多接口的管理和查询功能。
 | `pub fn get_by_index(&self, index: u32)` | 通过索引获取接口 | Result<&NetworkInterface, InterfaceError> |
 | `pub fn get_by_index_mut(&mut self, index: u32)` | 通过索引获取可变接口 | Result<&mut NetworkInterface, InterfaceError> |
 | `pub fn interfaces(&self) -> &[NetworkInterface]` | 获取所有接口 | 接口切片 |
+| `pub fn interfaces_mut(&mut self) -> &mut [NetworkInterface]` | 获取所有接口的可变引用 | 可变切片 |
 | `pub fn len(&self) -> usize` | 获取接口数量 | 数量 |
 | `pub fn is_empty(&self) -> bool` | 是否为空 | 布尔值 |
 
-### 4.3 配置文件接口
+### 4.4 配置文件接口
 
 | 函数签名 | 功能说明 | 返回值 |
 |---------|---------|--------|
-| `pub fn load_config(path: &str)` | 从配置文件加载接口 | Result<InterfaceManager, InterfaceError> |
-| `pub fn save_config(manager: &InterfaceManager, path: &str)` | 保存配置到文件 | Result<(), InterfaceError> |
+| `pub fn load_default_config()` | 从默认配置文件加载接口 | Result<InterfaceManager, InterfaceError> |
+| `pub fn save_config(manager: &InterfaceManager, path: &str, rxq_capacity: usize, txq_capacity: usize)` | 保存配置到文件 | Result<(), InterfaceError> |
 
 **配置文件格式 (TOML)：**
 ```toml
+# 队列配置
+[queue]
+rxq_capacity = 256
+txq_capacity = 256
+
+# 网络接口配置
 [[interfaces]]
 name = "eth0"
 mac_addr = "00:11:22:33:44:55"
@@ -297,7 +344,7 @@ ip_addr = "192.168.1.100"
 netmask = "255.255.255.0"
 gateway = "192.168.1.1"
 mtu = 1500
-state = "Down"
+state = "Up"
 
 [[interfaces]]
 name = "lo"
@@ -307,12 +354,12 @@ netmask = "255.0.0.0"
 state = "Up"
 ```
 
-### 4.4 全局接口管理器接口
+### 4.5 全局接口管理器接口
 
 | 函数签名 | 功能说明 | 返回值 |
 |---------|---------|--------|
 | `pub fn init_global_manager(manager: InterfaceManager)` | 初始化全局接口管理器 | Result<(), InterfaceError> |
-| `pub fn init_from_config(config_path: &str)` | 从配置文件初始化全局管理器 | Result<(), InterfaceError> |
+| `pub fn init_default()` | 从默认配置文件初始化全局管理器 | Result<(), InterfaceError> |
 | `pub fn global_manager() -> Option<&'static Mutex<InterfaceManager>>` | 获取全局接口管理器引用 | Option<&Mutex<InterfaceManager>> |
 | `pub fn update_interface<F>(name: &str, f: F)` | 修改指定接口配置（通用） | Result<(), InterfaceError> |
 | `pub fn set_interface_ip(name: &str, addr: Ipv4Addr)` | 设置接口 IP 地址 | Result<(), InterfaceError> |
@@ -343,11 +390,12 @@ interface_up("eth0")?;
 ```
 src/interface/
 ├── mod.rs           # 模块入口，导出公共类型
-├── types.rs        # InterfaceState, InterfaceType, InterfaceError 定义
-├── iface.rs        # NetworkInterface 结构定义
-├── manager.rs     # InterfaceManager 实现
-├── config.rs      # InterfaceConfig 和配置文件加载
-└── global.rs      # 全局接口管理器
+├── types.rs         # InterfaceState, InterfaceType, InterfaceError 定义
+├── iface.rs         # NetworkInterface 结构定义（包含队列）
+├── manager.rs       # InterfaceManager 实现
+├── config.rs        # 接口配置文件加载（包含队列配置解析）
+├── global.rs        # 全局接口管理器
+└── interface.toml   # 接口配置文件（包含队列配置）
 ```
 
 ### 模块导出
@@ -362,10 +410,10 @@ mod global;
 pub use types::{MacAddr, Ipv4Addr, InterfaceState, InterfaceType, InterfaceError};
 pub use iface::{NetworkInterface, InterfaceConfig};
 pub use manager::InterfaceManager;
-pub use config::{load_config, save_config};
+pub use config::{load_default_config, save_config, InterfaceModuleConfig, DEFAULT_CONFIG_PATH};
 pub use global::{
     init_global_manager,
-    init_from_config,
+    init_default,
     global_manager,
     update_interface,
     set_interface_ip,
@@ -410,54 +458,15 @@ pub use global::{
 
 ---
 
-## 七、测试策略
+## 七、设计原则
 
-### 7.1 单元测试
-
-1. **MacAddr 测试**
-   - 创建/解析 MAC 地址
-   - 广播地址判断
-   - 多播地址判断
-   - 格式化输出
-
-2. **Ipv4Addr 测试**
-   - 创建/解析 IP 地址
-   - 特殊地址（回环、广播、未指定）
-   - 格式化输出
-
-3. **NetworkInterface 测试**
-   - 创建接口
-   - 设置/获取属性
-   - 状态切换（up/down）
-   - 计算/网络地址/广播地址
-
-4. **InterfaceManager 测试**
-   - 添加接口
-   - 通过名称/索引查询
-   - 重复名称检测
-   - 遍历所有接口
-
-5. **配置文件测试**
-   - 加载正确配置
-   - 处理格式错误
-   - 保存配置
-   - 保存后重新加载验证
-
-6. **全局接口管理器测试**
-   - 初始化全局管理器
-   - 重复初始化检测
-   - 多线程访问测试
-
-### 7.2 集成测试
-
-1. **与 poweron 模块集成**
-   - 系统上电时加载配置
-   - 系统下电时保存配置
-
-2. **与协议栈集成**
-   - ARP 模块查询接口 MAC
-   - IPv4 模块查询接口 IP
-   - 报文发送时使用接口 MTU
+1. **单一职责**：接口模块只负责接口配置和状态管理，不涉及报文收发
+2. **零依赖**：仅使用 Rust 标准库，配置文件解析使用简单的 TOML 解析
+3. **类型安全**：使用 Rust 类型系统防止无效操作（如无效地址格式）
+4. **可扩展性**：设计支持多接口，方便后续添加 IPv6、虚拟接口等
+5. **可读性**：代码和文档使用中文，便于学习理解
+6. **全局访问**：通过 `OnceLock<Mutex<>>` 提供线程安全的全局访问接口，支持运行时修改接口配置
+7. **配置自治**：配置文件路径和队列容量由 interface 模块自己管理
 
 ---
 
@@ -470,16 +479,7 @@ pub use global::{
 | Phase 3 | InterfaceManager 实现 | ✅ 已完成 |
 | Phase 4 | 配置文件加载（TOML 解析） | ✅ 已完成 |
 | Phase 5 | 全局接口管理器 | ✅ 已完成 |
-| Phase 6 | 与 poweron 模块集成 | 待规划 |
-| Phase 7 | 与协议层集成测试 | 待规划 |
-
----
-
-## 九、设计原则
-
-1. **单一职责**：接口模块只负责接口配置和状态管理，不涉及报文收发
-2. **零依赖**：仅使用 Rust 标准库，配置文件解析使用简单的 TOML 解析
-3. **类型安全**：使用 Rust 类型系统防止无效操作（如无效地址格式）
-4. **可扩展性**：设计支持多接口，方便后续添加 IPv6、虚拟接口等
-5. **可读性**：代码和文档使用中文，便于学习理解
-6. **全局访问**：通过 `OnceLock<Mutex<>>` 提供线程安全的全局访问接口，支持运行时修改接口配置
+| Phase 6 | 与 poweron 模块集成 | ✅ 已完成 |
+| Phase 7 | 队列配置迁移到 interface 模块 | ✅ 已完成 |
+| Phase 8 | 简化 API（移除路径参数） | ✅ 已完成 |
+| Phase 9 | 与协议层集成测试 | 待规划 |

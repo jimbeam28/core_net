@@ -5,6 +5,7 @@
 
 // 公共模块声明
 pub mod common;
+pub mod poweron;
 pub mod engine;
 pub mod scheduler;
 pub mod protocols;
@@ -30,13 +31,12 @@ pub use common::{
     DEFAULT_QUEUE_CAPACITY,
     MIN_QUEUE_CAPACITY,
     MAX_QUEUE_CAPACITY,
+};
 
-    // 上电启动模块
-    SystemConfig,
+// 重新导出上电启动模块
+pub use poweron::{
     SystemContext,
-    boot,
     boot_default,
-    boot_with_capacity,
     shutdown,
 };
 
@@ -44,10 +44,11 @@ pub use common::{
 pub use interface::{
     NetworkInterface, InterfaceState, InterfaceType,
     InterfaceManager, InterfaceConfig,
-    load_config, save_config,
+    load_default_config, save_config,
     InterfaceError,
+    DEFAULT_CONFIG_PATH,
     // 全局接口管理器
-    init_global_manager, init_from_config, global_manager,
+    init_global_manager, init_default, global_manager,
 };
 
 // 导出 engine 模块

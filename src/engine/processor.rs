@@ -214,6 +214,7 @@ impl PacketProcessor {
         }
 
         let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
+        #[allow(deprecated)]
         crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
 
         Ok(None)
@@ -221,6 +222,7 @@ impl PacketProcessor {
 
     fn handle_arp_ip(&self, mut packet: Packet) -> ProcessResult {
         let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
+        #[allow(deprecated)]
         crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
         Ok(None)
     }

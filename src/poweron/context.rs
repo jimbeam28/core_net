@@ -12,36 +12,23 @@ pub struct SystemContext {
 impl SystemContext {
     /// 创建新的系统上下文
     ///
-    /// # 参数
-    /// - `rxq_capacity`: 每个接口的接收队列容量
-    /// - `txq_capacity`: 每个接口的发送队列容量
-    /// - `interface_config_path`: 接口配置文件路径
-    ///
     /// # 返回
     /// 包含接口管理器和队列资源的 SystemContext
     ///
     /// # 行为
-    /// 1. 从配置文件加载接口配置
+    /// 1. 从默认配置文件加载接口配置（由 interface 模块管理）
     /// 2. 为每个接口创建独立的 RxQ 和 TxQ
     /// 3. 初始化全局接口管理器
-    pub fn new(rxq_capacity: usize, txq_capacity: usize, interface_config_path: &str) -> Self {
-        // 尝试从配置文件加载接口配置并初始化全局接口管理器
-        let global_init_result = crate::interface::init_from_config(
-            interface_config_path,
-            rxq_capacity,
-            txq_capacity,
-        );
+    pub fn new() -> Self {
+        // 尝试从默认配置文件加载接口配置并初始化全局接口管理器
+        let global_init_result = crate::interface::init_default();
 
         // 为 SystemContext 创建独立的接口管理器
-        let interface_manager = match crate::interface::load_config(
-            interface_config_path,
-            rxq_capacity,
-            txq_capacity,
-        ) {
+        let interface_manager = match crate::interface::load_default_config() {
             Ok(manager) => manager,
             Err(e) => {
                 eprintln!("[警告] 加载接口配置失败: {}, 使用空接口管理器", e);
-                InterfaceManager::new(rxq_capacity, txq_capacity)
+                InterfaceManager::default()
             }
         };
 
