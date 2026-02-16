@@ -4,6 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
+use crate::protocols::arp;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
 
@@ -128,52 +129,20 @@ impl PacketProcessor {
         Ok(None)
     }
 
-    fn handle_vlan(&self, _eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
-        let tpid_opt = crate::common::has_vlan_tag(&packet);
-        let tpid = match tpid_opt {
-            Some(t) => t,
-            None => {
-                return Err(ProcessError::ParseError(String::from("No VLAN tag detected")));
-            }
-        };
-
-        let vlan_tag = VlanTag::parse_from_packet(&mut packet)?;
+    fn handle_vlan(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
+        let result = crate::protocols::vlan::process_vlan_packet(&mut packet)?;
 
         if self.verbose {
-            println!("VLAN tag: TPID=0x{:04x}, PCP={}, DEI={}, VID={}",
-                tpid, vlan_tag.pcp, vlan_tag.dei, vlan_tag.vid);
+            if let Some(ref outer) = result.outer_vlan {
+                println!("VLAN tag: PCP={}, DEI={}, VID={}", outer.pcp, outer.dei, outer.vid);
+            }
+            if let Some(ref inner) = result.inner_vlan {
+                println!("Inner VLAN: PCP={}, DEI={}, VID={}", inner.pcp, inner.dei, inner.vid);
+            }
+            println!("Inner ethertype: 0x{:04x}", result.inner_type);
         }
 
-        let inner_vlan_opt = crate::common::has_vlan_tag(&packet);
-
-        if inner_vlan_opt.is_some() {
-            let inner_vlan = VlanTag::parse_from_packet(&mut packet)?;
-            if self.verbose {
-                println!("Inner VLAN: PCP={}, DEI={}, VID={}",
-                    inner_vlan.pcp, inner_vlan.dei, inner_vlan.vid);
-            }
-            if packet.remaining() < 2 {
-                return Err(ProcessError::InvalidPacket(String::from("Packet too short")));
-            }
-            let inner_type_bytes = packet.read(2)
-                .ok_or_else(|| ProcessError::ParseError(String::from("Failed to read inner ethertype")))?;
-            let inner_type = u16::from_be_bytes([inner_type_bytes[0], inner_type_bytes[1]]);
-            if self.verbose {
-                println!("Inner ethertype: 0x{:04x}", inner_type);
-            }
-            self.dispatch_inner_vlan(_eth_hdr, Some(vlan_tag), Some(inner_vlan), inner_type, packet)?;
-        } else {
-            if packet.remaining() < 2 {
-                return Err(ProcessError::InvalidPacket(String::from("Packet too short")));
-            }
-            let inner_type_bytes = packet.read(2)
-                .ok_or_else(|| ProcessError::ParseError(String::from("Failed to read inner ethertype")))?;
-            let inner_type = u16::from_be_bytes([inner_type_bytes[0], inner_type_bytes[1]]);
-            if self.verbose {
-                println!("Inner ethertype: 0x{:04x}", inner_type);
-            }
-            self.dispatch_inner_vlan(_eth_hdr, Some(vlan_tag), None, inner_type, packet)?;
-        }
+        self.dispatch_inner_vlan(eth_hdr, result.outer_vlan, result.inner_vlan, result.inner_type, packet)?;
         Ok(None)
     }
 
@@ -190,7 +159,8 @@ impl PacketProcessor {
 
         match inner_type {
             ETH_P_ARP => {
-                self.handle_arp_ip(packet)?;
+                // VLAN 内的 ARP 报文处理
+                self.handle_arp_packet(packet)?;
             }
             ETH_P_IP => {
                 return Err(ProcessError::UnsupportedProtocol(
@@ -206,24 +176,59 @@ impl PacketProcessor {
         Ok(None)
     }
 
-    fn handle_arp(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
+    /// 处理普通以太网帧中的 ARP 报文
+    fn handle_arp(&self, eth_hdr: EthernetHeader, packet: Packet) -> ProcessResult {
+        // 验证目标 MAC 地址（广播或本机）
         if !eth_hdr.dst_mac().is_broadcast() && !eth_hdr.dst_mac().is_zero() {
             return Err(ProcessError::InvalidPacket(
                 format!("Invalid ARP destination MAC: {}", eth_hdr.dst_mac())
             ));
         }
 
-        let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
-        #[allow(deprecated)]
-        crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
-
-        Ok(None)
+        self.handle_arp_packet(packet)
     }
 
-    fn handle_arp_ip(&self, mut packet: Packet) -> ProcessResult {
-        let arp_pkt = crate::protocols::arp::ArpPacket::from_packet(&mut packet)?;
-        #[allow(deprecated)]
-        crate::protocols::arp::handle_arp_packet(&arp_pkt, self.verbose)?;
+    /// 处理 ARP 报文（统一入口）
+    ///
+    /// 负责调用 ARP 模块进行解析和处理。
+    /// TODO: 后续需要传递接口上下文（MAC、IP）以支持生成响应报文。
+    fn handle_arp_packet(&self, mut packet: Packet) -> ProcessResult {
+        // 调用 ARP 模块解析报文
+        let arp_pkt = arp::ArpPacket::from_packet(&mut packet)?;
+
+        // 输出 ARP 报文信息
+        if self.verbose {
+            println!("ARP报文:");
+            println!("  操作: {:?}", arp_pkt.operation);
+            println!("  发送方: MAC={}, IP={}",
+                arp_pkt.sender_hardware_addr, arp_pkt.sender_protocol_addr);
+            println!("  目标: MAC={}, IP={}",
+                arp_pkt.target_hardware_addr, arp_pkt.target_protocol_addr);
+
+            if arp_pkt.is_gratuitous() {
+                println!("  [免费ARP]");
+            }
+
+            match arp_pkt.operation {
+                arp::ArpOperation::Request => {
+                    println!("  收到ARP请求: {} -> {}",
+                        arp_pkt.sender_protocol_addr,
+                        arp_pkt.target_protocol_addr);
+                }
+                arp::ArpOperation::Reply => {
+                    println!("  收到ARP响应: {} -> {}",
+                        arp_pkt.sender_protocol_addr,
+                        arp_pkt.sender_hardware_addr);
+                }
+            }
+        }
+
+        // TODO: 后续添加接口上下文后，调用 process_arp 生成响应报文
+        // let reply = arp::process_arp(&mut packet, local_mac, local_ip, src_mac, ...)?;
+        // if let ArpProcessResult::Reply(frame) = reply {
+        //     return Ok(Some(Packet::from_bytes(frame)));
+        // }
+
         Ok(None)
     }
 

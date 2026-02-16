@@ -10,6 +10,8 @@ pub struct Packet {
     pub data: Vec<u8>,
     /// 当前读取偏移量
     pub offset: usize,
+    /// VLAN ID (从VLAN标签解析而来，0表示无VLAN)
+    pub vlan_id: u16,
 }
 
 impl Packet {
@@ -20,6 +22,7 @@ impl Packet {
         Packet {
             data: Vec::new(),
             offset: 0,
+            vlan_id: 0,
         }
     }
 
@@ -28,6 +31,7 @@ impl Packet {
         Packet {
             data,
             offset: 0,
+            vlan_id: 0,
         }
     }
 
@@ -85,6 +89,7 @@ impl Packet {
     pub fn clear(&mut self) {
         self.data.clear();
         self.offset = 0;
+        self.vlan_id = 0;
     }
 
     // ========== 复制相关 ==========
@@ -94,6 +99,7 @@ impl Packet {
         Packet {
             data: self.data.clone(),
             offset: self.offset,
+            vlan_id: self.vlan_id,
         }
     }
 
@@ -134,6 +140,16 @@ impl Packet {
     /// 获取当前offset位置
     pub fn get_offset(&self) -> usize {
         self.offset
+    }
+
+    /// 设置VLAN ID
+    pub fn set_vlan_id(&mut self, vlan_id: u16) {
+        self.vlan_id = vlan_id;
+    }
+
+    /// 获取VLAN ID
+    pub fn get_vlan_id(&self) -> u16 {
+        self.vlan_id
     }
 }
 

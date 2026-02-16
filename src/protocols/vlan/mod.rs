@@ -15,4 +15,6 @@ pub use error::VlanError;
 pub use parse::{
     has_vlan_tag,
     is_vlan_tpid,
+    process_vlan_packet,
+    VlanProcessResult,
 };

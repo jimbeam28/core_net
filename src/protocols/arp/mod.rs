@@ -225,54 +225,6 @@ impl ArpPacket {
     }
 }
 
-// ========== ARP 处理函数 ==========
-
-/// 处理 ARP 报文（简化版，用于基本测试）
-///
-/// # 参数
-/// - arp_pkt: 已解析的 ARP 报文
-/// - verbose: 是否启用详细输出
-///
-/// # 返回
-/// - Ok(()): 处理成功
-/// - Err(String): 处理失败
-#[deprecated(note = "请使用 process_arp_packet 替代")]
-pub fn handle_arp_packet(arp_pkt: &ArpPacket, verbose: bool) -> std::result::Result<(), String> {
-    if verbose {
-        println!("ARP报文:");
-        println!("  操作: {:?}", arp_pkt.operation);
-        println!("  发送方: MAC={}, IP={}",
-            arp_pkt.sender_hardware_addr, arp_pkt.sender_protocol_addr);
-        println!("  目标: MAC={}, IP={}",
-            arp_pkt.target_hardware_addr, arp_pkt.target_protocol_addr);
-
-        if arp_pkt.is_gratuitous() {
-            println!("  [免费ARP]");
-        }
-    }
-
-    // 处理 ARP 请求/响应
-    match arp_pkt.operation {
-        ArpOperation::Request => {
-            // 检查是否为目标 IP（暂不实现响应生成）
-            if verbose {
-                println!("  收到ARP请求: {} -> {}",
-                    arp_pkt.sender_protocol_addr,
-                    arp_pkt.target_protocol_addr);
-            }
-        }
-        ArpOperation::Reply => {
-            if verbose {
-                println!("  收到ARP响应: {} -> {}",
-                    arp_pkt.sender_protocol_addr,
-                    arp_pkt.sender_hardware_addr);
-            }
-        }
-    }
-
-    Ok(())
-}
-
 // ========== ARP 报文处理核心逻辑 ==========
 
 /// 处理接收到的 ARP 报文
@@ -416,6 +368,80 @@ pub fn send_arp_reply(
         target_mac,
         target_ip,
     )
+}
+
+// ========== ARP 报文处理（统一接口）==========
+
+/// ARP 处理结果
+#[derive(Debug)]
+pub enum ArpProcessResult {
+    /// 不需要响应
+    NoReply,
+    /// 需要响应（封装好的以太网帧）
+    Reply(Vec<u8>),
+}
+
+/// 处理 ARP 报文（统一入口）
+///
+/// 这是 processor 应该调用的统一接口，负责：
+/// 1. 解析 ARP 报文
+/// 2. 更新 ARP 缓存（需要提供 cache 参数）
+/// 3. 判断是否需要响应
+/// 4. 如果需要响应，构造并封装以太网帧
+///
+/// # 参数
+/// - packet: 可变引用的 Packet（已去除以太网头部）
+/// - local_mac: 本接口的 MAC 地址
+/// - local_ip: 本接口的 IP 地址
+/// - src_mac: 原始以太网帧的源 MAC（用于响应时的目标 MAC）
+/// - cache: 可变引用的 ARP 缓存
+/// - ifindex: 接口索引
+/// - verbose: 是否启用详细输出
+///
+/// # 返回
+/// - Ok(ArpProcessResult): 处理结果
+/// - Err(CoreError): 解析或处理失败
+pub fn process_arp(
+    packet: &mut Packet,
+    local_mac: MacAddr,
+    local_ip: Ipv4Addr,
+    src_mac: MacAddr,
+    cache: &mut ArpCache,
+    ifindex: u32,
+    verbose: bool,
+) -> Result<ArpProcessResult> {
+    // 解析 ARP 报文
+    let arp_pkt = ArpPacket::from_packet(packet)?;
+
+    if verbose {
+        println!("ARP报文:");
+        println!("  操作: {:?}", arp_pkt.operation);
+        println!("  发送方: MAC={}, IP={}",
+            arp_pkt.sender_hardware_addr, arp_pkt.sender_protocol_addr);
+        println!("  目标: MAC={}, IP={}",
+            arp_pkt.target_hardware_addr, arp_pkt.target_protocol_addr);
+
+        if arp_pkt.is_gratuitous() {
+            println!("  [免费ARP]");
+        }
+    }
+
+    // 调用核心处理逻辑
+    let reply = process_arp_packet(cache, ifindex, &arp_pkt, &[local_ip], local_mac)?;
+
+    match reply {
+        Some(reply_arp) => {
+            if verbose {
+                println!("  发送ARP响应: {} -> {}",
+                    reply_arp.sender_protocol_addr,
+                    reply_arp.target_protocol_addr);
+            }
+            // 封装为以太网帧
+            let frame = encapsulate_ethernet(&reply_arp, src_mac, local_mac);
+            Ok(ArpProcessResult::Reply(frame))
+        }
+        None => Ok(ArpProcessResult::NoReply),
+    }
 }
 
 // ========== 以太网帧封装辅助函数 ==========
