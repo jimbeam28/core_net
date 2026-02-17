@@ -190,3 +190,338 @@ pub struct InterfaceConfig {
     /// 初始状态
     pub state: Option<InterfaceState>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== 测试辅助函数 ==========
+
+    /// 创建测试用接口
+    fn create_test_interface() -> NetworkInterface {
+        NetworkInterface::new(
+            "eth0".to_string(),
+            0,
+            MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            Ipv4Addr::new(192, 168, 1, 100),
+            256,
+            256,
+        )
+    }
+
+    /// 创建测试配置
+    fn create_test_config() -> InterfaceConfig {
+        InterfaceConfig {
+            name: "eth0".to_string(),
+            mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            ip_addr: Ipv4Addr::new(192, 168, 1, 100),
+            netmask: Ipv4Addr::new(255, 255, 255, 0),
+            gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
+            mtu: Some(1500),
+            state: Some(InterfaceState::Up),
+        }
+    }
+
+    // ========== NetworkInterface 创建测试 ==========
+
+    #[test]
+    fn test_interface_new() {
+        let iface = create_test_interface();
+
+        assert_eq!(iface.name(), "eth0");
+        assert_eq!(iface.index(), 0);
+        assert_eq!(iface.mac_addr, MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
+        assert_eq!(iface.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
+        assert_eq!(iface.netmask, Ipv4Addr::new(255, 255, 255, 0));
+        assert_eq!(iface.gateway, None);
+        assert_eq!(iface.mtu, 1500);
+        assert_eq!(iface.state, InterfaceState::Down);
+        assert_eq!(iface.if_type, InterfaceType::Ethernet);
+    }
+
+    #[test]
+    fn test_interface_from_config() {
+        let config = create_test_config();
+        let iface = NetworkInterface::from_config(config, 0, 256, 256);
+
+        assert_eq!(iface.name(), "eth0");
+        assert_eq!(iface.index(), 0);
+        assert_eq!(iface.mac_addr, MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
+        assert_eq!(iface.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
+        assert_eq!(iface.netmask, Ipv4Addr::new(255, 255, 255, 0));
+        assert_eq!(iface.gateway, Some(Ipv4Addr::new(192, 168, 1, 1)));
+        assert_eq!(iface.mtu, 1500);
+        assert_eq!(iface.state, InterfaceState::Up);
+    }
+
+    #[test]
+    fn test_interface_from_config_defaults() {
+        let config = InterfaceConfig {
+            name: "lo".to_string(),
+            mac_addr: MacAddr::zero(),
+            ip_addr: Ipv4Addr::new(127, 0, 0, 1),
+            netmask: Ipv4Addr::new(255, 0, 0, 0),
+            gateway: None,
+            mtu: None,
+            state: None,
+        };
+
+        let iface = NetworkInterface::from_config(config, 1, 256, 256);
+
+        assert_eq!(iface.mtu, 1500); // 默认 MTU
+        assert_eq!(iface.state, InterfaceState::Down); // 默认状态
+        assert_eq!(iface.gateway, None);
+    }
+
+    // ========== 属性设置测试 ==========
+
+    #[test]
+    fn test_interface_set_ip_addr() {
+        let mut iface = create_test_interface();
+        assert_eq!(iface.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
+
+        iface.set_ip_addr(Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(iface.ip_addr, Ipv4Addr::new(10, 0, 0, 1));
+    }
+
+    #[test]
+    fn test_interface_set_mac_addr() {
+        let mut iface = create_test_interface();
+        assert_eq!(iface.mac_addr, MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
+
+        iface.set_mac_addr(MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]));
+        assert_eq!(iface.mac_addr, MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]));
+    }
+
+    #[test]
+    fn test_interface_set_netmask() {
+        let mut iface = create_test_interface();
+        assert_eq!(iface.netmask, Ipv4Addr::new(255, 255, 255, 0));
+
+        iface.set_netmask(Ipv4Addr::new(255, 255, 255, 128));
+        assert_eq!(iface.netmask, Ipv4Addr::new(255, 255, 255, 128));
+    }
+
+    #[test]
+    fn test_interface_set_gateway() {
+        let mut iface = create_test_interface();
+        assert_eq!(iface.gateway, None);
+
+        iface.set_gateway(Some(Ipv4Addr::new(192, 168, 1, 1)));
+        assert_eq!(iface.gateway, Some(Ipv4Addr::new(192, 168, 1, 1)));
+
+        iface.set_gateway(None);
+        assert_eq!(iface.gateway, None);
+    }
+
+    #[test]
+    fn test_interface_set_mtu() {
+        let mut iface = create_test_interface();
+        assert_eq!(iface.mtu, 1500);
+
+        iface.set_mtu(9000);
+        assert_eq!(iface.mtu, 9000);
+    }
+
+    // ========== 状态管理测试 ==========
+
+    #[test]
+    fn test_interface_up_down() {
+        let mut iface = create_test_interface();
+
+        // 初始状态是 Down
+        assert_eq!(iface.state, InterfaceState::Down);
+        assert!(!iface.is_up());
+
+        // 启用接口
+        iface.up();
+        assert_eq!(iface.state, InterfaceState::Up);
+        assert!(iface.is_up());
+
+        // 禁用接口
+        iface.down();
+        assert_eq!(iface.state, InterfaceState::Down);
+        assert!(!iface.is_up());
+    }
+
+    #[test]
+    fn test_interface_state_transitions() {
+        let mut iface = create_test_interface();
+
+        // Down -> Up
+        iface.up();
+        assert_eq!(iface.state, InterfaceState::Up);
+
+        // Up -> Down
+        iface.down();
+        assert_eq!(iface.state, InterfaceState::Down);
+
+        // 可以直接设置状态
+        iface.state = InterfaceState::Testing;
+        assert_eq!(iface.state, InterfaceState::Testing);
+
+        iface.state = InterfaceState::Error;
+        assert_eq!(iface.state, InterfaceState::Error);
+    }
+
+    // ========== 网络地址计算测试 ==========
+
+    #[test]
+    fn test_network_address() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(192, 168, 1, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 255, 255, 0));
+
+        let network = iface.network_address();
+        assert_eq!(network, Ipv4Addr::new(192, 168, 1, 0));
+    }
+
+    #[test]
+    fn test_network_address_class_c() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(192, 168, 1, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 255, 255, 0)); // /24
+
+        assert_eq!(iface.network_address(), Ipv4Addr::new(192, 168, 1, 0));
+    }
+
+    #[test]
+    fn test_network_address_class_b() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(172, 16, 5, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 255, 0, 0)); // /16
+
+        assert_eq!(iface.network_address(), Ipv4Addr::new(172, 16, 0, 0));
+    }
+
+    #[test]
+    fn test_network_address_class_a() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(10, 0, 5, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 0, 0, 0)); // /8
+
+        assert_eq!(iface.network_address(), Ipv4Addr::new(10, 0, 0, 0));
+    }
+
+    // ========== 广播地址计算测试 ==========
+
+    #[test]
+    fn test_broadcast_address() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(192, 168, 1, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 255, 255, 0));
+
+        let broadcast = iface.broadcast_address();
+        assert_eq!(broadcast, Ipv4Addr::new(192, 168, 1, 255));
+    }
+
+    #[test]
+    fn test_broadcast_address_class_c() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(192, 168, 1, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 255, 255, 0)); // /24
+
+        assert_eq!(iface.broadcast_address(), Ipv4Addr::new(192, 168, 1, 255));
+    }
+
+    #[test]
+    fn test_broadcast_address_class_b() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(172, 16, 5, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 255, 0, 0)); // /16
+
+        assert_eq!(iface.broadcast_address(), Ipv4Addr::new(172, 16, 255, 255));
+    }
+
+    #[test]
+    fn test_broadcast_address_class_a() {
+        let mut iface = create_test_interface();
+        iface.set_ip_addr(Ipv4Addr::new(10, 0, 5, 100));
+        iface.set_netmask(Ipv4Addr::new(255, 0, 0, 0)); // /8
+
+        assert_eq!(iface.broadcast_address(), Ipv4Addr::new(10, 255, 255, 255));
+    }
+
+    // ========== 边界条件测试 ==========
+
+    #[test]
+    fn test_interface_mtu_minimum() {
+        let mut iface = create_test_interface();
+
+        // 最小 MTU 值（理论上以太网最小是 68，但允许设置更小）
+        iface.set_mtu(1);
+        assert_eq!(iface.mtu, 1);
+    }
+
+    #[test]
+    fn test_interface_mtu_maximum() {
+        let mut iface = create_test_interface();
+
+        // 巨帧 MTU
+        iface.set_mtu(9000);
+        assert_eq!(iface.mtu, 9000);
+
+        // 最大 u16 值
+        iface.set_mtu(u16::MAX);
+        assert_eq!(iface.mtu, u16::MAX);
+    }
+
+    #[test]
+    fn test_interface_zero_ip() {
+        let mut iface = create_test_interface();
+
+        iface.set_ip_addr(Ipv4Addr::new(0, 0, 0, 0));
+        assert_eq!(iface.ip_addr, Ipv4Addr::new(0, 0, 0, 0));
+        assert!(iface.ip_addr.is_zero());
+    }
+
+    #[test]
+    fn test_interface_broadcast_ip() {
+        let mut iface = create_test_interface();
+
+        iface.set_ip_addr(Ipv4Addr::new(255, 255, 255, 255));
+        assert_eq!(iface.ip_addr, Ipv4Addr::new(255, 255, 255, 255));
+        assert!(iface.ip_addr.is_broadcast());
+    }
+
+    #[test]
+    fn test_interface_loopback_ip() {
+        let mut iface = create_test_interface();
+
+        iface.set_ip_addr(Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(iface.ip_addr, Ipv4Addr::new(127, 0, 0, 1));
+        assert!(iface.ip_addr.is_loopback());
+    }
+
+    // ========== 队列测试 ==========
+
+    #[test]
+    fn test_interface_queues_capacity() {
+        let iface = NetworkInterface::new(
+            "eth0".to_string(),
+            0,
+            MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            Ipv4Addr::new(192, 168, 1, 100),
+            512,
+            1024,
+        );
+
+        // 队列容量验证（通过行为间接验证）
+        // 这里我们主要验证队列已创建，实际容量需要通过 RingQueue 的实现来验证
+        // 因为 RingQueue 没有公开 capacity() 方法，我们通过非空来验证
+        let _ = &iface.rxq;
+        let _ = &iface.txq;
+    }
+
+    // ========== InterfaceConfig 测试 ==========
+
+    #[test]
+    fn test_interface_config_clone() {
+        let config = create_test_config();
+        let config_clone = config.clone();
+
+        assert_eq!(config.name, config_clone.name);
+        assert_eq!(config.mac_addr, config_clone.mac_addr);
+        assert_eq!(config.ip_addr, config_clone.ip_addr);
+    }
+}

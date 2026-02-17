@@ -251,6 +251,7 @@ mod tests {
     // ========== 测试辅助函数 ==========
 
     /// 构造以太网头部字节
+    #[allow(dead_code)]
     fn create_eth_header_bytes(dst_mac: MacAddr, src_mac: MacAddr, ether_type: u16) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(14);
         bytes.extend_from_slice(&dst_mac.bytes);

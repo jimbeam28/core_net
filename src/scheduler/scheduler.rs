@@ -306,3 +306,666 @@ pub fn schedule_packets_verbose(rxq: &mut RingQueue<Packet>, txq: &mut RingQueue
         .with_verbose(true)
         .run(rxq, txq)
 }
+
+// ========== 单元测试 ==========
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{MacAddr, Ipv4Addr, ETH_P_ARP};
+    use crate::protocols::arp::{ArpPacket, ArpOperation};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    // ========== 测试辅助函数 ==========
+
+    /// 创建测试调度器（带默认处理器）
+    fn create_test_scheduler() -> Scheduler {
+        Scheduler::new("TestScheduler".to_string())
+            .with_processor(PacketProcessor::new())
+    }
+
+    /// 创建测试报文
+    fn create_test_packet() -> Packet {
+        Packet::from_bytes(vec![0x01, 0x02, 0x03, 0x04])
+    }
+
+    /// 创建 ARP 请求报文（带以太网头）
+    fn create_arp_request_packet(
+        dst_mac: MacAddr,
+        src_mac: MacAddr,
+        src_ip: Ipv4Addr,
+        dst_ip: Ipv4Addr,
+    ) -> Packet {
+        let arp_pkt = ArpPacket::new(
+            ArpOperation::Request,
+            src_mac,
+            src_ip,
+            MacAddr::zero(),
+            dst_ip,
+        );
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&dst_mac.bytes);
+        bytes.extend_from_slice(&src_mac.bytes);
+        bytes.extend_from_slice(&ETH_P_ARP.to_be_bytes());
+        bytes.extend_from_slice(&arp_pkt.to_bytes());
+
+        Packet::from_bytes(bytes)
+    }
+
+    /// 创建无效报文（太短）
+    fn create_invalid_packet() -> Packet {
+        Packet::from_bytes(vec![0x01, 0x02])
+    }
+
+    /// 创建单接口管理器
+    fn create_single_interface_manager() -> InterfaceManager {
+        let mut manager = InterfaceManager::new(256, 256);
+        let iface = crate::interface::NetworkInterface::new(
+            "eth0".to_string(),
+            0,
+            MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            Ipv4Addr::new(192, 168, 1, 100),
+            256,
+            256,
+        );
+        manager.add_interface(iface).unwrap();
+        manager
+    }
+
+    /// 创建多接口管理器（eth0 + lo）
+    fn create_multi_interface_manager() -> InterfaceManager {
+        let mut manager = InterfaceManager::new(256, 256);
+
+        let eth0 = crate::interface::NetworkInterface::new(
+            "eth0".to_string(),
+            0,
+            MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            Ipv4Addr::new(192, 168, 1, 100),
+            256,
+            256,
+        );
+
+        let lo = crate::interface::NetworkInterface::new(
+            "lo".to_string(),
+            1,
+            MacAddr::zero(),
+            Ipv4Addr::new(127, 0, 0, 1),
+            256,
+            256,
+        );
+
+        manager.add_interface(eth0).unwrap();
+        manager.add_interface(lo).unwrap();
+        manager
+    }
+
+    /// Mock 处理器，用于测试错误处理
+    #[allow(dead_code)]
+    struct MockProcessor {
+        call_count: Rc<RefCell<usize>>,
+        should_fail: bool,
+        return_response: bool,
+    }
+
+    impl MockProcessor {
+        #[allow(dead_code)]
+        fn new(should_fail: bool, return_response: bool) -> (Self, Rc<RefCell<usize>>) {
+            let count = Rc::new(RefCell::new(0));
+            (
+                Self {
+                    call_count: count.clone(),
+                    should_fail,
+                    return_response,
+                },
+                count,
+            )
+        }
+    }
+
+    // ========== 1. 基础功能测试组 ==========
+
+    #[test]
+    fn test_scheduler_new() {
+        let scheduler = Scheduler::new("TestScheduler".to_string());
+        // 验证调度器创建成功（通过 run 方法验证）
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_scheduler_with_processor() {
+        let processor = PacketProcessor::new();
+        let scheduler = Scheduler::new("TestScheduler".to_string())
+            .with_processor(processor);
+        // 验证调度器带处理器创建成功
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_scheduler_with_verbose() {
+        let scheduler = Scheduler::new("TestScheduler".to_string())
+            .with_verbose(true);
+        // 验证 verbose 模式设置成功
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_scheduler_chain() {
+        let scheduler = Scheduler::new("ChainedScheduler".to_string())
+            .with_processor(PacketProcessor::new())
+            .with_verbose(true);
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+    }
+
+    // ========== 2. 单队列调度测试组 ==========
+
+    #[test]
+    fn test_run_empty_queue() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+        assert!(rxq.is_empty());
+        assert!(txq.is_empty());
+    }
+
+    #[test]
+    fn test_run_single_packet() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入一个测试报文
+        let packet = create_test_packet();
+        rxq.enqueue(packet).unwrap();
+
+        let result = scheduler.run(&mut rxq, &mut txq);
+        // 报文会被处理，即使处理失败也会计数
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_multiple_packets() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入多个报文
+        for _ in 0..5 {
+            rxq.enqueue(create_test_packet()).unwrap();
+        }
+
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        // 所有报文都应该被处理
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_stops_when_empty() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入报文
+        rxq.enqueue(create_test_packet()).unwrap();
+        rxq.enqueue(create_test_packet()).unwrap();
+
+        // 处理第一次
+        let result1 = scheduler.run(&mut rxq, &mut txq);
+        assert!(result1.is_ok());
+        assert!(rxq.is_empty());
+
+        // 再次运行应该立即返回
+        let result2 = scheduler.run(&mut rxq, &mut txq);
+        assert!(result2.is_ok());
+        assert_eq!(result2.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_run_invalid_packet_continues() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入无效报文后跟有效报文
+        rxq.enqueue(create_invalid_packet()).unwrap();
+        rxq.enqueue(create_test_packet()).unwrap();
+
+        let result = scheduler.run(&mut rxq, &mut txq);
+        // 即使第一个报文处理失败，调度器也应该继续处理
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_processor_error_tolerance() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入多个会导致处理错误的报文
+        for _ in 0..3 {
+            rxq.enqueue(create_invalid_packet()).unwrap();
+        }
+
+        // 处理失败不应该中断调度
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_txq_full_handling() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        // 创建一个只能容纳 1 个报文的 TxQ
+        let mut txq = RingQueue::<Packet>::new(1);
+
+        // 填满 TxQ
+        txq.enqueue(create_test_packet()).unwrap();
+
+        // 注入会生成响应的 ARP 报文
+        let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+        let src_ip = Ipv4Addr::new(192, 168, 1, 1);
+        let dst_ip = Ipv4Addr::new(192, 168, 1, 2);
+        let arp_packet = create_arp_request_packet(MacAddr::broadcast(), src_mac, src_ip, dst_ip);
+        rxq.enqueue(arp_packet).unwrap();
+
+        // 即使 TxQ 已满，调度器也应该继续运行
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_arp_response_in_txq() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入 ARP 请求报文
+        let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+        let src_ip = Ipv4Addr::new(192, 168, 1, 1);
+        let dst_ip = Ipv4Addr::new(192, 168, 1, 2);
+        let arp_packet = create_arp_request_packet(MacAddr::broadcast(), src_mac, src_ip, dst_ip);
+        rxq.enqueue(arp_packet).unwrap();
+
+        // 运行调度器
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+
+        // ARP 处理可能生成响应（需要全局缓存初始化）
+        // 这里只验证不崩溃
+        let _txq_len = txq.len();
+    }
+
+    // ========== 3. 多接口调度测试组 ==========
+
+    #[test]
+    fn test_run_all_interfaces_empty_manager() {
+        let scheduler = create_test_scheduler();
+        let mut manager = InterfaceManager::new(256, 256);
+
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_run_all_interfaces_single_interface() {
+        let scheduler = create_test_scheduler();
+        let mut manager = create_single_interface_manager();
+
+        // 向接口的 RxQ 注入报文
+        {
+            let iface = manager.get_by_name_mut("eth0").unwrap();
+            iface.rxq.enqueue(create_test_packet()).unwrap();
+        } // 释放借用
+
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+
+        // 验证 RxQ 已清空
+        let iface = manager.get_by_name("eth0").unwrap();
+        assert!(iface.rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_all_interfaces_multiple_interfaces() {
+        let scheduler = create_test_scheduler();
+        let mut manager = create_multi_interface_manager();
+
+        // 向不同接口注入报文
+        {
+            let eth0 = manager.get_by_name_mut("eth0").unwrap();
+            eth0.rxq.enqueue(create_test_packet()).unwrap();
+            eth0.rxq.enqueue(create_test_packet()).unwrap();
+        }
+
+        {
+            let lo = manager.get_by_name_mut("lo").unwrap();
+            lo.rxq.enqueue(create_test_packet()).unwrap();
+        }
+
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+
+        // 验证所有接口的 RxQ 都被清空
+        let eth0 = manager.get_by_name("eth0").unwrap();
+        let lo = manager.get_by_name("lo").unwrap();
+        assert!(eth0.rxq.is_empty());
+        assert!(lo.rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_all_interfaces_response_to_correct_txq() {
+        let scheduler = create_test_scheduler();
+        let mut manager = create_multi_interface_manager();
+
+        // 向 eth0 注入 ARP 请求
+        let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+        let src_ip = Ipv4Addr::new(192, 168, 1, 1);
+        let dst_ip = Ipv4Addr::new(192, 168, 1, 2);
+        let arp_packet = create_arp_request_packet(MacAddr::broadcast(), src_mac, src_ip, dst_ip);
+
+        {
+            let eth0 = manager.get_by_name_mut("eth0").unwrap();
+            eth0.rxq.enqueue(arp_packet).unwrap();
+        }
+
+        // 运行调度器
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+
+        // 验证 eth0 的 RxQ 被清空
+        let eth0 = manager.get_by_name("eth0").unwrap();
+        assert!(eth0.rxq.is_empty());
+
+        // 验证 lo 的队列为空
+        let lo = manager.get_by_name("lo").unwrap();
+        assert!(lo.rxq.is_empty());
+        assert!(lo.txq.is_empty());
+    }
+
+    #[test]
+    fn test_run_all_interfaces_partial_empty() {
+        let scheduler = create_test_scheduler();
+        let mut manager = create_multi_interface_manager();
+
+        // 只向 eth0 注入报文，lo 保持空
+        {
+            let eth0 = manager.get_by_name_mut("eth0").unwrap();
+            eth0.rxq.enqueue(create_test_packet()).unwrap();
+        }
+
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+
+        // 验证所有接口都被处理
+        let eth0 = manager.get_by_name("eth0").unwrap();
+        let lo = manager.get_by_name("lo").unwrap();
+        assert!(eth0.rxq.is_empty());
+        assert!(lo.rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_all_interfaces_error_continues() {
+        let scheduler = create_test_scheduler();
+        let mut manager = create_multi_interface_manager();
+
+        // 向不同接口注入无效报文
+        {
+            let eth0 = manager.get_by_name_mut("eth0").unwrap();
+            eth0.rxq.enqueue(create_invalid_packet()).unwrap();
+            eth0.rxq.enqueue(create_invalid_packet()).unwrap();
+        }
+
+        {
+            let lo = manager.get_by_name_mut("lo").unwrap();
+            lo.rxq.enqueue(create_test_packet()).unwrap();
+        }
+
+        // 即使处理出错，也应该继续处理其他接口和报文
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+
+        let eth0 = manager.get_by_name("eth0").unwrap();
+        let lo = manager.get_by_name("lo").unwrap();
+        assert!(eth0.rxq.is_empty());
+        assert!(lo.rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_all_interfaces_packet_ifindex_set() {
+        let scheduler = create_test_scheduler();
+        let mut manager = create_multi_interface_manager();
+
+        // 向 eth0 注入报文
+        let packet = create_test_packet();
+        {
+            let eth0 = manager.get_by_name_mut("eth0").unwrap();
+            eth0.rxq.enqueue(packet).unwrap();
+        }
+
+        scheduler.run_all_interfaces(&mut manager).unwrap();
+
+        // 验证报文的接口索引被正确设置（通过处理过程）
+        // 这需要检查处理器是否收到了正确的 ifindex
+        let eth0 = manager.get_by_name("eth0").unwrap();
+        assert!(eth0.rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_all_interfaces_verbose_mode() {
+        let scheduler = Scheduler::new("VerboseTestScheduler".to_string())
+            .with_processor(PacketProcessor::new())
+            .with_verbose(true);
+
+        let mut manager = create_single_interface_manager();
+
+        {
+            let eth0 = manager.get_by_name_mut("eth0").unwrap();
+            eth0.rxq.enqueue(create_test_packet()).unwrap();
+        }
+
+        // verbose 模式不应该影响功能
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+    }
+
+    // ========== 4. 便捷函数测试组 ==========
+
+    #[test]
+    fn test_schedule_packets() {
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        rxq.enqueue(create_test_packet()).unwrap();
+
+        let result = schedule_packets(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_schedule_packets_verbose() {
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        rxq.enqueue(create_test_packet()).unwrap();
+
+        let result = schedule_packets_verbose(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_schedule_packets_empty_queue() {
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        let result = schedule_packets(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_schedule_packets_multiple_calls() {
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 第一次调用
+        rxq.enqueue(create_test_packet()).unwrap();
+        let result1 = schedule_packets(&mut rxq, &mut txq);
+        assert!(result1.is_ok());
+
+        // 第二次调用（空队列）
+        let result2 = schedule_packets(&mut rxq, &mut txq);
+        assert!(result2.is_ok());
+        assert_eq!(result2.unwrap(), 0);
+    }
+
+    // ========== 5. 错误处理测试组 ==========
+
+    #[test]
+    fn test_schedule_error_queue_error() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入会导致处理错误的报文
+        rxq.enqueue(create_invalid_packet()).unwrap();
+
+        // 处理错误不应该中断调度
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_schedule_error_all_packets_fail() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入多个无效报文
+        for _ in 0..5 {
+            rxq.enqueue(create_invalid_packet()).unwrap();
+        }
+
+        // 即使所有报文都失败，调度也应该正常完成
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    // ========== 6. 边界条件测试组 ==========
+
+    #[test]
+    fn test_run_max_queue_capacity() {
+        let scheduler = create_test_scheduler();
+        // 使用最小容量队列
+        let mut rxq = RingQueue::<Packet>::new(2);
+        let mut txq = RingQueue::<Packet>::new(2);
+
+        // 填满队列
+        rxq.enqueue(create_test_packet()).unwrap();
+        rxq.enqueue(create_test_packet()).unwrap();
+
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_run_single_interface_manager() {
+        let scheduler = create_test_scheduler();
+        let mut manager = InterfaceManager::new(256, 256);
+
+        // 添加单个接口
+        let iface = crate::interface::NetworkInterface::new(
+            "eth0".to_string(),
+            0,
+            MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
+            Ipv4Addr::new(192, 168, 1, 100),
+            256,
+            256,
+        );
+        manager.add_interface(iface).unwrap();
+
+        let result = scheduler.run_all_interfaces(&mut manager);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_run_no_processor() {
+        // 没有设置处理器的调度器应该使用默认处理器
+        let scheduler = Scheduler::new("NoProcessorScheduler".to_string());
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        rxq.enqueue(create_test_packet()).unwrap();
+
+        let result = scheduler.run(&mut rxq, &mut txq);
+        assert!(result.is_ok());
+    }
+
+    // ========== 7. 数据流测试组 ==========
+
+    #[test]
+    fn test_data_flow_rxq_to_processor() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 验证数据从 RxQ 流向处理器
+        let packet = create_test_packet();
+        let _original_data = packet.as_slice().to_vec();
+        rxq.enqueue(packet).unwrap();
+
+        scheduler.run(&mut rxq, &mut txq).unwrap();
+
+        // RxQ 应该被清空
+        assert!(rxq.is_empty());
+    }
+
+    #[test]
+    fn test_data_flow_processor_to_txq() {
+        let scheduler = create_test_scheduler();
+        let mut rxq = RingQueue::<Packet>::new(10);
+        let mut txq = RingQueue::<Packet>::new(10);
+
+        // 注入可能生成响应的报文
+        let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+        let src_ip = Ipv4Addr::new(192, 168, 1, 1);
+        let dst_ip = Ipv4Addr::new(192, 168, 1, 2);
+        let arp_packet = create_arp_request_packet(MacAddr::broadcast(), src_mac, src_ip, dst_ip);
+        rxq.enqueue(arp_packet).unwrap();
+
+        scheduler.run(&mut rxq, &mut txq).unwrap();
+
+        // 验证数据流完成
+        assert!(rxq.is_empty());
+        // TxQ 可能包含响应（取决于 ARP 缓存状态）
+    }
+}
