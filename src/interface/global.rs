@@ -42,17 +42,13 @@ pub fn global_manager() -> Option<&'static Mutex<InterfaceManager>> {
 /// - `Err(InterfaceError)`: 修改失败
 ///
 /// # 示例
-/// ```rust
-/// use crate::interface::{Ipv4Addr, MacAddr};
+/// ```rust,ignore
+/// use core_net::common::Ipv4Addr;
+/// use core_net::interface::global::update_interface;
 ///
 /// // 修改 IP 地址
 /// update_interface("eth0", |iface| {
 ///     iface.set_ip_addr(Ipv4Addr::new(192, 168, 2, 100));
-/// })?;
-///
-/// // 修改 MAC 地址
-/// update_interface("eth0", |iface| {
-///     iface.set_mac_addr(MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x56]));
 /// })?;
 /// ```
 pub fn update_interface<F>(name: &str, f: F) -> Result<(), InterfaceError>
