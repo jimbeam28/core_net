@@ -5,14 +5,25 @@
 
 use crate::common::{CoreError, Result};
 use crate::protocols::{Packet, MacAddr, Ipv4Addr};
+use crate::interface::global_manager;
 use std::collections::VecDeque;
 
 // ARP 表模块
 pub mod tables;
 
+// 全局缓存模块
+pub mod global;
+
 // 重新导出 ARP 表相关的公共类型
 pub use tables::{
     ArpState, ArpConfig, ArpEntry, ArpCache, ArpKey
+};
+
+// 重新导出全局缓存相关的公共类型
+pub use global::{
+    init_global_arp_cache,
+    global_arp_cache,
+    init_default_arp_cache,
 };
 
 // ========== ARP 操作码 ==========
@@ -245,7 +256,25 @@ impl ArpPacket {
 /// - Ok(Some(reply_packet)): 需要发送的响应报文
 /// - Ok(None): 不需要发送响应
 /// - Err(CoreError): 处理失败
-pub fn process_arp_packet(
+/// 处理已解析的 ArpPacket
+///
+/// 根据设计文档第 4.2 节的规范实现：
+/// 1. 自动学习：无论什么类型的 ARP 报文，都更新缓存
+/// 2. 判断响应：如果是发给本机的请求，构造响应
+/// 3. 处理等待队列：如果是响应，检查并处理等待的请求
+///
+/// # 参数
+/// - cache: 可变引用的 ARP 缓存
+/// - ifindex: 网络接口索引
+/// - packet: 已解析的 ARP 报文
+/// - local_ips: 本机接口的 IP 地址列表
+/// - local_mac: 本机接口的 MAC 地址
+///
+/// # 返回
+/// - Ok(Some(reply_packet)): 需要发送的响应报文
+/// - Ok(None): 不需要发送响应
+/// - Err(CoreError): 处理失败
+pub fn handle_arp_packet(
     cache: &mut ArpCache,
     ifindex: u32,
     packet: &ArpPacket,
@@ -370,7 +399,7 @@ pub fn send_arp_reply(
     )
 }
 
-// ========== ARP 报文处理（统一接口）==========
+// ========== ARP 处理结果 ==========
 
 /// ARP 处理结果
 #[derive(Debug)]
@@ -379,69 +408,6 @@ pub enum ArpProcessResult {
     NoReply,
     /// 需要响应（封装好的以太网帧）
     Reply(Vec<u8>),
-}
-
-/// 处理 ARP 报文（统一入口）
-///
-/// 这是 processor 应该调用的统一接口，负责：
-/// 1. 解析 ARP 报文
-/// 2. 更新 ARP 缓存（需要提供 cache 参数）
-/// 3. 判断是否需要响应
-/// 4. 如果需要响应，构造并封装以太网帧
-///
-/// # 参数
-/// - packet: 可变引用的 Packet（已去除以太网头部）
-/// - local_mac: 本接口的 MAC 地址
-/// - local_ip: 本接口的 IP 地址
-/// - src_mac: 原始以太网帧的源 MAC（用于响应时的目标 MAC）
-/// - cache: 可变引用的 ARP 缓存
-/// - ifindex: 接口索引
-/// - verbose: 是否启用详细输出
-///
-/// # 返回
-/// - Ok(ArpProcessResult): 处理结果
-/// - Err(CoreError): 解析或处理失败
-pub fn process_arp(
-    packet: &mut Packet,
-    local_mac: MacAddr,
-    local_ip: Ipv4Addr,
-    src_mac: MacAddr,
-    cache: &mut ArpCache,
-    ifindex: u32,
-    verbose: bool,
-) -> Result<ArpProcessResult> {
-    // 解析 ARP 报文
-    let arp_pkt = ArpPacket::from_packet(packet)?;
-
-    if verbose {
-        println!("ARP报文:");
-        println!("  操作: {:?}", arp_pkt.operation);
-        println!("  发送方: MAC={}, IP={}",
-            arp_pkt.sender_hardware_addr, arp_pkt.sender_protocol_addr);
-        println!("  目标: MAC={}, IP={}",
-            arp_pkt.target_hardware_addr, arp_pkt.target_protocol_addr);
-
-        if arp_pkt.is_gratuitous() {
-            println!("  [免费ARP]");
-        }
-    }
-
-    // 调用核心处理逻辑
-    let reply = process_arp_packet(cache, ifindex, &arp_pkt, &[local_ip], local_mac)?;
-
-    match reply {
-        Some(reply_arp) => {
-            if verbose {
-                println!("  发送ARP响应: {} -> {}",
-                    reply_arp.sender_protocol_addr,
-                    reply_arp.target_protocol_addr);
-            }
-            // 封装为以太网帧
-            let frame = encapsulate_ethernet(&reply_arp, src_mac, local_mac);
-            Ok(ArpProcessResult::Reply(frame))
-        }
-        None => Ok(ArpProcessResult::NoReply),
-    }
 }
 
 // ========== 以太网帧封装辅助函数 ==========
@@ -471,4 +437,83 @@ pub fn encapsulate_ethernet(
     frame.extend_from_slice(&arp_packet.to_bytes());
 
     frame
+}
+
+// ========== 统一处理接口 ==========
+
+/// 处理ARP报文（统一入口，processor调用）
+///
+/// 这是 processor 应该调用的统一接口，负责：
+/// 1. 解析 ARP 报文
+/// 2. 获取接口信息（MAC、IP）
+/// 3. 获取全局 ARP 缓存
+/// 4. 调用核心处理逻辑更新缓存并判断是否需要响应
+/// 5. 如果需要响应，构造并封装以太网帧
+///
+/// # 参数
+/// - packet: 可变引用的 Packet（已去除以太网头部，offset在ARP位置位置）
+/// - eth_src: 原始以太网帧的源MAC地址（用于响应时的目标MAC）
+/// - ifindex: 接口索引
+/// - verbose: 是否启用详细输出
+///
+/// # 返回
+/// - Ok(ArpProcessResult): 处理结果（NoReply 或 Reply(完整以太网帧)）
+/// - Err(CoreError): 解析或处理失败
+pub fn process_arp_packet(
+    packet: &mut Packet,
+    eth_src: MacAddr,
+    ifindex: u32,
+    verbose: bool,
+) -> Result<ArpProcessResult> {
+    // 1. 解析 ARP 报文
+    let arp_pkt = ArpPacket::from_packet(packet)?;
+
+    if verbose {
+        println!("ARP报文:");
+        println!("  操作: {:?}", arp_pkt.operation);
+        println!("  发送方: MAC={}, IP={}",
+            arp_pkt.sender_hardware_addr, arp_pkt.sender_protocol_addr);
+        println!("  目标: MAC={}, IP={}",
+            arp_pkt.target_hardware_addr, arp_pkt.target_protocol_addr);
+
+        if arp_pkt.is_gratuitous() {
+            println!("  [免费ARP]");
+        }
+    }
+
+    // 2. 获取接口信息（MAC、IP）
+    let global_mgr = global_manager()
+        .ok_or_else(|| CoreError::parse_error("全局接口管理器未初始化"))?;
+
+    let (local_mac, local_ip) = {
+        let guard = global_mgr.lock()
+            .map_err(|e| CoreError::parse_error(format!("锁定接口管理器失败: {}", e)))?;
+        let iface = guard.get_by_index(ifindex)
+            .map_err(|e| CoreError::parse_error(format!("获取接口失败: {}", e)))?;
+        (iface.mac_addr, iface.ip_addr)
+    };
+
+    // 3. 获取全局 ARP 缓存
+    let global_cache = global_arp_cache()
+        .ok_or_else(|| CoreError::parse_error("全局 ARP 缓存未初始化"))?;
+
+    let mut cache = global_cache.lock()
+        .map_err(|e| CoreError::parse_error(format!("锁定 ARP 缓存失败: {}", e)))?;
+
+    // 4. 调用核心处理逻辑
+    let reply = handle_arp_packet(&mut cache, ifindex, &arp_pkt, &[local_ip], local_mac)?;
+
+    // 5. 封装响应（如有）
+    match reply {
+        Some(reply_arp) => {
+            if verbose {
+                println!("  发送ARP响应: {} -> {}",
+                    reply_arp.sender_protocol_addr,
+                    reply_arp.target_protocol_addr);
+            }
+            let frame = encapsulate_ethernet(&reply_arp, eth_src, local_mac);
+            Ok(ArpProcessResult::Reply(frame))
+        }
+        None => Ok(ArpProcessResult::NoReply),
+    }
 }

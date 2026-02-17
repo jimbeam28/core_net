@@ -12,6 +12,8 @@ pub struct Packet {
     pub offset: usize,
     /// VLAN ID (从VLAN标签解析而来，0表示无VLAN)
     pub vlan_id: u16,
+    /// 接口索引 (报文来自哪个接口，0表示未知)
+    pub ifindex: u32,
 }
 
 impl Packet {
@@ -23,6 +25,7 @@ impl Packet {
             data: Vec::new(),
             offset: 0,
             vlan_id: 0,
+            ifindex: 0,
         }
     }
 
@@ -32,6 +35,7 @@ impl Packet {
             data,
             offset: 0,
             vlan_id: 0,
+            ifindex: 0,
         }
     }
 
@@ -90,6 +94,7 @@ impl Packet {
         self.data.clear();
         self.offset = 0;
         self.vlan_id = 0;
+        self.ifindex = 0;
     }
 
     // ========== 复制相关 ==========
@@ -100,6 +105,7 @@ impl Packet {
             data: self.data.clone(),
             offset: self.offset,
             vlan_id: self.vlan_id,
+            ifindex: self.ifindex,
         }
     }
 
@@ -150,6 +156,16 @@ impl Packet {
     /// 获取VLAN ID
     pub fn get_vlan_id(&self) -> u16 {
         self.vlan_id
+    }
+
+    /// 设置接口索引
+    pub fn set_ifindex(&mut self, ifindex: u32) {
+        self.ifindex = ifindex;
+    }
+
+    /// 获取接口索引
+    pub fn get_ifindex(&self) -> u32 {
+        self.ifindex
     }
 }
 

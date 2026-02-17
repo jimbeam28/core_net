@@ -221,7 +221,10 @@ impl Scheduler {
                 let mut iface_count = 0;
                 loop {
                     match iface.rxq.dequeue() {
-                        Some(packet) => {
+                        Some(mut packet) => {
+                            // 设置接口索引
+                            packet.set_ifindex(iface.index);
+
                             // 根据是否有自定义处理器选择处理方式
                             let result = match &self.processor {
                                 Some(processor) => processor.process(packet),

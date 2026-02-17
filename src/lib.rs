@@ -68,3 +68,9 @@ pub use scheduler::{
     schedule_packets,
     schedule_packets_verbose,
 };
+
+// 导出 ARP 模块
+pub use protocols::arp::{
+    init_default_arp_cache, init_global_arp_cache,
+    ArpCache, ArpEntry, ArpState, ArpConfig,
+};

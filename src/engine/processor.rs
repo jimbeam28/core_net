@@ -108,7 +108,7 @@ impl PacketProcessor {
                 self.handle_vlan(eth_hdr, packet)?;
             }
             ETH_P_ARP => {
-                self.handle_arp(eth_hdr, packet)?;
+                return self.handle_arp(eth_hdr, packet);
             }
             ETH_P_IP => {
                 return Err(ProcessError::UnsupportedProtocol(
@@ -148,7 +148,7 @@ impl PacketProcessor {
 
     fn dispatch_inner_vlan(
         &self,
-        _eth_hdr: EthernetHeader,
+        eth_hdr: EthernetHeader,
         _outer_vlan: Option<VlanTag>,
         _inner_vlan: Option<VlanTag>,
         inner_type: u16,
@@ -159,8 +159,8 @@ impl PacketProcessor {
 
         match inner_type {
             ETH_P_ARP => {
-                // VLAN 内的 ARP 报文处理
-                self.handle_arp_packet(packet)?;
+                // VLAN 内的 ARP 报文处理，传递外层以太网头的源MAC
+                self.handle_arp_packet(packet, eth_hdr.src_mac())?;
             }
             ETH_P_IP => {
                 return Err(ProcessError::UnsupportedProtocol(
@@ -185,51 +185,26 @@ impl PacketProcessor {
             ));
         }
 
-        self.handle_arp_packet(packet)
+        self.handle_arp_packet(packet, eth_hdr.src_mac())
     }
 
     /// 处理 ARP 报文（统一入口）
     ///
-    /// 负责调用 ARP 模块进行解析和处理。
-    /// TODO: 后续需要传递接口上下文（MAC、IP）以支持生成响应报文。
-    fn handle_arp_packet(&self, mut packet: Packet) -> ProcessResult {
-        // 调用 ARP 模块解析报文
-        let arp_pkt = arp::ArpPacket::from_packet(&mut packet)?;
+    /// 调用 ARP 模块的统一处理接口。
+    ///
+    /// # 参数
+    /// - packet: Packet（已去除以太网头部）
+    /// - eth_src: 原始以太网帧的源MAC地址
+    fn handle_arp_packet(&self, mut packet: Packet, eth_src: crate::protocols::MacAddr) -> ProcessResult {
+        let ifindex = packet.get_ifindex();
+        let result = arp::process_arp_packet(&mut packet, eth_src, ifindex, self.verbose)
+            .map_err(|e| ProcessError::ParseError(format!("ARP处理失败: {}", e)))?;
 
-        // 输出 ARP 报文信息
-        if self.verbose {
-            println!("ARP报文:");
-            println!("  操作: {:?}", arp_pkt.operation);
-            println!("  发送方: MAC={}, IP={}",
-                arp_pkt.sender_hardware_addr, arp_pkt.sender_protocol_addr);
-            println!("  目标: MAC={}, IP={}",
-                arp_pkt.target_hardware_addr, arp_pkt.target_protocol_addr);
-
-            if arp_pkt.is_gratuitous() {
-                println!("  [免费ARP]");
-            }
-
-            match arp_pkt.operation {
-                arp::ArpOperation::Request => {
-                    println!("  收到ARP请求: {} -> {}",
-                        arp_pkt.sender_protocol_addr,
-                        arp_pkt.target_protocol_addr);
-                }
-                arp::ArpOperation::Reply => {
-                    println!("  收到ARP响应: {} -> {}",
-                        arp_pkt.sender_protocol_addr,
-                        arp_pkt.sender_hardware_addr);
-                }
-            }
+        // 根据处理结果返回
+        match result {
+            arp::ArpProcessResult::NoReply => Ok(None),
+            arp::ArpProcessResult::Reply(frame_bytes) => Ok(Some(Packet::from_bytes(frame_bytes))),
         }
-
-        // TODO: 后续添加接口上下文后，调用 process_arp 生成响应报文
-        // let reply = arp::process_arp(&mut packet, local_mac, local_ip, src_mac, ...)?;
-        // if let ArpProcessResult::Reply(frame) = reply {
-        //     return Ok(Some(Packet::from_bytes(frame)));
-        // }
-
-        Ok(None)
     }
 
     fn print_packet_info(&self, packet: &Packet) {
