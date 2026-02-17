@@ -719,6 +719,159 @@ pub use processor::{
 
 ### 9.1 单元测试
 
+#### 9.1.1 测试范围
+
+**PacketProcessor 基础功能测试**：
+- **正常路径**：创建处理器、命名处理器、设置 verbose 模式、获取处理器名称
+- **边界条件**：空报文、最小报文、最大报文
+- **错误路径**：无效报文格式、不支持的协议类型
+
+**协议分发测试**：
+- **正常路径**：VLAN 报文分发、ARP 报文分发、IPv4/IPv6 报文分发（未来）
+- **边界条件**：未知 EtherType、无效 VLAN 标签
+- **错误路径**：协议解析失败、格式错误
+
+**VLAN 处理调用测试**：
+- **正常路径**：单层 VLAN 标签、QinQ 双层标签、内层协议分发
+- **边界条件**：VLAN ID=0、VLAN ID=4095
+- **错误路径**：无效 VLAN TCI、截断的 VLAN 报文
+
+**ARP 处理调用测试**：
+- **正常路径**：ARP 请求处理、ARP 响应处理、ARP 缓存更新
+- **边界条件**：广播目标 MAC、单播目标 MAC
+- **错误路径**：无效 ARP 操作码、格式错误
+
+**错误转换测试**：
+- **CoreError 转换**：解析错误、格式错误、不支持的协议
+- **VlanError 转换**：VLAN 解析错误
+- **未来扩展**：IpError、TcpError 等
+
+#### 9.1.2 测试组织
+
+测试代码按以下类别组织：
+
+- **基础功能测试组**：处理器创建、命名、verbose 模式
+- **协议分发测试组**：VLAN、ARP、IPv4/IPv6 分发
+- **VLAN 处理测试组**：单层标签、QinQ、边界 TCI、截断报文
+- **ARP 处理测试组**：请求处理、响应处理、无效操作码
+- **完整流程测试组**：多层协议解析、错误传播
+- **错误转换测试组**：CoreError、VlanError 等
+
+测试辅助函数：
+- 报文构造函数：`create_vlan_packet()`, `create_arp_packet()`, `create_qinq_packet()` 等
+- 以太网头构造：`create_eth_header()`, `create_eth_header_with_mac()`
+- 边界测试数据：`create_truncated_packet()`, `create_malformed_packet()`
+
+#### 9.1.3 测试覆盖要点
+
+| 测试维度 | 覆盖要点 |
+|---------|---------|
+| **公共接口** | `PacketProcessor::new()`, `with_name()`, `with_verbose()`, `process()`<br>`process_packet()`, `process_packet_verbose()` 便捷函数 |
+| **内部逻辑** | `dispatch_by_ether_type()` 的所有 match 分支<br>`handle_vlan()` 的 VLAN 解析和内层分发<br>`handle_arp()` 的验证和处理流程 |
+| **边界条件** | 空 Packet、最小/最大报文长度<br>VLAN ID=0/4095 边界<br>广播 MAC 地址处理 |
+| **错误处理** | `ProcessError` 所有变体<br>各协议错误到 ProcessError 的转换<br>截断/畸形报文的处理 |
+| **协议调用** | 正确调用 `vlan::process_vlan_packet()`<br>正确调用 `arp::process_arp()`<br>验证接口参数传递 |
+
+### 9.2 集成测试
+
+#### 9.2.1 测试场景
+
+**场景一：VLAN + ARP 完整流程**
+- **涉及模块**：ethernet、vlan、arp、processor
+- **测试内容**：
+  - 注入完整的以太网帧（带 VLAN 标签 + ARP 报文）
+  - 验证逐层解析流程
+  - 验证 VLAN 模块正确解析标签
+  - 验证 ARP 模块正确处理并生成响应
+  - 验证返回的响应报文格式正确
+
+**场景二：多标签 VLAN 报文处理**
+- **涉及模块**：vlan、processor
+- **测试内容**：
+  - 注入 QinQ 双层标签报文
+  - 验证外层和内层标签都被正确解析
+  - 验证内层协议被正确分发
+
+**场景三：处理器与调度器集成**
+- **涉及模块**：processor、scheduler
+- **测试内容**：
+  - 调度器从队列取出报文
+  - 调用 processor.process() 处理
+  - 验证响应报文放入发送队列
+
+#### 9.2.2 测试依赖
+
+- **协议模块**：VLAN、ARP 模块的正确实现
+- **测试数据**：预构造的各种协议报文（字节数组）
+- **接口上下文**：需要模拟本地接口信息（MAC/IP）
+
+### 9.3 测试数据设计
+
+#### 9.3.1 测试数据来源
+
+- **手工构造报文**：使用字节数组构造各种协议报文
+- **辅助函数**：提供 `create_xxx_packet()` 系列函数
+- **真实抓包数据**：从实际网络捕获的报文样本（未来）
+
+#### 9.3.2 测试数据管理
+
+使用辅助函数构造测试报文和以太网头：
+
+- 报文构造：`create_vlan_packet()`, `create_arp_packet()`, `create_qinq_packet()`
+- 以太网头：`create_eth_header()`, `create_eth_header_with_mac()`
+- 边界测试：`create_truncated_packet()`, `create_malformed_packet()`
+
+协议常量：
+- `ETH_P_ARP: 0x0806`
+- `ETH_P_8021Q: 0x8100`
+- `ETH_P_8021AD: 0x88A8`
+
+### 9.4 Mock 和桩设计
+
+#### 9.4.1 需要模拟的组件
+
+- **接口信息**：模拟本地接口的 MAC/IP 地址
+- **ARP 缓存**：使用测试专用的 ARP 缓存实例
+- **协议模块**：对于 processor 测试，可以使用真实的协议模块
+
+#### 9.4.2 测试替身策略
+
+使用测试专用的接口上下文结构：
+
+```text
+TestInterfaceContext {
+    local_mac: MacAddr       // 本接口 MAC 地址
+    local_ip: Ipv4Addr        // 本接口 IP 地址
+}
+```
+
+提供默认测试值用于 ARP 处理测试。
+
+### 9.5 测试执行计划
+
+```bash
+# 运行 engine 模块所有测试
+cargo test engine
+
+# 运行 processor 测试
+cargo test processor
+
+# 运行特定测试
+cargo test test_handle_arp_request
+
+# 显示测试输出（包括 verbose 输出）
+cargo test -- --nocapture
+
+# 运行文档测试
+cargo test --doc
+```
+
+---
+
+## 十、实现路线图
+
+### 9.1 单元测试
+
 ```rust
 #[cfg(test)]
 mod tests {

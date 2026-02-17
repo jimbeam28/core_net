@@ -470,6 +470,139 @@ pub use global::{
 
 ---
 
+## 七、测试策略
+
+### 7.1 单元测试
+
+#### 7.1.1 测试范围
+
+**基础类型测试**：
+- **MacAddr**：MAC 地址创建、解析、比较、广播地址判断
+- **Ipv4Addr**：IP 地址创建、解析、网络地址计算、广播地址计算
+- **InterfaceState**：状态转换和判断
+- **InterfaceType**：类型判断
+
+**NetworkInterface 测试**：
+- **正常路径**：创建新接口、从配置创建接口、属性设置、状态管理
+- **边界条件**：MTU 最小/最大值、空地址处理
+- **错误路径**：无效 MAC/IP 格式、状态转换限制
+- **状态转换**：Up <-> Down、Testing、Error 状态转换
+
+**InterfaceManager 测试**：
+- **正常路径**：添加接口、查询接口、遍历接口
+- **边界条件**：空管理器、单接口、多接口
+- **错误路径**：重复名称、未找到接口、索引越界
+
+**配置文件测试**：
+- **正常路径**：加载正确配置、保存配置
+- **错误路径**：文件不存在、格式错误、无效值、重复接口名
+
+**全局管理器测试**：
+- **正常路径**：初始化、获取引用、修改接口
+- **并发安全**：多线程访问全局管理器
+- **错误路径**：未初始化访问、重复初始化
+
+#### 7.1.2 测试组织
+
+测试代码使用 Rust 标准的内嵌测试模式，在各源文件中通过 `#[cfg(test)]` 定义测试模块。
+
+测试按功能类别组织：
+- 基础类型测试组：MacAddr、Ipv4Addr、InterfaceState、InterfaceType
+- NetworkInterface 测试组：创建、配置、状态管理、地址计算
+- InterfaceManager 测试组：添加、查询、遍历接口
+- 配置文件测试组：加载、保存、错误处理
+- 全局管理器测试组：初始化、访问、修改、并发安全
+
+测试辅助函数：
+- `create_test_interface()`: 创建测试用接口
+- `create_test_config()`: 创建测试配置
+- `create_test_manager()`: 创建测试用管理器
+- `setup_global_manager()`: 初始化全局管理器
+- `cleanup_global_manager()`: 清理全局状态
+
+#### 7.1.3 测试覆盖要点
+
+| 测试维度 | 覆盖要点 |
+|---------|---------|
+| **公共接口** | NetworkInterface::new(), from_config(), 所有 setter/getter<br>InterfaceManager::add_interface(), get_by_name(), get_by_index()<br>全局管理器的所有便捷函数 |
+| **内部逻辑** | 名称到索引的映射维护<br>队列容量初始化<br>网络地址/广播地址计算算法 |
+| **边界条件** | MTU: 0, 576, 1500, 9000<br>接口数量: 0, 1, 最大值<br>队列容量: 最小值, 常用值 |
+| **错误处理** | InterfaceError 所有变体<br>配置文件解析所有错误分支 |
+| **并发安全** | 全局管理器的 Mutex 访问<br>多线程同时修改接口 |
+
+### 7.2 集成测试
+
+#### 7.2.1 测试场景
+
+**场景一：系统上电初始化流程**
+- **涉及模块**：poweron、interface
+- **测试内容**：
+  - 调用 `boot_default()` 初始化系统
+  - 验证全局接口管理器已创建
+  - 验证接口配置已从文件加载
+  - 验证每个接口的队列已正确初始化
+  - 验证接口状态符合配置
+
+**场景二：多接口协同工作**
+- **涉及模块**：interface、scheduler
+- **测试内容**：
+  - 创建多个接口（eth0, eth1, lo）
+  - 向不同接口的 RxQ 注入报文
+  - 验证每个接口独立处理报文
+  - 验证响应报文放入正确接口的 TxQ
+
+**场景三：接口配置运行时修改**
+- **涉及模块**：interface（全局管理器）、protocols
+- **测试内容**：
+  - 通过全局管理器修改接口 IP
+  - 验证 ARP 缓存更新
+  - 验证后续报文使用新 IP
+
+#### 7.2.2 测试依赖
+
+- **测试数据文件**：`src/interface/interface.toml`（测试配置）
+- **模拟模块**：无（使用真实模块）
+- **环境准备**：每个测试前清理全局状态
+
+### 7.3 测试数据设计
+
+#### 7.3.1 测试数据来源
+
+- **配置文件**：使用真实的 `interface.toml` 作为基础
+- **辅助构造函数**：提供 `create_test_interface()`, `create_test_config()` 等
+- **边界值数据**：手工构造的边界 MAC/IP 地址
+
+#### 7.3.2 测试数据管理
+
+提供辅助函数用于创建测试数据：
+
+- `create_test_interface()`: 创建默认测试接口
+- `create_test_config()`: 创建测试配置对象
+- `create_test_manager()`: 创建预配置的管理器
+- `setup_global_manager()`: 初始化全局状态
+- `cleanup_global_manager()`: 清理全局状态
+
+### 7.4 测试执行计划
+
+```bash
+# 运行 interface 模块所有测试
+cargo test interface
+
+# 运行特定文件测试
+cargo test --lib interface::tests
+
+# 运行特定测试用例
+cargo test test_interface_creation
+
+# 显示测试输出
+cargo test -- --nocapture
+
+# 运行文档测试
+cargo test --doc
+```
+
+---
+
 ## 八、实现路线图
 
 | 阶段 | 内容 | 状态 |

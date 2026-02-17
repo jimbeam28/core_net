@@ -406,15 +406,134 @@ pub use scheduler::{
 
 ### 7.1 单元测试
 
-- 创建调度器测试
-- 空队列调度测试
-- 单报文调度测试
-- 多报文调度测试
+#### 7.1.1 测试范围
+
+**Scheduler 基础功能测试**：
+- **正常路径**：创建调度器、设置处理器、设置 verbose 模式
+- **边界条件**：空队列、单报文、最大队列容量
+- **错误路径**：队列错误、处理器错误
+
+**单队列调度测试**：
+- **正常路径**：空队列终止、处理多个报文、响应报文放入 TxQ
+- **边界条件**：队列为空立即返回、单个报文处理
+- **错误路径**：处理器返回错误、队列操作失败
+
+**多接口调度测试**：
+- **正常路径**：遍历所有接口、每个接口独立处理、统计总处理数
+- **边界条件**：空管理器、单接口、多接口
+- **错误路径**：接口获取失败、处理错误不影响其他接口
+
+**错误处理测试**：
+- **正常路径**：单个报文处理失败继续处理后续报文
+- **边界条件**：所有报文都失败
+- **错误路径**：队列满错误、处理器严重错误
+
+#### 7.1.2 测试组织
+
+测试代码按以下类别组织：
+
+- **基础功能测试组**：创建调度器、设置处理器、verbose 模式
+- **单队列调度测试组**：空队列、单报文、多报文、停止条件、响应处理、错误处理、队列满处理
+- **多接口调度测试组**：空管理器、单接口、多接口、响应到正确 TxQ、部分空、错误继续
+- **便捷函数测试组**：`schedule_packets()`, `schedule_packets_verbose()`
+
+测试辅助函数：
+- `create_test_scheduler()`: 创建带处理器的测试调度器
+- `create_test_packet()`: 创建基础测试报文
+- `create_arp_request_packet()`: 创建会生成响应的 ARP 请求
+- `create_invalid_packet()`: 创建无效报文
+- `create_single_interface_manager()`: 创建单接口管理器
+- `create_multi_interface_manager()`: 创建多接口管理器（eth0 + lo）
+
+#### 7.1.3 测试覆盖要点
+
+| 测试维度 | 覆盖要点 |
+|---------|---------|
+| **公共接口** | `Scheduler::new()`, `with_processor()`, `with_verbose()`<br>`run()`, `run_all_interfaces()`<br>`schedule_packets()`, `schedule_packets_verbose()` |
+| **内部逻辑** | 队列循环逻辑<br>多接口遍历逻辑<br>响应报文处理逻辑 |
+| **边界条件** | 空队列、单报文、队列满<br>空管理器、单接口、多接口 |
+| **错误处理** | `ScheduleError` 所有变体<br>处理器错误的容忍处理<br>队列错误的传播 |
+| **数据流** | RxQ → Processor → TxQ 的完整路径<br>响应报文放入正确接口的 TxQ |
 
 ### 7.2 集成测试
 
-- 注入多个报文 -> 验证全部处理完成
-- 处理器返回错误 -> 验证调度继续处理后续报文
+#### 7.2.1 测试场景
+
+**场景一：完整的报文处理流程**
+- **涉及模块**：scheduler、engine、interface
+- **测试内容**：
+  - 创建接口管理器
+  - 向接口 RxQ 注入测试报文
+  - 创建调度器和处理器
+  - 运行调度器
+  - 验证所有报文被处理
+  - 验证响应报文在 TxQ 中
+
+**场景二：多接口负载均衡**
+- **涉及模块**：scheduler、interface
+- **测试内容**：
+  - 创建多个接口
+  - 向不同接口注入不同数量的报文
+  - 运行多接口调度
+  - 验证每个接口的报文都被处理
+  - 验证处理总数正确
+
+**场景三：系统上电后的调度**
+- **涉及模块**：scheduler、poweron、engine
+- **测试内容**：
+  - 调用 `boot_default()` 启动系统
+  - 创建调度器
+  - 向各接口注入报文
+  - 运行多接口调度
+  - 验证结果
+  - 调用 `shutdown()` 关闭系统
+
+#### 7.2.2 测试依赖
+
+- **Engine 模块**：正确实现 `PacketProcessor::process()`
+- **Interface 模块**：正确实现接口管理和队列
+- **测试数据**：各种类型的报文（ARP、VLAN 等）
+
+### 7.3 测试数据设计
+
+#### 7.3.1 测试数据来源
+
+- **辅助构造函数**：`create_test_packet()`, `create_arp_request_packet()` 等
+- **接口管理器构造**：`create_single_interface_manager()`, `create_multi_interface_manager()`
+- **协议报文**：手工构造的以太网帧（包含各种协议）
+
+#### 7.3.2 测试数据管理
+
+提供辅助函数用于创建测试数据：
+
+**报文构造**：
+- `create_test_packet()`: 基础测试报文
+- `create_arp_request_packet()`: 会生成响应的 ARP 请求
+- `create_invalid_packet()`: 无效报文
+
+**接口管理器构造**：
+- `create_single_interface_manager()`: 单接口管理器
+- `create_multi_interface_manager()`: 多接口管理器（eth0 + lo）
+
+### 7.4 测试执行计划
+
+```bash
+# 运行 scheduler 模块所有测试
+cargo test scheduler
+
+# 运行特定测试
+cargo test test_run_empty_queue
+cargo test test_run_all_interfaces_multiple_interfaces
+
+# 显示测试输出（包括 verbose 输出）
+cargo test -- --nocapture
+
+# 运行文档测试
+cargo test --doc
+
+# 运行集成测试
+cargo test --test integration_test
+```
 
 ---
 
