@@ -86,19 +86,4 @@ impl EthernetHeader {
             ether_type,
         })
     }
-
-    /// 获取目标 MAC 地址
-    pub fn dst_mac(&self) -> MacAddr {
-        self.dst_mac
-    }
-
-    /// 获取源 MAC 地址
-    pub fn src_mac(&self) -> MacAddr {
-        self.src_mac
-    }
-
-    /// 获取以太网类型
-    pub fn ether_type(&self) -> u16 {
-        self.ether_type
-    }
 }

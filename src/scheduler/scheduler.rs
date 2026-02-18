@@ -344,14 +344,7 @@ mod tests {
             MacAddr::zero(),
             dst_ip,
         );
-
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&dst_mac.bytes);
-        bytes.extend_from_slice(&src_mac.bytes);
-        bytes.extend_from_slice(&ETH_P_ARP.to_be_bytes());
-        bytes.extend_from_slice(&arp_pkt.to_bytes());
-
-        Packet::from_bytes(bytes)
+        Packet::from_bytes(ethernet::build_ethernet_frame(dst_mac, src_mac, ETH_P_ARP, &arp_pkt.to_bytes()))
     }
 
     /// 创建无效报文（太短）

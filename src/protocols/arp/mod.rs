@@ -5,6 +5,7 @@
 
 use crate::common::{CoreError, Result};
 use crate::protocols::{Packet, MacAddr, Ipv4Addr};
+use crate::protocols::ethernet;
 use crate::interface::global_manager;
 use std::collections::VecDeque;
 
@@ -239,24 +240,6 @@ impl ArpPacket {
 
 // ========== ARP 报文处理核心逻辑 ==========
 
-/// 处理接收到的 ARP 报文
-///
-/// 根据设计文档第 4.2 节的规范实现：
-/// 1. 自动学习：无论什么类型的 ARP 报文，都更新缓存
-/// 2. 判断响应：如果是发给本机的请求，构造响应
-/// 3. 处理等待队列：如果是响应，检查并处理等待的请求
-///
-/// # 参数
-/// - cache: 可变引用的 ARP 缓存
-/// - ifindex: 网络接口索引
-/// - packet: 已解析的 ARP 报文
-/// - local_ips: 本机接口的 IP 地址列表
-/// - local_mac: 本机接口的 MAC 地址
-///
-/// # 返回
-/// - Ok(Some(reply_packet)): 需要发送的响应报文
-/// - Ok(None): 不需要发送响应
-/// - Err(CoreError): 处理失败
 /// 处理已解析的 ArpPacket
 ///
 /// 根据设计文档第 4.2 节的规范实现：
@@ -444,17 +427,7 @@ pub fn encapsulate_ethernet(
     dst_mac: MacAddr,
     src_mac: MacAddr,
 ) -> Vec<u8> {
-    let mut frame = Vec::new();
-
-    // 以太网头部 (14 字节)
-    frame.extend_from_slice(&dst_mac.bytes);  // DST MAC (6 字节)
-    frame.extend_from_slice(&src_mac.bytes);  // SRC MAC (6 字节)
-    frame.extend_from_slice(&0x0806u16.to_be_bytes());  // Ether Type: ARP (2 字节)
-
-    // ARP 报文
-    frame.extend_from_slice(&arp_packet.to_bytes());
-
-    frame
+    ethernet::build_ethernet_frame(dst_mac, src_mac, 0x0806, &arp_packet.to_bytes())
 }
 
 // ========== 统一处理接口 ==========

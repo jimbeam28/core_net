@@ -26,7 +26,6 @@ pub use common::{
     // 队列相关
     RingQueue,
     QueueError,
-    QueueConfig,
 
     // 队列常量
     DEFAULT_QUEUE_CAPACITY,

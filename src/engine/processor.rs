@@ -103,7 +103,7 @@ impl PacketProcessor {
     ) -> ProcessResult {
         use crate::common::{ETH_P_IP, ETH_P_ARP, ETH_P_IPV6, ETH_P_8021Q, ETH_P_8021AD};
 
-        match eth_hdr.ether_type() {
+        match eth_hdr.ether_type {
             ETH_P_8021Q | ETH_P_8021AD => {
                 self.handle_vlan(eth_hdr, packet)?;
             }
@@ -122,7 +122,7 @@ impl PacketProcessor {
             }
             _ => {
                 return Err(ProcessError::UnsupportedProtocol(
-                    format!("Unknown ethernet type: 0x{:04x}", eth_hdr.ether_type())
+                    format!("Unknown ethernet type: 0x{:04x}", eth_hdr.ether_type)
                 ));
             }
         }
@@ -160,7 +160,7 @@ impl PacketProcessor {
         match inner_type {
             ETH_P_ARP => {
                 // VLAN 内的 ARP 报文处理，传递外层以太网头的源MAC
-                self.handle_arp_packet(packet, eth_hdr.src_mac())?;
+                self.handle_arp_packet(packet, eth_hdr.src_mac)?;
             }
             ETH_P_IP => {
                 return Err(ProcessError::UnsupportedProtocol(
@@ -181,7 +181,7 @@ impl PacketProcessor {
         // 注意：只对 ARP Request 进行目标MAC验证
         // ARP Reply 的目标 MAC 是单播地址（接收方的MAC），不需要验证
 
-        self.handle_arp_packet(packet, eth_hdr.src_mac())
+        self.handle_arp_packet(packet, eth_hdr.src_mac)
     }
 
     /// 处理 ARP 报文（统一入口）
@@ -216,9 +216,9 @@ impl PacketProcessor {
 
     fn print_eth_header(&self, hdr: &EthernetHeader) {
         println!("Ethernet header:");
-        println!("  DST: {}", hdr.dst_mac());
-        println!("  SRC: {}", hdr.src_mac());
-        println!("  Type: 0x{:04x}", hdr.ether_type());
+        println!("  DST: {}", hdr.dst_mac);
+        println!("  SRC: {}", hdr.src_mac);
+        println!("  Type: 0x{:04x}", hdr.ether_type);
     }
 }
 
@@ -249,11 +249,7 @@ mod tests {
     /// 构造以太网头部字节
     #[allow(dead_code)]
     fn create_eth_header_bytes(dst_mac: MacAddr, src_mac: MacAddr, ether_type: u16) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(14);
-        bytes.extend_from_slice(&dst_mac.bytes);
-        bytes.extend_from_slice(&src_mac.bytes);
-        bytes.extend_from_slice(&ether_type.to_be_bytes());
-        bytes
+        ethernet::build_ethernet_frame(dst_mac, src_mac, ether_type, &[])
     }
 
     /// 构造 VLAN TCI (Tag Control Information)
@@ -302,27 +298,14 @@ mod tests {
         src_ip: Ipv4Addr,
         dst_ip: Ipv4Addr,
     ) -> Packet {
-        // 创建 ARP 报文
         let arp_pkt = ArpPacket::new(
             ArpOperation::Request,
             src_mac,
             src_ip,
-            MacAddr::zero(),  // ARP 请求中目标 MAC 为 0
+            MacAddr::zero(),
             dst_ip,
         );
-
-        // 构造完整报文：以太网头 + ARP 报文
-        let mut bytes = Vec::new();
-
-        // 以太网头
-        bytes.extend_from_slice(&dst_mac.bytes);
-        bytes.extend_from_slice(&src_mac.bytes);
-        bytes.extend_from_slice(&ETH_P_ARP.to_be_bytes());
-
-        // ARP 报文
-        bytes.extend_from_slice(&arp_pkt.to_bytes());
-
-        Packet::from_bytes(bytes)
+        Packet::from_bytes(ethernet::build_ethernet_frame(dst_mac, src_mac, ETH_P_ARP, &arp_pkt.to_bytes()))
     }
 
     /// 构造 ARP 响应报文（带以太网头）
@@ -339,14 +322,7 @@ mod tests {
             dst_mac,
             dst_ip,
         );
-
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&dst_mac.bytes);
-        bytes.extend_from_slice(&src_mac.bytes);
-        bytes.extend_from_slice(&ETH_P_ARP.to_be_bytes());
-        bytes.extend_from_slice(&arp_pkt.to_bytes());
-
-        Packet::from_bytes(bytes)
+        Packet::from_bytes(ethernet::build_ethernet_frame(dst_mac, src_mac, ETH_P_ARP, &arp_pkt.to_bytes()))
     }
 
     /// 构造 QinQ 双层标签报文

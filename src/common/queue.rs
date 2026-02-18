@@ -47,23 +47,6 @@ impl From<QueueError> for CoreError {
     }
 }
 
-// ========== 队列配置 ==========
-
-/// 队列配置
-#[derive(Debug, Clone, Copy)]
-pub struct QueueConfig {
-    /// 队列容量（默认：256）
-    pub capacity: usize,
-}
-
-impl Default for QueueConfig {
-    fn default() -> Self {
-        QueueConfig {
-            capacity: DEFAULT_QUEUE_CAPACITY,
-        }
-    }
-}
-
 // ========== RingQueue：环形队列 ==========
 
 /// 环形队列
@@ -98,10 +81,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RingQueue<T> {
 }
 
 impl<T> RingQueue<T> {
-    /// 创建新的环形队列
-    ///
-    /// # 参数
-    /// - `capacity`: 队列容量
+    /// 创建指定容量的环形队列
     pub fn new(capacity: usize) -> Self {
         let capacity = capacity.clamp(MIN_QUEUE_CAPACITY, MAX_QUEUE_CAPACITY);
         RingQueue {
@@ -113,22 +93,7 @@ impl<T> RingQueue<T> {
         }
     }
 
-    /// 使用配置创建队列
-    ///
-    /// # 参数
-    /// - `config`: 队列配置
-    pub fn with_config(config: QueueConfig) -> Self {
-        Self::new(config.capacity)
-    }
-
-    /// 入队
-    ///
-    /// # 参数
-    /// - `item`: 要入队的元素
-    ///
-    /// # 返回
-    /// - `Ok(())`: 入队成功
-    /// - `Err(QueueError::Full)`: 队列已满
+    /// 入队元素，队列满时返回 QueueError::Full
     pub fn enqueue(&mut self, item: T) -> std::result::Result<(), QueueError> {
         if self.count >= self.capacity {
             return Err(QueueError::Full);
@@ -141,11 +106,7 @@ impl<T> RingQueue<T> {
         Ok(())
     }
 
-    /// 出队
-    ///
-    /// # 返回
-    /// - `Some(item)`: 出队成功，返回元素
-    /// - `None`: 队列为空
+    /// 出队元素，队列为空时返回 None
     pub fn dequeue(&mut self) -> Option<T> {
         if self.count == 0 {
             return None;
@@ -206,20 +167,6 @@ mod tests {
         assert!(q.is_empty());
         assert!(!q.is_full());
         assert_eq!(q.len(), 0);
-    }
-
-    #[test]
-    fn test_default_config() {
-        let config = QueueConfig::default();
-        let q: RingQueue<u8> = RingQueue::with_config(config);
-        assert_eq!(q.capacity(), DEFAULT_QUEUE_CAPACITY);
-    }
-
-    #[test]
-    fn test_custom_config() {
-        let config = QueueConfig { capacity: 100 };
-        let q: RingQueue<u8> = RingQueue::with_config(config);
-        assert_eq!(q.capacity(), 100);
     }
 
     #[test]

@@ -144,7 +144,7 @@ impl Ipv4Addr {
 
     /// 是否为未指定地址 0.0.0.0
     pub fn is_unspecified(&self) -> bool {
-        self.bytes.iter().all(|&b| b == 0)
+        self.is_zero()
     }
 
     /// 是否为广播地址 255.255.255.255

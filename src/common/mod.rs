@@ -21,9 +21,6 @@ pub use queue::{
     // 错误
     QueueError,
 
-    // 队列配置
-    QueueConfig,
-
     // 常量定义
     DEFAULT_QUEUE_CAPACITY,
     MIN_QUEUE_CAPACITY,
