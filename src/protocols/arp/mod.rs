@@ -23,6 +23,7 @@ pub use tables::{
 pub use global::{
     init_global_arp_cache,
     global_arp_cache,
+    get_or_init_global_arp_cache,
     init_default_arp_cache,
 };
 
@@ -281,19 +282,19 @@ pub fn handle_arp_packet(
     local_ips: &[Ipv4Addr],
     local_mac: MacAddr,
 ) -> Result<Option<ArpPacket>> {
-    // 第一步：自动学习（更新缓存）
-    // 对于收到的任何 ARP 报文，首先更新发送方的映射
-    cache.update_arp(
-        ifindex,
-        packet.sender_protocol_addr,
-        packet.sender_hardware_addr,
-        ArpState::Reachable,
-    );
-
-    // 第二步：根据操作类型处理
+    // 根据操作类型处理
     match packet.operation {
         ArpOperation::Request => {
-            // 检查目标 IP 是否是本机
+            // 第一步：自动学习（更新缓存）
+            // 对于ARP请求，学习发送方的MAC地址，状态设为Reachable
+            cache.update_arp(
+                ifindex,
+                packet.sender_protocol_addr,
+                packet.sender_hardware_addr,
+                ArpState::Reachable,
+            );
+
+            // 第二步：检查目标 IP 是否是本机
             if local_ips.contains(&packet.target_protocol_addr) {
                 // 需要响应
                 let reply = ArpPacket::new(
@@ -309,19 +310,36 @@ pub fn handle_arp_packet(
             Ok(None)
         }
         ArpOperation::Reply => {
-            // 检查是否有等待的请求
+            // 对于ARP响应，需要处理不同的状态转换场景
             if let Some(entry) = cache.lookup_mut_arp(ifindex, packet.sender_protocol_addr) {
+                // 场景1：有条目存在
                 if entry.state == ArpState::Incomplete {
-                    // 更新状态为可达
+                    // Incomplete -> Reachable：收到匹配的响应
                     entry.state = ArpState::Reachable;
                     entry.hardware_addr = packet.sender_hardware_addr;
                     entry.updated_at = std::time::Instant::now();
                     entry.confirmed_at = std::time::Instant::now();
+                    entry.retry_count = 0;
 
                     // 清空等待队列
                     entry.take_pending();
+                } else {
+                    // 其他状态：自动学习，更新MAC地址和时间戳
+                    entry.hardware_addr = packet.sender_hardware_addr;
+                    entry.updated_at = std::time::Instant::now();
+                    entry.confirmed_at = std::time::Instant::now();
+                    entry.state = ArpState::Reachable;
                 }
+            } else {
+                // 场景2：没有条目存在，创建新的Reachable条目（自动学习）
+                cache.update_arp(
+                    ifindex,
+                    packet.sender_protocol_addr,
+                    packet.sender_hardware_addr,
+                    ArpState::Reachable,
+                );
             }
+
             // 收到响应后不需要发送任何报文
             Ok(None)
         }
@@ -482,20 +500,20 @@ pub fn process_arp_packet(
     }
 
     // 2. 获取接口信息（MAC、IP）
-    let global_mgr = global_manager()
-        .ok_or_else(|| CoreError::parse_error("全局接口管理器未初始化"))?;
-
+    // 注意：先获取接口信息，释放锁后再获取 ARP 缓存锁，避免死锁
     let (local_mac, local_ip) = {
+        let global_mgr = global_manager()
+            .ok_or_else(|| CoreError::parse_error("全局接口管理器未初始化"))?;
         let guard = global_mgr.lock()
             .map_err(|e| CoreError::parse_error(format!("锁定接口管理器失败: {}", e)))?;
         let iface = guard.get_by_index(ifindex)
             .map_err(|e| CoreError::parse_error(format!("获取接口失败: {}", e)))?;
+        // 锁在这里自动释放
         (iface.mac_addr, iface.ip_addr)
     };
 
-    // 3. 获取全局 ARP 缓存
-    let global_cache = global_arp_cache()
-        .ok_or_else(|| CoreError::parse_error("全局 ARP 缓存未初始化"))?;
+    // 3. 获取全局 ARP 缓存（使用 get_or_init 确保线程安全的懒初始化）
+    let global_cache = get_or_init_global_arp_cache();
 
     let mut cache = global_cache.lock()
         .map_err(|e| CoreError::parse_error(format!("锁定 ARP 缓存失败: {}", e)))?;

@@ -200,6 +200,181 @@ impl ArpCache {
     pub fn remove_arp(&mut self, ifindex: u32, ip_addr: Ipv4Addr) -> Option<ArpEntry> {
         self.entries.remove(&(ifindex, ip_addr))
     }
+
+    // ========== 定时器处理方法 ==========
+
+    /// 处理单个ARP条目的老化
+    ///
+    /// 根据条目状态和时间戳判断是否需要状态转换
+    ///
+    /// # 参数
+    /// - key: ARP条目键
+    ///
+    /// # 返回
+    /// - true: 条目需要发送ARP请求（Incomplete/Probe状态超时）
+    /// - false: 条目不需要发送请求
+    pub fn age_entry(&mut self, key: &ArpKey) -> bool {
+        let now = Instant::now();
+        let config = &self.config;
+
+        if let Some(entry) = self.entries.get_mut(key) {
+            match entry.state {
+                ArpState::Reachable => {
+                    // 检查是否超时转为Stale
+                    if now.duration_since(entry.confirmed_at).as_secs() >= config.aging_timeout {
+                        entry.state = ArpState::Stale;
+                    }
+                    false
+                }
+                ArpState::Stale => {
+                    // Stale状态在需要使用时转为Delay，这里不主动转换
+                    false
+                }
+                ArpState::Delay => {
+                    // 检查延迟定时器是否到期
+                    if now.duration_since(entry.updated_at).as_secs() >= config.delay_timeout {
+                        entry.state = ArpState::Probe;
+                        entry.retry_count = 0;
+                        true // 需要发送探测请求
+                    } else {
+                        false
+                    }
+                }
+                ArpState::Probe => {
+                    // 检查探测定时器是否到期
+                    if now.duration_since(entry.updated_at).as_secs() >= config.probe_timeout {
+                        entry.retry_count += 1;
+                        entry.updated_at = now;
+
+                        if entry.retry_count > config.max_retries {
+                            // 超过最大重试次数，删除条目
+                            self.entries.remove(key);
+                            false
+                        } else {
+                            // 继续探测
+                            true // 需要发送探测请求
+                        }
+                    } else {
+                        false
+                    }
+                }
+                ArpState::Incomplete => {
+                    // 检查重传定时器是否到期
+                    if now.duration_since(entry.updated_at).as_secs() >= config.retrans_timeout {
+                        entry.retry_count += 1;
+                        entry.updated_at = now;
+
+                        if entry.retry_count > config.max_retries {
+                            // 超过最大重试次数，删除条目
+                            self.entries.remove(key);
+                            false
+                        } else {
+                            // 需要重传ARP请求
+                            true
+                        }
+                    } else {
+                        false
+                    }
+                }
+                ArpState::None => {
+                    // None状态不处理
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+
+    /// 标记条目需要使用（用于Stale -> Delay转换）
+    ///
+    /// 当需要使用一个Stale状态的条目时，调用此方法将其转为Delay状态
+    ///
+    /// # 参数
+    /// - ifindex: 接口索引
+    /// - ip_addr: IP地址
+    ///
+    /// # 返回
+    /// - true: 条目存在且转为Delay状态
+    /// - false: 条目不存在或不是Stale状态
+    pub fn mark_used(&mut self, ifindex: u32, ip_addr: Ipv4Addr) -> bool {
+        let key = (ifindex, ip_addr);
+        if let Some(entry) = self.entries.get_mut(&key) {
+            if entry.state == ArpState::Stale {
+                entry.state = ArpState::Delay;
+                entry.updated_at = Instant::now();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 获取需要发送请求的条目列表
+    ///
+    /// 遍历所有条目，返回需要发送ARP请求的条目
+    ///
+    /// # 返回
+    /// 需要发送请求的条目列表：(ifindex, ip_addr, state)
+    pub fn get_pending_requests(&mut self) -> Vec<(u32, Ipv4Addr, ArpState)> {
+        let mut pending = Vec::new();
+        let keys: Vec<ArpKey> = self.entries.keys().copied().collect();
+
+        for key in keys {
+            if self.age_entry(&key) {
+                if let Some(entry) = self.entries.get(&key) {
+                    pending.push((key.0, key.1, entry.state));
+                }
+            }
+        }
+
+        pending
+    }
+
+    /// 添加等待的数据包到Incomplete条目
+    ///
+    /// # 参数
+    /// - ifindex: 接口索引
+    /// - ip_addr: IP地址
+    /// - packet: 等待的数据包
+    ///
+    /// # 返回
+    /// - Ok(()): 添加成功
+    /// - Err(CoreError): 条目不存在或状态不是Incomplete
+    pub fn add_pending_packet(&mut self, ifindex: u32, ip_addr: Ipv4Addr, packet: Packet) -> crate::common::Result<()> {
+        let key = (ifindex, ip_addr);
+        if let Some(entry) = self.entries.get_mut(&key) {
+            if entry.state == ArpState::Incomplete {
+                entry.add_pending(packet);
+                Ok(())
+            } else {
+                Err(crate::common::CoreError::invalid_packet(
+                    format!("ARP条目状态不是Incomplete: {:?}", entry.state)
+                ))
+            }
+        } else {
+            Err(crate::common::CoreError::invalid_packet(
+                "ARP条目不存在"
+            ))
+        }
+    }
+
+    /// 获取并清空等待队列
+    ///
+    /// # 参数
+    /// - ifindex: 接口索引
+    /// - ip_addr: IP地址
+    ///
+    /// # 返回
+    /// 等待队列的数据包数量
+    pub fn take_pending_packets(&mut self, ifindex: u32, ip_addr: Ipv4Addr) -> usize {
+        let key = (ifindex, ip_addr);
+        if let Some(entry) = self.entries.get_mut(&key) {
+            let pending = entry.take_pending();
+            pending.len()
+        } else {
+            0
+        }
+    }
 }
 
 // 实现 Table trait

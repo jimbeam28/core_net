@@ -178,12 +178,8 @@ impl PacketProcessor {
 
     /// 处理普通以太网帧中的 ARP 报文
     fn handle_arp(&self, eth_hdr: EthernetHeader, packet: Packet) -> ProcessResult {
-        // 验证目标 MAC 地址（广播或本机）
-        if !eth_hdr.dst_mac().is_broadcast() && !eth_hdr.dst_mac().is_zero() {
-            return Err(ProcessError::InvalidPacket(
-                format!("Invalid ARP destination MAC: {}", eth_hdr.dst_mac())
-            ));
-        }
+        // 注意：只对 ARP Request 进行目标MAC验证
+        // ARP Reply 的目标 MAC 是单播地址（接收方的MAC），不需要验证
 
         self.handle_arp_packet(packet, eth_hdr.src_mac())
     }

@@ -361,7 +361,485 @@ pub struct ArpConfig {
 
 ---
 
-## 6. 参考资料
+## 6. 测试设计
+
+### 6.1 报文接收场景测试
+
+本节详细描述收到各种ARP报文后的预期行为，包括本地资源更新和响应报文内容。
+
+#### 6.1.1 测试环境配置
+
+```
+本机接口配置：
+- ifindex: 1
+- MAC地址: 00:11:22:33:44:55
+- IP地址: 192.168.1.10
+
+远程主机：
+- 主机A: MAC=aa:bb:cc:dd:ee:01, IP=192.168.1.100
+- 主机B: MAC=aa:bb:cc:dd:ee:02, IP=192.168.1.200
+```
+
+#### 6.1.2 场景1：收到ARP请求（目标IP是本机）
+
+**输入报文：**
+```
+ARP Request (Operation = 1):
+  Hardware Type = 1
+  Protocol Type = 0x0800
+  Hardware Addr Len = 6
+  Protocol Addr Len = 4
+  SHA = aa:bb:cc:dd:ee:01 (主机A的MAC)
+  SPA = 192.168.1.100 (主机A的IP)
+  THA = 00:00:00:00:00:00 (广播)
+  TPA = 192.168.1.10 (本机IP)
+
+以太网封装:
+  DST MAC = ff:ff:ff:ff:ff:ff
+  SRC MAC = aa:bb:cc:dd:ee:01
+  Ether Type = 0x0806
+```
+
+**本地资源更新：**
+```rust
+// ARP缓存新增/更新条目
+ArpEntry {
+    ifindex: 1,
+    proto_addr: 192.168.1.100,
+    hardware_addr: aa:bb:cc:dd:ee:01,
+    state: Reachable,      // 从None/其他状态 -> Reachable
+    created_at: <now>,
+    updated_at: <now>,     // 刷新时间戳
+    confirmed_at: <now>,   // 刷新确认时间
+    pending_packets: [],   // 空队列
+    retry_count: 0,
+}
+```
+
+**响应报文：**
+```
+ARP Reply (Operation = 2):
+  Hardware Type = 1
+  Protocol Type = 0x0800
+  Hardware Addr Len = 6
+  Protocol Addr Len = 4
+  Operation = 2
+  SHA = 00:11:22:33:44:55 (本机MAC)
+  SPA = 192.168.1.10 (本机IP，即收到的TPA)
+  THA = aa:bb:cc:dd:ee:01 (请求者的MAC，即收到的SHA)
+  TPA = 192.168.1.100 (请求者的IP，即收到的SPA)
+
+以太网封装:
+  DST MAC = aa:bb:cc:dd:ee:01 (单播给请求者)
+  SRC MAC = 00:11:22:33:44:55
+  Ether Type = 0x0806
+```
+
+#### 6.1.3 场景2：收到ARP请求（目标IP不是本机）
+
+**输入报文：**
+```
+ARP Request (Operation = 1):
+  SHA = aa:bb:cc:dd:ee:01
+  SPA = 192.168.1.100
+  THA = 00:00:00:00:00:00
+  TPA = 192.168.1.200 (主机B的IP，不是本机)
+```
+
+**本地资源更新：**
+```rust
+// 仍然更新缓存（自动学习）
+ArpEntry {
+    ifindex: 1,
+    proto_addr: 192.168.1.100,
+    hardware_addr: aa:bb:cc:dd:ee:01,
+    state: Reachable,  // 自动学习发送方的映射
+    updated_at: <now>, // 刷新时间戳
+    // ... 其他字段
+}
+```
+
+**响应报文：** 无（不发送任何响应）
+
+#### 6.1.4 场景3：收到ARP响应（匹配等待的请求）
+
+**前提条件：** 已发送ARP请求，缓存中存在INCOMPLETE状态的条目
+
+**初始状态：**
+```rust
+ArpEntry {
+    ifindex: 1,
+    proto_addr: 192.168.1.100,
+    hardware_addr: 00:00:00:00:00:00,  // 未解析
+    state: Incomplete,  // 等待响应
+    pending_packets: [packet1, packet2],  // 有2个等待的数据包
+    retry_count: 1,
+}
+```
+
+**输入报文：**
+```
+ARP Reply (Operation = 2):
+  SHA = aa:bb:cc:dd:ee:01
+  SPA = 192.168.1.100
+  THA = 00:11:22:33:44:55 (本机MAC)
+  TPA = 192.168.1.10 (本机IP)
+```
+
+**本地资源更新：**
+```rust
+ArpEntry {
+    ifindex: 1,
+    proto_addr: 192.168.1.100,
+    hardware_addr: aa:bb:cc:dd:ee:01,  // 更新为正确的MAC
+    state: Reachable,      // Incomplete -> Reachable
+    updated_at: <now>,
+    confirmed_at: <now>,
+    pending_packets: [],   // 清空等待队列，数据包被处理
+    retry_count: 0,        // 重置重试计数
+}
+```
+
+**响应报文：** 无
+
+**附加行为：** 等待队列中的数据包应该被处理（发送到目标MAC）
+
+#### 6.1.5 场景4：收到ARP响应（无等待的请求）
+
+**前提条件：** 缓存中没有该IP的INCOMPLETE条目
+
+**输入报文：**
+```
+ARP Reply (Operation = 2):
+  SHA = aa:bb:cc:dd:ee:01
+  SPA = 192.168.1.100
+  THA = 00:11:22:33:44:55
+  TPA = 192.168.1.10
+```
+
+**本地资源更新：**
+```rust
+// 仍会更新缓存（自动学习）
+ArpEntry {
+    ifindex: 1,
+    proto_addr: 192.168.1.100,
+    hardware_addr: aa:bb:cc:dd:ee:01,
+    state: Reachable,  // 如果之前不存在，创建新条目
+    // 如果已存在，更新硬件地址和时间戳
+}
+```
+
+**响应报文：** 无
+
+#### 6.1.6 场景5：收到Gratuitous ARP（免费ARP）
+
+**识别特征：** SPA == TPA
+
+**输入报文：**
+```
+ARP Request/Reply (Operation = 1或2):
+  SHA = aa:bb:cc:dd:ee:01
+  SPA = 192.168.1.100
+  THA = 00:00:00:00:00:00
+  TPA = 192.168.1.100  // SPA == TPA，免费ARP
+```
+
+**本地资源更新：**
+```rust
+ArpEntry {
+    ifindex: 1,
+    proto_addr: 192.168.1.100,
+    hardware_addr: aa:bb:cc:dd:ee:01,
+    state: Reachable,  // 更新为可达
+    updated_at: <now>,
+    confirmed_at: <now>,
+}
+```
+
+**IP冲突检测：**
+```rust
+// 如果之前缓存中有相同的IP但不同的MAC
+if existing_entry.hardware_addr != packet.sender_hardware_addr {
+    // 报告IP冲突
+    return Err(CoreError::ip_conflict(
+        "192.168.1.100",
+        "aa:bb:cc:dd:ee:01",
+        existing_entry.hardware_addr
+    ));
+}
+```
+
+**响应报文：** 无（除非TPA是本机IP且是Request类型）
+
+#### 6.1.7 场景6：收到重复的ARP报文
+
+**输入报文：** 与场景1相同的请求
+
+**本地资源更新：**
+```rust
+// 更新已有条目的时间戳
+ArpEntry {
+    proto_addr: 192.168.1.100,
+    hardware_addr: aa:bb:cc:dd:ee:01,  // 保持不变
+    state: Reachable,  // 保持不变
+    updated_at: <now>,  // 刷新时间戳
+    confirmed_at: <now>,  // 刷新确认时间
+    // 不创建新条目
+}
+```
+
+#### 6.1.8 场景7：收到格式错误的ARP报文
+
+**错误情况1：长度不足**
+```
+输入：只有20字节的ARP报文
+预期：返回 CoreError::invalid_packet("ARP报文长度不足")
+本地资源：不更新任何缓存
+响应：无
+```
+
+**错误情况2：无效的操作码**
+```
+输入：Operation = 999
+预期：返回 CoreError::invalid_packet("无效的ARP操作码")
+本地资源：不更新任何缓存
+响应：无
+```
+
+**错误情况3：硬件地址长度不匹配**
+```
+输入：hardware_addr_len = 8（但实际是6）
+预期：根据实现决定，建议拒绝
+本地资源：不更新
+响应：无
+```
+
+---
+
+### 6.2 状态转换测试
+
+#### 6.2.1 完整解析流程
+
+| 初始状态 | 触发事件 | 期望结果 |
+|---------|---------|---------|
+| None | 发送ARP请求 | → Incomplete |
+| Incomplete | 收到ARP响应 | → Reachable，pending_packets被处理 |
+| Reachable | 老化超时(30秒) | → Stale |
+| Stale | 需要发送数据 | → Delay |
+| Delay | 延迟超时(5秒) | → Probe |
+| Probe | 收到ARP响应 | → Reachable |
+| Probe | 探测超时(1秒) | → Probe（重试）或 None（超过max_retries） |
+
+#### 6.2.2 状态转换测试用例
+
+```rust
+// 测试用例1：正常解析流程
+test_resolve_ip_success() {
+    // 1. 初始状态：None
+    // 2. 调用resolve_ip(192.168.1.100)
+    // 3. 验证：状态变为Incomplete，发送了ARP请求
+    // 4. 收到响应
+    // 5. 验证：状态变为Reachable，pending_packets被清空
+}
+
+// 测试用例2：解析超时
+test_resolve_ip_timeout() {
+    // 1. 发送ARP请求，状态变为Incomplete
+    // 2. 等待超过retrans_timeout * max_retries
+    // 3. 验证：条目被删除或状态变为None
+    // 4. pending_packets被丢弃
+}
+
+// 测试用例3：STALE状态刷新
+test_stale_entry_refresh() {
+    // 1. 创建Reachable条目
+    // 2. 等待超过aging_timeout
+    // 3. 验证：状态变为Stale
+    // 4. 收到该IP的Gratuitous ARP
+    // 5. 验证：状态变为Reachable
+}
+```
+
+---
+
+### 6.3 定时器测试
+
+#### 6.3.1 重传定时器（Retransmission Timer）
+
+| 测试场景 | 期望行为 |
+|---------|---------|
+| INCOMPLETE状态，1秒无响应 | 重发ARP请求，retry_count++ |
+| 重试3次仍无响应 | 删除条目，清空pending_packets |
+| 收到响应后立即取消 | 定时器停止，状态变为Reachable |
+
+#### 6.3.2 老化定时器（Aging Timer）
+
+| 测试场景 | 期望行为 |
+|---------|---------|
+| REACHABLE状态，30秒无更新 | 状态变为STALE |
+| STALE状态收到任何该IP的ARP报文 | 状态变为REACHABLE，定时器重置 |
+| STALE状态需要使用 | 触发延迟探测流程 |
+
+#### 6.3.3 延迟定时器（Delay Timer）
+
+| 测试场景 | 期望行为 |
+|---------|---------|
+| STALE状态需要使用数据 | 状态变为DELAY，启动5秒定时器 |
+| DELAY期间收到该IP的ARP报文 | 状态变为REACHABLE，取消定时器 |
+| DELAY定时器到期 | 状态变为PROBE，发送探测请求 |
+
+#### 6.3.4 探测定时器（Probe Timer）
+
+| 测试场景 | 期望行为 |
+|---------|---------|
+| PROBE状态，1秒无响应 | 重发探测请求（ARP请求） |
+| 收到探测响应 | 状态变为REACHABLE |
+| 超过max_retries无响应 | 状态变为None，删除条目 |
+
+---
+
+### 6.4 边界条件测试
+
+#### 6.4.1 缓存容量限制
+
+```rust
+// 测试用例：缓存满时的行为
+test_cache_full() {
+    // 1. 创建max_entries个条目（默认512）
+    // 2. 尝试添加第513个条目
+    // 3. 验证：根据策略（LRU/拒绝/覆盖）
+    //    建议：使用LRU策略淘汰最旧的条目
+}
+```
+
+#### 6.4.2 等待队列溢出
+
+```rust
+// 测试用例：大量数据包等待ARP解析
+test_pending_packets_overflow() {
+    // 1. 创建INCOMPLETE条目
+    // 2. 添加大量数据包到pending_packets
+    // 3. 验证：是否有最大队列限制
+    //    建议：设置max_pending_packets限制
+}
+```
+
+#### 6.4.3 特殊IP地址
+
+```rust
+// 测试用例：处理特殊IP地址
+test_special_addresses() {
+    // 测试以下IP的处理：
+    // - 0.0.0.0
+    // - 255.255.255.255
+    // - 224.0.0.0/24 (组播)
+    // 期望：拒绝或特殊处理
+}
+```
+
+---
+
+### 6.5 多接口测试
+
+#### 6.5.1 接口隔离
+
+```rust
+// 测试用例：不同接口的ARP缓存独立
+test_interface_isolation() {
+    // 接口1: 192.168.1.10/24
+    // 接口2: 192.168.2.10/24
+    //
+    // 1. 在接口1解析192.168.1.100
+    // 2. 在接口2查询192.168.1.100
+    // 3. 验证：接口2的缓存为空（接口隔离）
+}
+```
+
+#### 6.5.2 同IP多接口
+
+```rust
+// 测试用例：相同IP在不同接口
+test_same_ip_multiple_interfaces() {
+    // 接口1和接口2配置相同IP（不常见但可能）
+    // 验证：ARP缓存使用 (ifindex, ip) 作为key
+}
+```
+
+---
+
+### 6.6 集成测试
+
+#### 6.6.1 IPv4模块调用ARP
+
+```rust
+// 测试用例：IPv4发送数据包触发ARP解析
+test_ipv4_arp_integration() {
+    // 1. IPv4模块要发送数据到192.168.1.100
+    // 2. 缓存中无该IP的映射
+    // 3. 验证：ARP请求被发送
+    // 4. 数据包被加入pending_packets
+    // 5. 收到ARP响应
+    // 6. 验证：数据包被正确发送
+}
+```
+
+#### 6.6.2 以太网封装
+
+```rust
+// 测试用例：验证ARP报文的以太网封装
+test_ethernet_encapsulation() {
+    // 1. 构造ARP请求
+    // 2. 封装为以太网帧
+    // 3. 验证：
+    //    - 请求时：DST MAC = ff:ff:ff:ff:ff:ff
+    //    - 响应时：DST MAC = 请求者的MAC
+    //    - Ether Type = 0x0806
+}
+```
+
+---
+
+### 6.7 测试实现建议
+
+#### 6.7.1 测试框架结构
+
+```rust
+// tests/arp_test.rs
+pub struct ArpTestContext {
+    pub cache: ArpCache,
+    pub ifindex: u32,
+    pub local_mac: MacAddr,
+    pub local_ips: Vec<Ipv4Addr>,
+    pub packets_sent: Vec<ArpPacket>,
+}
+
+impl ArpTestContext {
+    pub fn new() -> Self { ... }
+    pub fn send_arp_packet(&mut self, packet: &ArpPacket) -> Result<()> { ... }
+    pub fn assert_cache_entry(&self, ip: Ipv4Addr, expected: &ArpEntry) { ... }
+    pub fn assert_reply_sent(&self, expected: &ArpPacket) { ... }
+}
+```
+
+#### 6.7.2 测试辅助函数
+
+```rust
+/// 创建测试用的ARP请求报文
+fn create_test_request(spa: Ipv4Addr, tpa: Ipv4Addr) -> ArpPacket { ... }
+
+/// 创建测试用的ARP响应报文
+fn create_test_reply(spa: Ipv4Addr, sha: MacAddr) -> ArpPacket { ... }
+
+/// 模拟时间流逝（用于定时器测试）
+fn advance_time(duration: Duration) { ... }
+
+/// 验证缓存状态
+fn assert_cache_state(cache: &ArpCache, ip: Ipv4Addr, expected_state: ArpState) { ... }
+```
+
+---
+
+## 7. 参考资料
 
 - RFC 826 - An Ethernet Address Resolution Protocol
 - RFC 1122 - Requirements for Internet Hosts

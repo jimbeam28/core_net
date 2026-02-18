@@ -20,11 +20,8 @@ impl SystemContext {
     /// 2. 为每个接口创建独立的 RxQ 和 TxQ
     /// 3. 初始化全局接口管理器
     pub fn new() -> Self {
-        // 初始化全局 ARP 缓存
-        let arp_init_result = crate::protocols::arp::init_default_arp_cache();
-        if let Err(e) = arp_init_result {
-            eprintln!("[警告] 初始化全局 ARP 缓存失败: {}", e);
-        }
+        // 确保全局 ARP 缓存已初始化（使用 get_or_init 确保线程安全的懒初始化）
+        let _ = crate::protocols::arp::get_or_init_global_arp_cache();
 
         // 尝试从默认配置文件加载接口配置并初始化全局接口管理器
         let global_init_result = crate::interface::init_default();

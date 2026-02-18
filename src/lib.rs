@@ -10,6 +10,7 @@ pub mod engine;
 pub mod scheduler;
 pub mod protocols;
 pub mod interface;
+pub mod testframework;
 
 // 重新导出常用类型
 pub use common::{
@@ -73,4 +74,11 @@ pub use scheduler::{
 pub use protocols::arp::{
     init_default_arp_cache, init_global_arp_cache,
     ArpCache, ArpEntry, ArpState, ArpConfig,
+};
+
+// 导出 testframework 模块
+pub use testframework::{
+    TestHarness, PacketInjector,
+    HarnessError, HarnessResult,
+    GlobalStateManager, InterfaceTestConfig,
 };
