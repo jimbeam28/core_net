@@ -1,10 +1,15 @@
 // src/protocols/ip/mod.rs
 //
-// 最小化 IPv4 协议模块
-// 仅实现 ICMP 必需的 IP 功能：头部解析、封装、校验和
+// IPv4 协议模块
+// 实现了 IP 数据报解析、封装、校验和验证
+// 当前版本不支持分片和重组，仅支持 ICMP 协议
 
 mod checksum;
 mod header;
+mod protocol;
+mod error;
+mod config;
+mod packet;
 
 pub use checksum::{calculate_checksum, verify_checksum};
 pub use header::{
@@ -16,3 +21,7 @@ pub use header::{
     IP_PROTO_UDP,
     DEFAULT_TTL,
 };
+pub use protocol::Ipv4Protocol;
+pub use error::IpError;
+pub use config::{Ipv4Config, IPV4_CONFIG_DEFAULT};
+pub use packet::{IpProcessResult, process_ip_packet, encapsulate_ip_datagram};

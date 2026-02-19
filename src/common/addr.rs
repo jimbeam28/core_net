@@ -157,6 +157,13 @@ impl Ipv4Addr {
         self.bytes[0] == 127
     }
 
+    /// 是否为组播地址 (224.0.0.0/4)
+    pub fn is_multicast(&self) -> bool {
+        // 组播地址范围: 224.0.0.0 ~ 239.255.255.255
+        // 即第一字节的高4位为 1110 (0xE0)
+        (self.bytes[0] & 0xF0) == 0xE0
+    }
+
     /// 转换为字节数组引用
     pub const fn as_bytes(&self) -> &[u8; 4] {
         &self.bytes

@@ -218,6 +218,34 @@ impl Ipv4Header {
         self.flags_fragment & 0x1FFF
     }
 
+    /// 判断是否为分片数据报
+    ///
+    /// 当前版本不支持分片和重组，如果 MF=1 或 FragmentOffset 非 0，则为分片数据报。
+    pub fn is_fragmented(&self) -> bool {
+        self.has_mf_flag() || self.fragment_offset() != 0
+    }
+
+    /// 判断目的地址是否为广播地址
+    ///
+    /// 广播地址：255.255.255.255
+    pub fn is_broadcast(&self) -> bool {
+        self.dest_addr.is_broadcast()
+    }
+
+    /// 判断目的地址是否为回环地址
+    ///
+    /// 回环地址：127.0.0.0/8 网段
+    pub fn is_loopback(&self) -> bool {
+        self.dest_addr.is_loopback()
+    }
+
+    /// 判断目的地址是否为组播地址
+    ///
+    /// 组播地址：224.0.0.0/4 网段
+    pub fn is_multicast(&self) -> bool {
+        self.dest_addr.is_multicast()
+    }
+
     /// 编码为字节数组
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(self.header_len());

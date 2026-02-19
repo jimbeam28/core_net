@@ -58,6 +58,13 @@ impl From<String> for ProcessError {
     }
 }
 
+// 添加 IP 错误类型转换
+impl From<crate::protocols::ip::IpError> for ProcessError {
+    fn from(err: crate::protocols::ip::IpError) -> Self {
+        ProcessError::ParseError(err.to_string())
+    }
+}
+
 pub struct PacketProcessor {
     name: String,
     verbose: bool,
@@ -213,10 +220,26 @@ impl PacketProcessor {
                 ip_hdr.source_addr, ip_hdr.dest_addr, ip_hdr.protocol, ip_hdr.ttl);
         }
 
+        // 检查分片标志（当前版本不支持分片和重组）
+        if ip_hdr.is_fragmented() {
+            if self.verbose {
+                println!("IP: 检测到分片数据报 (MF={}, Offset={}), 当前版本不支持分片",
+                    ip_hdr.has_mf_flag(), ip_hdr.fragment_offset());
+            }
+            // 分片数据报直接丢弃，不发送 ICMP 响应
+            return Ok(None);
+        }
+
         // 检查目标 IP 是否为本接口 IP
         let ifindex = packet.get_ifindex();
         let our_ip = self.get_interface_ip(ifindex)?;
-        if ip_hdr.dest_addr != our_ip {
+
+        // 接受发送给本机、广播或回环地址的数据报
+        let is_local = ip_hdr.dest_addr == our_ip
+            || ip_hdr.is_broadcast()
+            || ip_hdr.is_loopback();
+
+        if !is_local {
             // 不是发送给本机的报文，不处理
             return Ok(None);
         }
