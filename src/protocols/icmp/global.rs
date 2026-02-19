@@ -1,0 +1,189 @@
+// src/protocols/icmp/global.rs
+//
+// ICMP 全局状态管理
+// 用于跟踪待处理的 Echo 请求（匹配请求和响应）
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+use crate::protocols::Ipv4Addr;
+
+// ========== 待处理 Echo 条目 ==========
+
+/// 待处理的 Echo 请求条目
+#[derive(Debug, Clone)]
+pub struct PendingEcho {
+    /// 标识符
+    pub identifier: u16,
+
+    /// 序列号
+    pub sequence: u16,
+
+    /// 发送时间戳
+    pub sent_at: Instant,
+
+    /// 目标地址
+    pub destination: Ipv4Addr,
+}
+
+impl PendingEcho {
+    /// 创建新的待处理 Echo
+    pub fn new(identifier: u16, sequence: u16, destination: Ipv4Addr) -> Self {
+        PendingEcho {
+            identifier,
+            sequence,
+            sent_at: Instant::now(),
+            destination,
+        }
+    }
+
+    /// 检查是否超时
+    pub fn is_timeout(&self, timeout: Duration) -> bool {
+        self.sent_at.elapsed() >= timeout
+    }
+
+    /// 计算往返时间
+    pub fn rtt(&self) -> Duration {
+        self.sent_at.elapsed()
+    }
+}
+
+// ========== Echo 管理器 ==========
+
+/// Echo 请求管理器
+pub struct EchoManager {
+    /// 待处理的 Echo 请求
+    pending: HashMap<(u16, u16), PendingEcho>,
+
+    /// 默认超时时间
+    default_timeout: Duration,
+
+    /// 最大待处理数量
+    max_pending: usize,
+}
+
+impl EchoManager {
+    /// 创建新的 Echo 管理器
+    pub fn new(default_timeout: Duration, max_pending: usize) -> Self {
+        Self {
+            pending: HashMap::new(),
+            default_timeout,
+            max_pending,
+        }
+    }
+
+    /// 添加待处理的 Echo 请求
+    pub fn add_pending(&mut self, echo: PendingEcho) -> Result<(), String> {
+        // 清理超时的条目
+        self.cleanup_timeouts();
+
+        // 检查容量
+        if self.pending.len() >= self.max_pending {
+            return Err(format!(
+                "Echo管理器已满: {} >= {}",
+                self.pending.len(),
+                self.max_pending
+            ));
+        }
+
+        let key = (echo.identifier, echo.sequence);
+        self.pending.insert(key, echo);
+        Ok(())
+    }
+
+    /// 查找并移除待处理的 Echo 请求
+    pub fn remove_pending(&mut self, identifier: u16, sequence: u16) -> Option<PendingEcho> {
+        let key = (identifier, sequence);
+        self.pending.remove(&key)
+    }
+
+    /// 查找待处理的 Echo 请求（不移除）
+    pub fn get_pending(&self, identifier: u16, sequence: u16) -> Option<&PendingEcho> {
+        let key = (identifier, sequence);
+        self.pending.get(&key)
+    }
+
+    /// 清理超时的请求
+    pub fn cleanup_timeouts(&mut self) {
+        self.pending.retain(|_, echo| !echo.is_timeout(self.default_timeout));
+    }
+
+    /// 获取待处理数量
+    pub fn pending_count(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// 清空所有待处理请求
+    pub fn clear(&mut self) {
+        self.pending.clear();
+    }
+}
+
+impl Default for EchoManager {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(1), 100)
+    }
+}
+
+// ========== 全局 Echo 管理器 ==========
+
+use std::sync::OnceLock;
+
+/// 全局 Echo 管理器
+static GLOBAL_ECHO_MANAGER: OnceLock<Mutex<EchoManager>> = OnceLock::new();
+
+/// 获取或初始化全局 Echo 管理器
+pub fn get_or_init_global_echo_manager() -> &'static Mutex<EchoManager> {
+    GLOBAL_ECHO_MANAGER.get_or_init(|| {
+        Mutex::new(EchoManager::default())
+    })
+}
+
+/// 初始化全局 Echo 管理器（自定义配置）
+pub fn init_global_echo_manager(timeout: Duration, max_pending: usize) {
+    let manager = EchoManager::new(timeout, max_pending);
+    let _ = GLOBAL_ECHO_MANAGER.set(Mutex::new(manager));
+}
+
+/// 重置全局 Echo 管理器（仅用于测试）
+#[cfg(test)]
+#[allow(dead_code)]
+pub fn reset_global_echo_manager() {
+    if let Some(manager) = GLOBAL_ECHO_MANAGER.get() {
+        let mut guard = manager.lock().unwrap();
+        guard.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_echo_manager_add_remove() {
+        let mut manager = EchoManager::default();
+
+        let echo = PendingEcho::new(1234, 1, Ipv4Addr::new(192, 168, 1, 1));
+        manager.add_pending(echo.clone()).unwrap();
+
+        assert_eq!(manager.pending_count(), 1);
+
+        let removed = manager.remove_pending(1234, 1);
+        assert!(removed.is_some());
+        assert_eq!(manager.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_echo_manager_cleanup() {
+        let mut manager = EchoManager::new(Duration::from_millis(100), 100);
+
+        let echo = PendingEcho::new(1234, 1, Ipv4Addr::new(192, 168, 1, 1));
+        manager.add_pending(echo).unwrap();
+
+        std::thread::sleep(Duration::from_millis(150));
+        manager.cleanup_timeouts();
+
+        assert_eq!(manager.pending_count(), 0);
+    }
+}

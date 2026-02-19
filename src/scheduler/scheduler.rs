@@ -314,6 +314,7 @@ mod tests {
     use super::*;
     use crate::common::{MacAddr, Ipv4Addr, ETH_P_ARP};
     use crate::protocols::arp::{ArpPacket, ArpOperation};
+    use crate::protocols::ethernet;
     use std::cell::RefCell;
     use std::rc::Rc;
 

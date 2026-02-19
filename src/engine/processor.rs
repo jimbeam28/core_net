@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::arp;
+use crate::protocols::{arp, ip, icmp, Ipv4Addr};
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
 
@@ -49,6 +49,12 @@ impl From<crate::common::CoreError> for ProcessError {
 impl From<crate::protocols::vlan::VlanError> for ProcessError {
     fn from(err: crate::protocols::vlan::VlanError) -> Self {
         ProcessError::ParseError(format!("VLAN错误: {}", err))
+    }
+}
+
+impl From<crate::protocols::ip::IpError> for ProcessError {
+    fn from(err: crate::protocols::ip::IpError) -> Self {
+        ProcessError::ParseError(format!("IP错误: {}", err))
     }
 }
 
@@ -111,9 +117,7 @@ impl PacketProcessor {
                 return self.handle_arp(eth_hdr, packet);
             }
             ETH_P_IP => {
-                return Err(ProcessError::UnsupportedProtocol(
-                    String::from("IPv4 protocol not implemented")
-                ));
+                return self.handle_ipv4(eth_hdr, packet);
             }
             ETH_P_IPV6 => {
                 return Err(ProcessError::UnsupportedProtocol(
@@ -163,9 +167,7 @@ impl PacketProcessor {
                 self.handle_arp_packet(packet, eth_hdr.src_mac)?;
             }
             ETH_P_IP => {
-                return Err(ProcessError::UnsupportedProtocol(
-                    String::from("IPv4 in VLAN not implemented")
-                ));
+                return self.handle_ipv4(eth_hdr, packet);
             }
             _ => {
                 return Err(ProcessError::UnsupportedProtocol(
@@ -201,6 +203,142 @@ impl PacketProcessor {
             arp::ArpProcessResult::NoReply => Ok(None),
             arp::ArpProcessResult::Reply(frame_bytes) => Ok(Some(Packet::from_bytes(frame_bytes))),
         }
+    }
+
+    /// 处理 IPv4 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - packet: Packet（已去除以太网头部）
+    fn handle_ipv4(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
+        // 解析 IP 头部
+        let ip_hdr = ip::Ipv4Header::from_packet(&mut packet)?;
+
+        if self.verbose {
+            println!("IP: {} -> {} Protocol={} TTL={}",
+                ip_hdr.source_addr, ip_hdr.dest_addr, ip_hdr.protocol, ip_hdr.ttl);
+        }
+
+        // 检查目标 IP 是否为本接口 IP
+        let ifindex = packet.get_ifindex();
+        let our_ip = self.get_interface_ip(ifindex)?;
+        if ip_hdr.dest_addr != our_ip {
+            // 不是发送给本机的报文，不处理
+            return Ok(None);
+        }
+
+        // 根据 IP 协议字段分发
+        match ip_hdr.protocol {
+            ip::IP_PROTO_ICMP => {
+                return self.handle_icmp(eth_hdr, ip_hdr, packet);
+            }
+            ip::IP_PROTO_TCP => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    String::from("TCP protocol not implemented")
+                ));
+            }
+            ip::IP_PROTO_UDP => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    String::from("UDP protocol not implemented")
+                ));
+            }
+            _ => {
+                return Err(ProcessError::UnsupportedProtocol(
+                    format!("Unknown IP protocol: {}", ip_hdr.protocol)
+                ));
+            }
+        }
+    }
+
+    /// 处理 ICMP 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ip_hdr: IP 头部
+    /// - packet: Packet（已去除 IP 头部）
+    fn handle_icmp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
+        // 获取接口索引
+        let ifindex = packet.get_ifindex();
+
+        // 获取本接口的 IP 地址（用作响应的源地址）
+        let our_ip = self.get_interface_ip(ifindex)?;
+
+        if self.verbose {
+            println!("ICMP: 处理 ICMP 报文 源={} 目的={}",
+                ip_hdr.source_addr, ip_hdr.dest_addr);
+        }
+
+        // 处理 ICMP 报文
+        let result = icmp::process_icmp_packet(
+            packet,
+            ip_hdr.source_addr,
+            our_ip,
+            self.verbose,
+        ).map_err(|e| ProcessError::ParseError(format!("ICMP处理失败: {}", e)))?;
+
+        // 根据处理结果返回
+        match result {
+            icmp::IcmpProcessResult::NoReply => Ok(None),
+            icmp::IcmpProcessResult::Reply(icmp_bytes) => {
+                // 获取本接口的 MAC 地址
+                let our_mac = self.get_interface_mac(ifindex)?;
+
+                // 封装为 IP 数据报
+                let ip_reply = ip::Ipv4Header::new(
+                    our_ip,
+                    ip_hdr.source_addr,
+                    ip::IP_PROTO_ICMP,
+                    icmp_bytes.len(),
+                );
+                let mut ip_packet = ip_reply.to_bytes();
+                ip_packet.extend_from_slice(&icmp_bytes);
+
+                // 封装为以太网帧
+                // 目标 MAC = 原始发送方的 MAC
+                // 源 MAC = 本接口的 MAC
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,  // 响应发送给原始发送方
+                    our_mac,          // 使用本接口的 MAC
+                    crate::protocols::ETH_P_IP,
+                    &ip_packet,
+                );
+
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
+            icmp::IcmpProcessResult::Processed => Ok(None),
+        }
+    }
+
+    /// 获取接口的 MAC 地址
+    fn get_interface_mac(&self, ifindex: u32) -> Result<crate::protocols::MacAddr, ProcessError> {
+        use crate::interface::global_manager;
+
+        let global_mgr = global_manager()
+            .ok_or_else(|| ProcessError::ParseError("全局接口管理器未初始化".to_string()))?;
+
+        let guard = global_mgr.lock()
+            .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
+
+        let iface = guard.get_by_index(ifindex)
+            .map_err(|e| ProcessError::ParseError(format!("获取接口失败: {}", e)))?;
+
+        Ok(iface.mac_addr)
+    }
+
+    /// 获取接口的 IP 地址
+    fn get_interface_ip(&self, ifindex: u32) -> Result<Ipv4Addr, ProcessError> {
+        use crate::interface::global_manager;
+
+        let global_mgr = global_manager()
+            .ok_or_else(|| ProcessError::ParseError("全局接口管理器未初始化".to_string()))?;
+
+        let guard = global_mgr.lock()
+            .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
+
+        let iface = guard.get_by_index(ifindex)
+            .map_err(|e| ProcessError::ParseError(format!("获取接口失败: {}", e)))?;
+
+        Ok(iface.ip_addr)
     }
 
     fn print_packet_info(&self, packet: &Packet) {
@@ -243,6 +381,7 @@ mod tests {
     use super::*;
     use crate::common::{MacAddr, Ipv4Addr, CoreError, ETH_P_ARP, ETH_P_IP, ETH_P_IPV6, ETH_P_8021Q, ETH_P_8021AD};
     use crate::protocols::arp::{ArpPacket, ArpOperation};
+    use crate::protocols::ethernet;
 
     // ========== 测试辅助函数 ==========
 
@@ -500,18 +639,25 @@ mod tests {
         bytes.extend_from_slice(&MacAddr::broadcast().bytes);
         bytes.extend_from_slice(&[0xAA; 6]);  // 源 MAC
         bytes.extend_from_slice(&ETH_P_IP.to_be_bytes());
-        bytes.extend_from_slice(&[0x01; 20]);  // IP 头部
+
+        // 创建有效的 IPv4 头部 (version=4, ihl=5, protocol=TCP=6)
+        bytes.push(0x45);  // Version=4, IHL=5 (20 字节)
+        bytes.push(0x00);  // TOS
+        bytes.extend_from_slice(&[0x00, 0x14]);  // Total Length = 20
+        bytes.extend_from_slice(&[0x00, 0x01]);  // Identification
+        bytes.extend_from_slice(&[0x00, 0x00]);  // Flags/Fragment
+        bytes.push(64);   // TTL
+        bytes.push(6);    // Protocol = TCP (不支持)
+        bytes.extend_from_slice(&[0x00, 0x00]);  // Checksum (占位)
+        bytes.extend_from_slice(&[192, 168, 1, 1]);  // Source IP
+        bytes.extend_from_slice(&[192, 168, 1, 2]);  // Dest IP
 
         let packet = Packet::from_bytes(bytes);
         let result = processor.process(packet);
 
+        // 由于没有初始化全局接口管理器，期望返回错误
+        // 有效的 IP 头部但接口未初始化会导致错误
         assert!(result.is_err());
-        match result {
-            Err(ProcessError::UnsupportedProtocol(msg)) => {
-                assert!(msg.contains("IPv4"));
-            }
-            _ => panic!("Expected UnsupportedProtocol error"),
-        }
     }
 
     #[test]

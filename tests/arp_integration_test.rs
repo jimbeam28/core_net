@@ -34,6 +34,7 @@ fn global_setup() {
 }
 
 /// 全局测试清理：在所有测试后执行一次
+#[allow(dead_code)]
 fn global_teardown() {
     // 可选：释放全局资源
     // 由于使用 OnceLock，无法真正释放，这里不做操作
