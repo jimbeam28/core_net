@@ -155,13 +155,6 @@ pub fn create_echo_reply(identifier: u16, sequence: u16, data: Vec<u8>) -> Vec<u
 }
 
 /// 创建 Destination Unreachable 报文
-///
-/// # 参数
-/// - code: 不可达代码
-/// - original_datagram: 原始 IP 数据报（包含头部和前 8 字节数据）
-///
-/// # 返回
-/// - Vec<u8>: 编码后的 ICMP 报文
 pub fn create_dest_unreachable(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
     use super::packet::IcmpDestUnreachable;
 
@@ -169,7 +162,6 @@ pub fn create_dest_unreachable(code: u8, original_datagram: Vec<u8>) -> Vec<u8> 
         type_: ICMP_TYPE_DEST_UNREACHABLE,
         code,
         checksum: 0,
-        unused: 0,
         original_datagram,
     };
 
@@ -177,13 +169,6 @@ pub fn create_dest_unreachable(code: u8, original_datagram: Vec<u8>) -> Vec<u8> 
 }
 
 /// 创建 Time Exceeded 报文
-///
-/// # 参数
-/// - code: 超时代码
-/// - original_datagram: 原始 IP 数据报（包含头部和前 8 字节数据）
-///
-/// # 返回
-/// - Vec<u8>: 编码后的 ICMP 报文
 pub fn create_time_exceeded(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
     use super::packet::IcmpTimeExceeded;
 
@@ -191,7 +176,6 @@ pub fn create_time_exceeded(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
         type_: ICMP_TYPE_TIME_EXCEEDED,
         code,
         checksum: 0,
-        unused: 0,
         original_datagram,
     };
 

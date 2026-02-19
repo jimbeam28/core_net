@@ -44,7 +44,6 @@ pub use vlan::{
 // IP 模块导出
 pub use ip::{
     Ipv4Header,
-    IpError,
     IP_PROTO_ICMP,
     IP_PROTO_TCP,
     IP_PROTO_UDP,

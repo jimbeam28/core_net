@@ -246,7 +246,9 @@ fn test_global_manager_runtime_modification() {
             let new_ip = Ipv4Addr::new(10, 0, 0, 1);
 
             // 使用全局函数修改
-            let result = interface::set_interface_ip("eth0", new_ip);
+            let result = interface::update_interface("eth0", |iface| {
+                iface.set_ip_addr(new_ip);
+            });
 
             if result.is_ok() {
                 // 验证修改生效
@@ -256,7 +258,9 @@ fn test_global_manager_runtime_modification() {
 
                 // 恢复原始值
                 drop(guard);
-                let _ = interface::set_interface_ip("eth0", original);
+                let _ = interface::update_interface("eth0", |iface| {
+                    iface.set_ip_addr(original);
+                });
             }
         }
     }

@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use std::env;
 use std::fs;
-
 use crate::common::AddrError;
 use crate::interface::iface::InterfaceConfig;
 use crate::interface::manager::InterfaceManager;
@@ -13,11 +12,8 @@ pub const DEFAULT_CONFIG_PATH: &str = "src/interface/interface.toml";
 /// 接口模块配置（包含队列配置和接口列表）
 #[derive(Debug, Clone)]
 pub struct InterfaceModuleConfig {
-    /// 接收队列容量
     pub rxq_capacity: usize,
-    /// 发送队列容量
     pub txq_capacity: usize,
-    /// 接口配置列表
     pub interfaces: Vec<InterfaceConfig>,
 }
 
@@ -33,13 +29,7 @@ impl Default for InterfaceModuleConfig {
 
 /// 从默认配置文件加载接口
 ///
-/// 从默认配置文件路径 (src/interface/interface.toml) 加载接口配置
-///
-/// # 返回
-/// - Ok(manager): 加载成功的接口管理器
-/// - Err(error): 加载失败
-///
-/// # 配置文件格式 (TOML)
+/// 配置文件格式 (TOML):
 /// ```toml
 /// [queue]
 /// rxq_capacity = 256
@@ -58,25 +48,15 @@ pub fn load_default_config() -> Result<InterfaceManager, InterfaceError> {
     let content = fs::read_to_string(DEFAULT_CONFIG_PATH).map_err(|e| {
         InterfaceError::ConfigReadFailed(format!("读取文件失败: {}", e))
     })?;
-
     let module_config = parse_toml_config(&content)?;
-
     let mut manager = InterfaceManager::new(module_config.rxq_capacity, module_config.txq_capacity);
-
     for config in module_config.interfaces {
         manager.add_from_config(config)?;
     }
-
     Ok(manager)
 }
 
 /// 保存配置到文件
-///
-/// # 参数
-/// - manager: 接口管理器
-/// - path: 配置文件路径
-/// - rxq_capacity: 接收队列容量
-/// - txq_capacity: 发送队列容量
 pub fn save_config(
     manager: &InterfaceManager,
     path: &str,

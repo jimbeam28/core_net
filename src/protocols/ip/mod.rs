@@ -3,11 +3,9 @@
 // 最小化 IPv4 协议模块
 // 仅实现 ICMP 必需的 IP 功能：头部解析、封装、校验和
 
-mod error;
 mod checksum;
 mod header;
 
-pub use error::IpError;
 pub use checksum::{calculate_checksum, verify_checksum};
 pub use header::{
     Ipv4Header,

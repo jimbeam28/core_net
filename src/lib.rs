@@ -47,7 +47,6 @@ pub use interface::{
     load_default_config, save_config,
     InterfaceError,
     DEFAULT_CONFIG_PATH,
-    // 全局接口管理器
     init_global_manager, init_default, global_manager,
 };
 

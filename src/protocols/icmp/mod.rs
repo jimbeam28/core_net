@@ -3,14 +3,12 @@
 // ICMP 协议模块
 // 实现 Echo Request/Reply、Destination Unreachable、Time Exceeded
 
-mod error;
 mod types;
 mod packet;
 mod echo;
 mod process;
 mod global;
 
-pub use error::IcmpError;
 pub use types::{
     IcmpType,
     DestUnreachableCode,
@@ -21,7 +19,6 @@ pub use types::{
     ICMP_TYPE_TIME_EXCEEDED,
 };
 pub use packet::{
-    IcmpHeader,
     IcmpEcho,
     IcmpDestUnreachable,
     IcmpTimeExceeded,

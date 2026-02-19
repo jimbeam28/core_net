@@ -4,7 +4,7 @@
 
 use crate::common::{CoreError, Packet, Result};
 use crate::protocols::Ipv4Addr;
-use super::checksum::{calculate_checksum, verify_checksum};
+use super::checksum::calculate_checksum;
 
 // ========== IP 协议常量 ==========
 
@@ -182,11 +182,6 @@ impl Ipv4Header {
         })
     }
 
-    /// 验证校验和
-    pub fn verify_checksum(&self, full_header: &[u8]) -> bool {
-        verify_checksum(full_header, 10)
-    }
-
     /// 获取 IP 版本
     pub fn version(&self) -> u8 {
         self.version_ihl >> 4
@@ -355,6 +350,7 @@ mod tests {
         let bytes = header.to_bytes();
 
         // 验证校验和
+        use crate::protocols::ip::verify_checksum;
         assert!(verify_checksum(&bytes, 10));
 
         // 解码

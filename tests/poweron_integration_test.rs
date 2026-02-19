@@ -7,7 +7,7 @@
 
 use core_net::poweron::{boot_default, shutdown, SystemContext};
 use core_net::interface::{InterfaceState, Ipv4Addr, MacAddr};
-use core_net::interface::{set_interface_ip, set_interface_netmask, set_interface_mtu, interface_up, interface_down};
+use core_net::interface::update_interface;
 use core_net::protocols::Packet;
 
 // ========== 测试辅助函数 ==========
@@ -158,14 +158,15 @@ fn test_global_manager_integration() {
 
 #[test]
 fn test_global_manager_modification() {
-    // 1. 启动系统
     boot_default();
 
-    // 2. 通过全局管理器修改接口配置
-    let result = set_interface_ip("eth0", Ipv4Addr::new(10, 0, 0, 1));
+    // 通过全局管理器修改接口配置
+    let result = update_interface("eth0", |iface| {
+        iface.set_ip_addr(Ipv4Addr::new(10, 0, 0, 1));
+    });
     assert!(result.is_ok(), "通过全局管理器修改接口 IP 应该成功");
 
-    // 3. 验证修改生效
+    // 验证修改生效
     if let Some(manager) = core_net::interface::global_manager() {
         let guard = manager.lock().unwrap();
         if let Ok(eth0) = guard.get_by_name("eth0") {
@@ -176,14 +177,13 @@ fn test_global_manager_modification() {
 
 #[test]
 fn test_global_manager_up_down() {
-    // 1. 启动系统
     boot_default();
 
-    // 2. 通过全局管理器禁用接口
-    let result = interface_down("eth0");
+    // 通过全局管理器禁用接口
+    let result = update_interface("eth0", |iface| iface.down());
     assert!(result.is_ok(), "通过全局管理器禁用接口应该成功");
 
-    // 3. 验证接口已禁用
+    // 验证接口已禁用
     if let Some(manager) = core_net::interface::global_manager() {
         let guard = manager.lock().unwrap();
         if let Ok(eth0) = guard.get_by_name("eth0") {
@@ -191,11 +191,11 @@ fn test_global_manager_up_down() {
         }
     }
 
-    // 4. 通过全局管理器启用接口
-    let result = interface_up("eth0");
+    // 通过全局管理器启用接口
+    let result = update_interface("eth0", |iface| iface.up());
     assert!(result.is_ok(), "通过全局管理器启用接口应该成功");
 
-    // 5. 验证接口已启用
+    // 验证接口已启用
     if let Some(manager) = core_net::interface::global_manager() {
         let guard = manager.lock().unwrap();
         if let Ok(eth0) = guard.get_by_name("eth0") {
@@ -206,14 +206,13 @@ fn test_global_manager_up_down() {
 
 #[test]
 fn test_global_manager_multiple_modifications() {
-    // 1. 启动系统
     boot_default();
 
-    // 2. 保存原始配置
-    let (original_ip, _original_mac, original_netmask) = if let Some(manager) = core_net::interface::global_manager() {
+    // 保存原始配置
+    let (original_ip, _original_mac, original_netmask, original_mtu) = if let Some(manager) = core_net::interface::global_manager() {
         let guard = manager.lock().unwrap();
         if let Ok(eth0) = guard.get_by_name("eth0") {
-            (eth0.ip_addr, eth0.mac_addr, eth0.netmask)
+            (eth0.ip_addr, eth0.mac_addr, eth0.netmask, eth0.mtu)
         } else {
             return; // 如果没有 eth0，跳过测试
         }
@@ -221,12 +220,14 @@ fn test_global_manager_multiple_modifications() {
         return;
     };
 
-    // 3. 执行多个修改
-    set_interface_ip("eth0", Ipv4Addr::new(10, 0, 0, 1)).unwrap();
-    set_interface_netmask("eth0", Ipv4Addr::new(255, 255, 255, 128)).unwrap();
-    set_interface_mtu("eth0", 9000).unwrap();
+    // 执行多个修改
+    update_interface("eth0", |iface| {
+        iface.set_ip_addr(Ipv4Addr::new(10, 0, 0, 1));
+        iface.set_netmask(Ipv4Addr::new(255, 255, 255, 128));
+        iface.set_mtu(9000);
+    }).unwrap();
 
-    // 4. 验证所有修改生效
+    // 验证所有修改生效
     if let Some(manager) = core_net::interface::global_manager() {
         let guard = manager.lock().unwrap();
         if let Ok(eth0) = guard.get_by_name("eth0") {
@@ -236,19 +237,22 @@ fn test_global_manager_multiple_modifications() {
         }
     }
 
-    // 5. 恢复原始配置
-    set_interface_ip("eth0", original_ip).unwrap();
-    set_interface_netmask("eth0", original_netmask).unwrap();
-    set_interface_mtu("eth0", 1500).unwrap();
+    // 恢复原始配置
+    update_interface("eth0", |iface| {
+        iface.set_ip_addr(original_ip);
+        iface.set_netmask(original_netmask);
+        iface.set_mtu(original_mtu);
+    }).unwrap();
 }
 
 #[test]
 fn test_global_manager_error_handling() {
-    // 1. 启动系统
     boot_default();
 
-    // 2. 测试操作不存在的接口
-    let result = set_interface_ip("nonexistent", Ipv4Addr::new(10, 0, 0, 1));
+    // 测试操作不存在的接口
+    let result = update_interface("nonexistent", |iface| {
+        iface.set_ip_addr(Ipv4Addr::new(10, 0, 0, 1));
+    });
     assert!(result.is_err(), "操作不存在的接口应该返回错误");
 
     // 3. 测试获取不存在的接口
@@ -291,7 +295,7 @@ fn test_full_integration_scenario() {
 
     // 6. 恢复原始状态（通过全局管理器）
     if let Some(_manager) = core_net::interface::global_manager() {
-        let _ = interface_up("eth0");
+        let _ = update_interface("eth0", |iface| iface.up());
     }
 }
 

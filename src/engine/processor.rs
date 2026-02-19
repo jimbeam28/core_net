@@ -52,12 +52,6 @@ impl From<crate::protocols::vlan::VlanError> for ProcessError {
     }
 }
 
-impl From<crate::protocols::ip::IpError> for ProcessError {
-    fn from(err: crate::protocols::ip::IpError) -> Self {
-        ProcessError::ParseError(format!("IP错误: {}", err))
-    }
-}
-
 impl From<String> for ProcessError {
     fn from(msg: String) -> Self {
         ProcessError::ParseError(msg)

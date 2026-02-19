@@ -6,47 +6,6 @@ use crate::common::{CoreError, Packet, Result};
 use super::types::*;
 use crate::protocols::ip::calculate_checksum;
 
-// ========== ICMP 通用头部 ==========
-
-/// ICMP 通用头部（所有 ICMP 消息共有）
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct IcmpHeader {
-    /// ICMP 消息类型
-    pub type_: u8,
-
-    /// 类型子代码
-    pub code: u8,
-
-    /// 校验和
-    pub checksum: u16,
-}
-
-impl IcmpHeader {
-    /// ICMP 头部最小长度
-    pub const MIN_LEN: usize = 4;
-
-    /// 从 Packet 解析 ICMP 通用头部
-    pub fn from_packet(packet: &mut Packet) -> Result<Self> {
-        if packet.remaining() < Self::MIN_LEN {
-            return Err(CoreError::invalid_packet(format!(
-                "ICMP数据包长度不足：{} < {}",
-                packet.remaining(),
-                Self::MIN_LEN
-            )));
-        }
-
-        let type_ = packet.read(1)
-            .ok_or_else(|| CoreError::parse_error("读取ICMP类型失败"))?[0];
-        let code = packet.read(1)
-            .ok_or_else(|| CoreError::parse_error("读取ICMP代码失败"))?[0];
-        let checksum_bytes = packet.read(2)
-            .ok_or_else(|| CoreError::parse_error("读取ICMP校验和失败"))?;
-        let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
-
-        Ok(IcmpHeader { type_, code, checksum })
-    }
-}
-
 // ========== Echo Request/Reply ==========
 
 /// Echo Request/Reply 报文
@@ -196,9 +155,6 @@ pub struct IcmpDestUnreachable {
     /// 校验和
     pub checksum: u16,
 
-    /// 未使用（填充为 0）
-    pub unused: u32,
-
     /// 原始 IP 数据报头部 + 8 字节数据
     pub original_datagram: Vec<u8>,
 }
@@ -209,64 +165,15 @@ impl IcmpDestUnreachable {
 
     /// 从 Packet 解析 Destination Unreachable 报文
     pub fn from_packet(packet: &mut Packet) -> Result<Self> {
-        if packet.remaining() < Self::MIN_LEN {
-            return Err(CoreError::invalid_packet(format!(
-                "Destination Unreachable报文长度不足：{} < {}",
-                packet.remaining(),
-                Self::MIN_LEN
-            )));
-        }
-
-        let type_ = packet.read(1)
-            .ok_or_else(|| CoreError::parse_error("读取类型失败"))?[0];
-        let code = packet.read(1)
-            .ok_or_else(|| CoreError::parse_error("读取代码失败"))?[0];
-        let checksum_bytes = packet.read(2)
-            .ok_or_else(|| CoreError::parse_error("读取校验和失败"))?;
-        let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
-
-        let unused_bytes = packet.read(4)
-            .ok_or_else(|| CoreError::parse_error("读取未使用字段失败"))?;
-        let unused = u32::from_be_bytes([
-            unused_bytes[0],
-            unused_bytes[1],
-            unused_bytes[2],
-            unused_bytes[3],
-        ]);
-
-        // 读取原始数据报
-        let mut original_datagram = Vec::new();
-        while packet.remaining() > 0 {
-            if let Some(byte) = packet.read(1) {
-                original_datagram.push(byte[0]);
-            }
-        }
-
-        Ok(IcmpDestUnreachable {
-            type_,
-            code,
-            checksum,
-            unused,
-            original_datagram,
-        })
+        parse_icmp_with_original_datagram(packet, "Destination Unreachable")
+            .map(|(type_, code, checksum, original_datagram)| IcmpDestUnreachable {
+                type_, code, checksum, original_datagram
+            })
     }
 
     /// 编码为字节数组
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(8 + self.original_datagram.len());
-
-        bytes.push(self.type_);
-        bytes.push(self.code);
-        bytes.extend_from_slice(&self.checksum.to_be_bytes());
-        bytes.extend_from_slice(&self.unused.to_be_bytes());
-        bytes.extend_from_slice(&self.original_datagram);
-
-        // 计算校验和
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
-
-        bytes
+        encode_icmp_with_original_datagram(self.type_, self.code, &self.original_datagram)
     }
 }
 
@@ -284,9 +191,6 @@ pub struct IcmpTimeExceeded {
     /// 校验和
     pub checksum: u16,
 
-    /// 未使用（填充为 0）
-    pub unused: u32,
-
     /// 原始 IP 数据报头部 + 8 字节数据
     pub original_datagram: Vec<u8>,
 }
@@ -297,65 +201,79 @@ impl IcmpTimeExceeded {
 
     /// 从 Packet 解析 Time Exceeded 报文
     pub fn from_packet(packet: &mut Packet) -> Result<Self> {
-        if packet.remaining() < Self::MIN_LEN {
-            return Err(CoreError::invalid_packet(format!(
-                "Time Exceeded报文长度不足：{} < {}",
-                packet.remaining(),
-                Self::MIN_LEN
-            )));
-        }
-
-        let type_ = packet.read(1)
-            .ok_or_else(|| CoreError::parse_error("读取类型失败"))?[0];
-        let code = packet.read(1)
-            .ok_or_else(|| CoreError::parse_error("读取代码失败"))?[0];
-        let checksum_bytes = packet.read(2)
-            .ok_or_else(|| CoreError::parse_error("读取校验和失败"))?;
-        let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
-
-        let unused_bytes = packet.read(4)
-            .ok_or_else(|| CoreError::parse_error("读取未使用字段失败"))?;
-        let unused = u32::from_be_bytes([
-            unused_bytes[0],
-            unused_bytes[1],
-            unused_bytes[2],
-            unused_bytes[3],
-        ]);
-
-        // 读取原始数据报
-        let mut original_datagram = Vec::new();
-        while packet.remaining() > 0 {
-            if let Some(byte) = packet.read(1) {
-                original_datagram.push(byte[0]);
-            }
-        }
-
-        Ok(IcmpTimeExceeded {
-            type_,
-            code,
-            checksum,
-            unused,
-            original_datagram,
-        })
+        parse_icmp_with_original_datagram(packet, "Time Exceeded")
+            .map(|(type_, code, checksum, original_datagram)| IcmpTimeExceeded {
+                type_, code, checksum, original_datagram
+            })
     }
 
     /// 编码为字节数组
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(8 + self.original_datagram.len());
-
-        bytes.push(self.type_);
-        bytes.push(self.code);
-        bytes.extend_from_slice(&self.checksum.to_be_bytes());
-        bytes.extend_from_slice(&self.unused.to_be_bytes());
-        bytes.extend_from_slice(&self.original_datagram);
-
-        // 计算校验和
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
-
-        bytes
+        encode_icmp_with_original_datagram(self.type_, self.code, &self.original_datagram)
     }
+}
+
+// ========== 辅助函数 ==========
+
+/// 解析带原始数据报的 ICMP 报文（用于 Destination Unreachable 和 Time Exceeded）
+fn parse_icmp_with_original_datagram(
+    packet: &mut Packet,
+    name: &str,
+) -> Result<(u8, u8, u16, Vec<u8>)> {
+    const MIN_LEN: usize = 8;
+
+    if packet.remaining() < MIN_LEN {
+        return Err(CoreError::invalid_packet(format!(
+            "{}报文长度不足：{} < {}",
+            name,
+            packet.remaining(),
+            MIN_LEN
+        )));
+    }
+
+    let type_ = packet.read(1)
+        .ok_or_else(|| CoreError::parse_error("读取类型失败"))?[0];
+    let code = packet.read(1)
+        .ok_or_else(|| CoreError::parse_error("读取代码失败"))?[0];
+    let checksum_bytes = packet.read(2)
+        .ok_or_else(|| CoreError::parse_error("读取校验和失败"))?;
+    let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
+
+    // 跳过 4 字节的 unused 字段
+    packet.read(4)
+        .ok_or_else(|| CoreError::parse_error("读取未使用字段失败"))?;
+
+    // 读取原始数据报
+    let mut original_datagram = Vec::new();
+    while packet.remaining() > 0 {
+        if let Some(byte) = packet.read(1) {
+            original_datagram.push(byte[0]);
+        }
+    }
+
+    Ok((type_, code, checksum, original_datagram))
+}
+
+/// 编码带原始数据报的 ICMP 报文（用于 Destination Unreachable 和 Time Exceeded）
+fn encode_icmp_with_original_datagram(
+    type_: u8,
+    code: u8,
+    original_datagram: &[u8],
+) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(8 + original_datagram.len());
+
+    bytes.push(type_);
+    bytes.push(code);
+    bytes.extend_from_slice(&[0, 0]); // 校验和占位
+    bytes.extend_from_slice(&[0, 0, 0, 0]); // unused 字段填充为 0
+    bytes.extend_from_slice(original_datagram);
+
+    // 计算校验和
+    let checksum = calculate_checksum(&bytes);
+    bytes[2] = (checksum >> 8) as u8;
+    bytes[3] = (checksum & 0xFF) as u8;
+
+    bytes
 }
 
 // ========== ICMP 报文枚举 ==========
@@ -440,5 +358,51 @@ mod tests {
         assert_eq!(reply.identifier, 1234);
         assert_eq!(reply.sequence, 1);
         assert_eq!(reply.data, request.data);
+    }
+
+    #[test]
+    fn test_dest_unreachable_encode_decode() {
+        let original = vec![0x45u8, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00];
+        let dest = IcmpDestUnreachable {
+            type_: ICMP_TYPE_DEST_UNREACHABLE,
+            code: 0,
+            checksum: 0,
+            original_datagram: original.clone(),
+        };
+
+        let bytes = dest.to_bytes();
+        assert_eq!(bytes[0], ICMP_TYPE_DEST_UNREACHABLE);
+        assert_eq!(bytes[1], 0);
+
+        // 解析
+        let mut packet = Packet::from_bytes(bytes);
+        let decoded = IcmpDestUnreachable::from_packet(&mut packet).unwrap();
+
+        assert_eq!(decoded.type_, ICMP_TYPE_DEST_UNREACHABLE);
+        assert_eq!(decoded.code, 0);
+        assert_eq!(decoded.original_datagram, original);
+    }
+
+    #[test]
+    fn test_time_exceeded_encode_decode() {
+        let original = vec![0x45u8, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00];
+        let time = IcmpTimeExceeded {
+            type_: ICMP_TYPE_TIME_EXCEEDED,
+            code: 0,
+            checksum: 0,
+            original_datagram: original.clone(),
+        };
+
+        let bytes = time.to_bytes();
+        assert_eq!(bytes[0], ICMP_TYPE_TIME_EXCEEDED);
+        assert_eq!(bytes[1], 0);
+
+        // 解析
+        let mut packet = Packet::from_bytes(bytes);
+        let decoded = IcmpTimeExceeded::from_packet(&mut packet).unwrap();
+
+        assert_eq!(decoded.type_, ICMP_TYPE_TIME_EXCEEDED);
+        assert_eq!(decoded.code, 0);
+        assert_eq!(decoded.original_datagram, original);
     }
 }
