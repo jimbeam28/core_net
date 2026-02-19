@@ -33,12 +33,6 @@ fn global_setup() {
     GlobalStateManager::setup_global_state().expect("全局状态初始化失败");
 }
 
-/// 全局测试清理：在所有测试后执行一次
-#[allow(dead_code)]
-fn global_teardown() {
-    // 可选：释放全局资源
-}
-
 /// 每个测试后的清理函数
 fn clear_test_state() {
     GlobalStateManager::clear_global_state().expect("全局状态清理失败");
