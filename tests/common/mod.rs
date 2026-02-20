@@ -1,18 +1,16 @@
-// 测试公共模块
-//
-// 提供各测试文件共用的辅助函数和配置
+// 测试公共模块 - 提供各测试文件共用的辅助函数和配置
 
-use core_net::testframework::{GlobalStateManager, HarnessError, HarnessResult};
+use core_net::testframework::{HarnessError, HarnessResult, GlobalStateManager};
 use core_net::interface::{InterfaceConfig, InterfaceState, MacAddr, Ipv4Addr, NetworkInterface};
 use core_net::protocols::arp::{ArpPacket, ArpOperation, encapsulate_ethernet};
 use core_net::protocols::IP_PROTO_ICMP;
 use core_net::protocols::ip::Ipv4Header;
 use core_net::common::Packet;
+use core_net::context::SystemContext;
 
-// ========== 测试配置 ==========
+// 测试配置
 
 /// 创建测试用 eth0 配置
-#[allow(dead_code)]
 pub fn create_test_eth0_config() -> InterfaceConfig {
     InterfaceConfig {
         name: "eth0".to_string(),
@@ -26,7 +24,6 @@ pub fn create_test_eth0_config() -> InterfaceConfig {
 }
 
 /// 创建测试用 lo 配置
-#[allow(dead_code)]
 pub fn create_test_lo_config() -> InterfaceConfig {
     InterfaceConfig {
         name: "lo".to_string(),
@@ -39,18 +36,73 @@ pub fn create_test_lo_config() -> InterfaceConfig {
     }
 }
 
-// ========== 报文创建函数 ==========
+// 报文创建函数
 
 /// 创建 IP 头部
-#[allow(dead_code)]
 pub fn create_ip_header(src_ip: Ipv4Addr, dst_ip: Ipv4Addr, payload_len: usize) -> Vec<u8> {
     let ip_header = Ipv4Header::new(src_ip, dst_ip, IP_PROTO_ICMP, payload_len);
     ip_header.to_bytes()
 }
 
+/// 创建 ICMP Echo Request 报文（带 IP 和以太网封装）
+pub fn create_echo_request_packet(
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+    identifier: u16,
+    sequence: u16,
+) -> Packet {
+    use core_net::protocols::icmp::create_echo_request;
+    use core_net::protocols::ETH_P_IP;
+
+    let icmp_data = vec![0x42; 32];
+    let icmp_packet = create_echo_request(identifier, sequence, icmp_data);
+
+    let mut ip_data = create_ip_header(src_ip, dst_ip, icmp_packet.len());
+    ip_data.extend_from_slice(&icmp_packet);
+
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
+    frame.extend_from_slice(&ip_data);
+
+    Packet::from_bytes(frame)
+}
+
+/// 创建 ICMP Echo Reply 报文（带 IP 和以太网封装）
+pub fn create_echo_reply_packet(
+    dst_mac: MacAddr,
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+    identifier: u16,
+    sequence: u16,
+) -> Packet {
+    use core_net::protocols::icmp::IcmpEcho;
+    use core_net::protocols::ETH_P_IP;
+
+    let icmp_echo = IcmpEcho::new_reply(identifier, sequence, vec![0x42; 32]);
+    let icmp_packet = icmp_echo.to_bytes();
+
+    let mut ip_data = create_ip_header(src_ip, dst_ip, icmp_packet.len());
+    ip_data.extend_from_slice(&icmp_packet);
+
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&dst_mac.bytes);
+    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
+    frame.extend_from_slice(&ip_data);
+
+    Packet::from_bytes(frame)
+}
+
+/// 创建测试用系统上下文（每个测试独立）
+pub fn create_test_context() -> SystemContext {
+    GlobalStateManager::create_context()
+}
+
 /// 创建ARP请求报文（带以太网封装）
-/// src_mac: 源MAC地址, src_ip: 源IP地址, dst_ip: 目标IP地址
-#[allow(dead_code)]
 pub fn create_arp_request_packet(
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
@@ -69,9 +121,6 @@ pub fn create_arp_request_packet(
 }
 
 /// 创建ARP响应报文（带以太网封装）
-/// src_mac: 响应者的MAC, src_ip: 响应者的IP
-/// dst_mac: 请求者的MAC, dst_ip: 请求者的IP
-#[allow(dead_code)]
 pub fn create_arp_reply_packet(
     src_mac: MacAddr,
     src_ip: Ipv4Addr,
@@ -90,9 +139,7 @@ pub fn create_arp_reply_packet(
     Packet::from_bytes(frame)
 }
 
-/// 创建免费ARP报文（带以太网封装）
-/// 特征：SPA == TPA
-#[allow(dead_code)]
+/// 创建免费ARP报文（带以太网封装），特征：SPA == TPA
 pub fn create_gratuitous_arp_packet(mac: MacAddr, ip: Ipv4Addr) -> Packet {
     let arp_packet = ArpPacket::new(
         ArpOperation::Request,
@@ -106,28 +153,58 @@ pub fn create_gratuitous_arp_packet(mac: MacAddr, ip: Ipv4Addr) -> Packet {
     Packet::from_bytes(frame)
 }
 
-// ========== 报文注入和验证函数 ==========
+// 报文注入和验证函数
 
-/// 注入报文到全局接口的 RxQ
-#[allow(dead_code)]
-pub fn inject_packet_to_interface(iface_name: &str, packet: Packet) -> HarnessResult<()> {
-    let mut guard = GlobalStateManager::get_or_recover_interface_lock();
-    let iface = guard.get_by_name_mut(iface_name)?;
+/// 注入报文到指定接口的 RxQ
+pub fn inject_packet_to_context(context: &SystemContext, iface_name: &str, packet: Packet) -> HarnessResult<()> {
+    let mut interfaces = context.interfaces.lock()
+        .map_err(|e| HarnessError::QueueError(format!("锁定接口管理器失败: {}", e)))?;
+    let iface = interfaces.get_by_name_mut(iface_name)?;
     iface.rxq.enqueue(packet).map_err(|e| HarnessError::QueueError(format!("{:?}", e)))?;
     Ok(())
 }
 
-/// 验证 TxQ 中的报文数量
-#[allow(dead_code)]
-pub fn verify_txq_count(iface_name: &str, expected: usize) -> bool {
-    let guard = GlobalStateManager::get_or_recover_interface_lock();
-    guard.get_by_name(iface_name)
+/// 验证接口 TxQ 中的报文数量
+pub fn verify_context_txq_count(context: &SystemContext, iface_name: &str, expected: usize) -> bool {
+    let guard = context.interfaces.lock();
+    if guard.is_err() {
+        return false;
+    }
+    guard.unwrap().get_by_name(iface_name)
         .map(|iface| iface.txq.len() == expected)
         .unwrap_or(false)
 }
 
+/// 验证接口 RxQ 中的报文数量
+pub fn verify_context_rxq_count(context: &SystemContext, iface_name: &str, expected: usize) -> bool {
+    let guard = context.interfaces.lock();
+    if guard.is_err() {
+        return false;
+    }
+    guard.unwrap().get_by_name(iface_name)
+        .map(|iface| iface.rxq.len() == expected)
+        .unwrap_or(false)
+}
+
+/// 清空指定接口的 TxQ
+pub fn clear_context_txq(context: &SystemContext, iface_name: &str) -> HarnessResult<()> {
+    let mut interfaces = context.interfaces.lock()
+        .map_err(|e| HarnessError::InterfaceError(format!("锁定接口管理器失败: {}", e)))?;
+    let iface = interfaces.get_by_name_mut(iface_name)?;
+    iface.txq.clear();
+    Ok(())
+}
+
+/// 清空指定接口的 RxQ
+pub fn clear_context_rxq(context: &SystemContext, iface_name: &str) -> HarnessResult<()> {
+    let mut interfaces = context.interfaces.lock()
+        .map_err(|e| HarnessError::InterfaceError(format!("锁定接口管理器失败: {}", e)))?;
+    let iface = interfaces.get_by_name_mut(iface_name)?;
+    iface.rxq.clear();
+    Ok(())
+}
+
 /// 创建测试报文（满足以太网最小长度 14 字节）
-#[allow(dead_code)]
 pub fn create_test_packet(data: Vec<u8>) -> Packet {
     if data.len() < 14 {
         let mut padded = data;
@@ -140,10 +217,7 @@ pub fn create_test_packet(data: Vec<u8>) -> Packet {
     }
 }
 
-// ========== 队列计数函数 ==========
-
 /// 计算所有接口 RxQ 中的报文总数
-#[allow(dead_code)]
 pub fn count_all_rxq_packets<T>(manager: &T) -> usize
 where
     T: QueueAccessor,
@@ -156,7 +230,6 @@ where
 }
 
 /// 计算所有接口 TxQ 中的报文总数
-#[allow(dead_code)]
 pub fn count_all_txq_packets<T>(manager: &T) -> usize
 where
     T: QueueAccessor,
@@ -169,14 +242,12 @@ where
 }
 
 /// 队列访问 trait，用于抽象不同类型的接口管理器
-#[allow(dead_code)]
 pub trait QueueAccessor {
     type Interface: QueueAccess;
     fn interfaces(&self) -> &[Self::Interface];
 }
 
 /// 单个接口的队列访问
-#[allow(dead_code)]
 pub trait QueueAccess {
     fn rxq(&self) -> &core_net::common::queue::RingQueue<Packet>;
     fn txq(&self) -> &core_net::common::queue::RingQueue<Packet>;

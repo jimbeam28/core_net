@@ -2,102 +2,27 @@
 //
 // 测试 ICMP 协议的 Echo Request/Reply、Destination Unreachable、Time Exceeded
 
-use core_net::testframework::{
-    TestHarness, GlobalStateManager,
-};
+use core_net::testframework::TestHarness;
+use core_net::common::Packet;
 use core_net::interface::{MacAddr, Ipv4Addr};
 use core_net::protocols::{ETH_P_IP};
 use core_net::protocols::icmp::{IcmpPacket, IcmpEcho, create_echo_request};
-use core_net::common::Packet;
-
 use serial_test::serial;
 
 mod common;
-use common::{create_ip_header, inject_packet_to_interface, verify_txq_count};
+use common::{create_ip_header, create_echo_request_packet, create_echo_reply_packet,
+             inject_packet_to_context, verify_context_txq_count, create_test_context};
 
 // 测试环境配置：本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
 
 // ========== 全局测试生命周期 ==========
-
-/// 全局测试设置：在所有测试前执行一次
-fn global_setup() {
-    GlobalStateManager::setup_global_state().expect("全局状态初始化失败");
-}
-
-/// 每个测试后的清理函数
-fn clear_test_state() {
-    GlobalStateManager::clear_global_state().expect("全局状态清理失败");
-}
-
-/// 创建 Echo Request 报文（带 IP 封装）
-///
-/// # 参数
-/// - src_mac: 源MAC地址
-/// - src_ip: 源IP地址
-/// - dst_ip: 目标IP地址
-/// - identifier: Echo 标识符
-/// - sequence: Echo 序列号
-///
-/// # 返回
-/// 完整的以太网帧（包含 IP 和 ICMP Echo Request）
-fn create_echo_request_packet(
-    src_mac: MacAddr,
-    src_ip: Ipv4Addr,
-    dst_ip: Ipv4Addr,
-    identifier: u16,
-    sequence: u16,
-) -> Packet {
-    // ICMP Echo Request
-    let icmp_data = vec![0x42; 32]; // 测试数据
-    let icmp_packet = create_echo_request(identifier, sequence, icmp_data);
-
-    // IP 头部
-    let mut ip_data = create_ip_header(src_ip, dst_ip, icmp_packet.len());
-    ip_data.extend_from_slice(&icmp_packet);
-
-    // 以太网帧
-    let mut frame = Vec::new();
-    frame.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]); // 广播 MAC
-    frame.extend_from_slice(&src_mac.bytes);
-    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
-    frame.extend_from_slice(&ip_data);
-
-    Packet::from_bytes(frame)
-}
-
-/// 创建完整的 ICMP Echo Reply（带 IP 和以太网封装）
-fn create_echo_reply_packet(
-    dst_mac: MacAddr,
-    src_mac: MacAddr,
-    src_ip: Ipv4Addr,
-    dst_ip: Ipv4Addr,
-    identifier: u16,
-    sequence: u16,
-) -> Packet {
-    // ICMP Echo Reply
-    let icmp_echo = IcmpEcho::new_reply(identifier, sequence, vec![0x42; 32]);
-    let icmp_packet = icmp_echo.to_bytes();
-
-    // IP 头部
-    let mut ip_data = create_ip_header(src_ip, dst_ip, icmp_packet.len());
-    ip_data.extend_from_slice(&icmp_packet);
-
-    // 以太网帧
-    let mut frame = Vec::new();
-    frame.extend_from_slice(&dst_mac.bytes);
-    frame.extend_from_slice(&src_mac.bytes);
-    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
-    frame.extend_from_slice(&ip_data);
-
-    Packet::from_bytes(frame)
-}
 
 // 1. Echo Request/Reply 测试组
 
 #[test]
 #[serial]
 fn test_icmp_echo_request_reply() {
-    global_setup();
+    let ctx = create_test_context();
 
     let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
     let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
@@ -105,24 +30,20 @@ fn test_icmp_echo_request_reply() {
 
     // 创建并注入 Echo Request
     let request = create_echo_request_packet(sender_mac, sender_ip, target_ip, 1234, 1);
-    inject_packet_to_interface("eth0", request).unwrap();
+    inject_packet_to_context(&ctx, "eth0", request).unwrap();
 
     // 运行调度器
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok(), "调度器运行失败: {:?}", result.err());
 
     // 验证：应该有 Echo Reply 响应
-    assert!(verify_txq_count("eth0", 1), "发送队列应该有1个Echo Reply响应报文");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 1), "发送队列应该有1个Echo Reply响应报文");
 }
 
 #[test]
 #[serial]
 fn test_icmp_echo_identifier_sequence_match() {
-    global_setup();
-
     let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
     let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
     let target_ip = Ipv4Addr::new(192, 168, 1, 100);
@@ -130,20 +51,18 @@ fn test_icmp_echo_identifier_sequence_match() {
     // 测试不同的 identifier 和 sequence
     for identifier in [1000, 2000, 3000] {
         for sequence in [1, 2, 3] {
-            clear_test_state();
+            let ctx = create_test_context();
 
             let request = create_echo_request_packet(sender_mac, sender_ip, target_ip, identifier, sequence);
-            inject_packet_to_interface("eth0", request).unwrap();
+            inject_packet_to_context(&ctx, "eth0", request).unwrap();
 
-            let mut harness = TestHarness::with_global_manager();
+            let mut harness = TestHarness::with_context(ctx.clone());
             let result = harness.run();
             assert!(result.is_ok(), "调度器运行失败: {:?}", result.err());
 
-            assert!(verify_txq_count("eth0", 1), "应该有Echo Reply响应");
+            assert!(verify_context_txq_count(&ctx, "eth0", 1), "应该有Echo Reply响应");
         }
     }
-
-    clear_test_state();
 }
 
 // 2. 边界条件测试组
@@ -151,7 +70,7 @@ fn test_icmp_echo_identifier_sequence_match() {
 #[test]
 #[serial]
 fn test_icmp_minimal_packet() {
-    global_setup();
+    let ctx = create_test_context();
 
     // 创建最小 Echo Request（8字节头部，无数据）
     let mut icmp_bytes = vec![
@@ -181,21 +100,19 @@ fn test_icmp_minimal_packet() {
     frame.extend_from_slice(&ip_data);
 
     let packet = Packet::from_bytes(frame);
-    inject_packet_to_interface("eth0", packet).unwrap();
+    inject_packet_to_context(&ctx, "eth0", packet).unwrap();
 
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok());
 
-    assert!(verify_txq_count("eth0", 1), "应该有响应");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 1), "应该有响应");
 }
 
 #[test]
 #[serial]
 fn test_icmp_checksum_validation() {
-    global_setup();
+    let ctx = create_test_context();
 
     // 创建校验和错误的 Echo Request
     let icmp_bytes = vec![
@@ -218,16 +135,14 @@ fn test_icmp_checksum_validation() {
     frame.extend_from_slice(&ip_data);
 
     let packet = Packet::from_bytes(frame);
-    inject_packet_to_interface("eth0", packet).unwrap();
+    inject_packet_to_context(&ctx, "eth0", packet).unwrap();
 
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok());
 
     // 校验和错误，不应该有响应
-    assert!(verify_txq_count("eth0", 0), "校验和错误时不应有响应");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 0), "校验和错误时不应有响应");
 }
 
 // 3. ICMP 类型解析测试组
@@ -275,7 +190,7 @@ fn test_icmp_echo_roundtrip() {
 #[test]
 #[serial]
 fn test_icmp_dest_unreachable_no_reply() {
-    global_setup();
+    let ctx = create_test_context();
 
     // Destination Unreachable 不应该触发响应（避免循环）
     let mut icmp_bytes = vec![
@@ -306,16 +221,14 @@ fn test_icmp_dest_unreachable_no_reply() {
     frame.extend_from_slice(&ip_data);
 
     let packet = Packet::from_bytes(frame);
-    inject_packet_to_interface("eth0", packet).unwrap();
+    inject_packet_to_context(&ctx, "eth0", packet).unwrap();
 
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok());
 
     // Destination Unreachable 不应该触发响应
-    assert!(verify_txq_count("eth0", 0), "Destination Unreachable 不应有响应");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 0), "Destination Unreachable 不应有响应");
 }
 
 // 5. 非本机 IP 测试组
@@ -323,7 +236,7 @@ fn test_icmp_dest_unreachable_no_reply() {
 #[test]
 #[serial]
 fn test_icmp_not_for_us() {
-    global_setup();
+    let ctx = create_test_context();
 
     let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
     let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
@@ -331,16 +244,14 @@ fn test_icmp_not_for_us() {
 
     // 创建 Echo Request（目标不是本机）
     let request = create_echo_request_packet(sender_mac, sender_ip, target_ip, 1234, 1);
-    inject_packet_to_interface("eth0", request).unwrap();
+    inject_packet_to_context(&ctx, "eth0", request).unwrap();
 
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok());
 
     // 目标不是本机，不应该响应
-    assert!(verify_txq_count("eth0", 0), "非本机IP不应响应");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 0), "非本机IP不应响应");
 }
 
 // 6. 多接口测试组
@@ -348,7 +259,7 @@ fn test_icmp_not_for_us() {
 #[test]
 #[serial]
 fn test_icmp_multiple_interfaces() {
-    global_setup();
+    let ctx = create_test_context();
 
     let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
     let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
@@ -357,15 +268,13 @@ fn test_icmp_multiple_interfaces() {
     let eth0_ip = Ipv4Addr::new(192, 168, 1, 100); // eth0 的 IP
 
     let request = create_echo_request_packet(sender_mac, sender_ip, eth0_ip, 1234, 1);
-    inject_packet_to_interface("eth0", request).unwrap();
+    inject_packet_to_context(&ctx, "eth0", request).unwrap();
 
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok());
 
-    assert!(verify_txq_count("eth0", 1), "eth0 应该有响应");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 1), "eth0 应该有响应");
 }
 
 // 7. 序列号回绕测试
@@ -373,7 +282,7 @@ fn test_icmp_multiple_interfaces() {
 #[test]
 #[serial]
 fn test_icmp_sequence_wraparound() {
-    global_setup();
+    let ctx = create_test_context();
 
     let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
     let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
@@ -381,15 +290,13 @@ fn test_icmp_sequence_wraparound() {
 
     // 测试最大序列号
     let request = create_echo_request_packet(sender_mac, sender_ip, target_ip, 1234, 65535);
-    inject_packet_to_interface("eth0", request).unwrap();
+    inject_packet_to_context(&ctx, "eth0", request).unwrap();
 
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok());
 
-    assert!(verify_txq_count("eth0", 1), "序列号65535应该正常处理");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 1), "序列号65535应该正常处理");
 }
 
 // 8. Echo Reply 匹配测试
@@ -397,7 +304,7 @@ fn test_icmp_sequence_wraparound() {
 #[test]
 #[serial]
 fn test_icmp_echo_reply_matching() {
-    global_setup();
+    let ctx = create_test_context();
 
     // 模拟收到 Echo Reply 的场景
     // 注意：在纯模拟环境中，这通常不会自然发生
@@ -423,14 +330,12 @@ fn test_icmp_echo_reply_matching() {
         100,
     );
 
-    inject_packet_to_interface("eth0", reply).unwrap();
+    inject_packet_to_context(&ctx, "eth0", reply).unwrap();
 
-    let mut harness = TestHarness::with_global_manager();
+    let mut harness = TestHarness::with_context(ctx.clone());
     let result = harness.run();
     assert!(result.is_ok());
 
     // Echo Reply 不应该触发新的响应
-    assert!(verify_txq_count("eth0", 0), "Echo Reply 不应触发新响应");
-
-    clear_test_state();
+    assert!(verify_context_txq_count(&ctx, "eth0", 0), "Echo Reply 不应触发新响应");
 }

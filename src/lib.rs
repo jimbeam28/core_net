@@ -5,6 +5,7 @@
 
 // 公共模块声明
 pub mod common;
+pub mod context;
 pub mod poweron;
 pub mod engine;
 pub mod scheduler;
@@ -35,10 +36,12 @@ pub use common::{
 
 // 重新导出上电启动模块
 pub use poweron::{
-    SystemContext,
     boot_default,
     shutdown,
 };
+
+// 重新导出系统上下文（新的依赖注入方式）
+pub use context::SystemContext as Context;
 
 // 导出 interface 模块
 pub use interface::{
@@ -47,7 +50,6 @@ pub use interface::{
     load_default_config, save_config,
     InterfaceError,
     DEFAULT_CONFIG_PATH,
-    init_global_manager, init_default, global_manager,
 };
 
 // 导出 engine 模块
@@ -70,7 +72,6 @@ pub use scheduler::{
 
 // 导出 ARP 模块
 pub use protocols::arp::{
-    init_default_arp_cache, init_global_arp_cache,
     ArpCache, ArpEntry, ArpState, ArpConfig,
 };
 
@@ -78,5 +79,5 @@ pub use protocols::arp::{
 pub use testframework::{
     TestHarness, PacketInjector,
     HarnessError, HarnessResult,
-    GlobalStateManager, InterfaceTestConfig,
+    GlobalStateManager,
 };

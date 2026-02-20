@@ -6,10 +6,10 @@ pub struct SystemContext {
 }
 
 impl SystemContext {
-    /// 创建新的系统上下文：初始化 ARP 缓存并加载接口配置
+    /// 创建新的系统上下文：加载接口配置
+    ///
+    /// 返回包含已加载接口配置的系统上下文。
     pub fn new() -> Self {
-        let _ = crate::protocols::arp::get_or_init_global_arp_cache();
-        let global_init_result = crate::interface::init_default();
         let interface_manager = match crate::interface::load_default_config() {
             Ok(manager) => manager,
             Err(e) => {
@@ -17,9 +17,6 @@ impl SystemContext {
                 InterfaceManager::default()
             }
         };
-        if let Err(e) = global_init_result {
-            eprintln!("[警告] 初始化全局接口管理器失败: {}", e);
-        }
         SystemContext {
             interfaces: interface_manager,
         }

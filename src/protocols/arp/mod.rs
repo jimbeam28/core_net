@@ -6,26 +6,14 @@
 use crate::common::{CoreError, Result};
 use crate::protocols::{Packet, MacAddr, Ipv4Addr};
 use crate::protocols::ethernet;
-use crate::interface::global_manager;
 use std::collections::VecDeque;
 
 // ARP 表模块
 pub mod tables;
 
-// 全局缓存模块
-pub mod global;
-
 // 重新导出 ARP 表相关的公共类型
 pub use tables::{
     ArpState, ArpConfig, ArpEntry, ArpCache, ArpKey
-};
-
-// 重新导出全局缓存相关的公共类型
-pub use global::{
-    init_global_arp_cache,
-    global_arp_cache,
-    get_or_init_global_arp_cache,
-    init_default_arp_cache,
 };
 
 /// ARP 操作码
@@ -356,28 +344,26 @@ pub fn encapsulate_ethernet(
     ethernet::build_ethernet_frame(dst_mac, src_mac, 0x0806, &arp_packet.to_bytes())
 }
 
-/// 处理ARP报文（统一入口，processor调用）
+/// 处理ARP报文（使用 SystemContext）
 ///
-/// 这是 processor 应该调用的统一接口，负责：
-/// 1. 解析 ARP 报文
-/// 2. 获取接口信息（MAC、IP）
-/// 3. 获取全局 ARP 缓存
-/// 4. 调用核心处理逻辑更新缓存并判断是否需要响应
-/// 5. 如果需要响应，构造并封装以太网帧
+/// 这是使用依赖注入模式的 ARP 处理接口，使用传入的 SystemContext
+/// 而不是全局状态。
 ///
 /// # 参数
-/// - packet: 可变引用的 Packet（已去除以太网头部，offset在ARP位置位置）
+/// - packet: 可变引用的 Packet（已去除以太网头部）
 /// - eth_src: 原始以太网帧的源MAC地址（用于响应时的目标MAC）
 /// - ifindex: 接口索引
+/// - context: 系统上下文，包含接口和 ARP 缓存
 /// - verbose: 是否启用详细输出
 ///
 /// # 返回
 /// - Ok(ArpProcessResult): 处理结果（NoReply 或 Reply(完整以太网帧)）
 /// - Err(CoreError): 解析或处理失败
-pub fn process_arp_packet(
+pub fn process_arp_packet_with_context(
     packet: &mut Packet,
     eth_src: MacAddr,
     ifindex: u32,
+    context: &crate::context::SystemContext,
     verbose: bool,
 ) -> Result<ArpProcessResult> {
     // 1. 解析 ARP 报文
@@ -396,12 +382,9 @@ pub fn process_arp_packet(
         }
     }
 
-    // 2. 获取接口信息（MAC、IP）
-    // 注意：先获取接口信息，释放锁后再获取 ARP 缓存锁，避免死锁
+    // 2. 获取接口信息（从 context.interfaces）
     let (local_mac, local_ip) = {
-        let global_mgr = global_manager()
-            .ok_or_else(|| CoreError::parse_error("全局接口管理器未初始化"))?;
-        let guard = global_mgr.lock()
+        let guard = context.interfaces.lock()
             .map_err(|e| CoreError::parse_error(format!("锁定接口管理器失败: {}", e)))?;
         let iface = guard.get_by_index(ifindex)
             .map_err(|e| CoreError::parse_error(format!("获取接口失败: {}", e)))?;
@@ -409,10 +392,8 @@ pub fn process_arp_packet(
         (iface.mac_addr, iface.ip_addr)
     };
 
-    // 3. 获取全局 ARP 缓存（使用 get_or_init 确保线程安全的懒初始化）
-    let global_cache = get_or_init_global_arp_cache();
-
-    let mut cache = global_cache.lock()
+    // 3. 获取 ARP 缓存（从 context.arp_cache）
+    let mut cache = context.arp_cache.lock()
         .map_err(|e| CoreError::parse_error(format!("锁定 ARP 缓存失败: {}", e)))?;
 
     // 4. 调用核心处理逻辑

@@ -53,7 +53,7 @@ impl VlanTag {
     ///
     /// 有效范围: 1-4094
     pub fn is_valid_vid(vid: u16) -> bool {
-        vid >= 1 && vid <= 4094
+        (1..=4094).contains(&vid)
     }
 
     /// 验证PCP是否有效

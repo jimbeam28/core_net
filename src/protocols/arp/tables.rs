@@ -124,11 +124,16 @@ impl ArpEntry {
 
     /// 更新硬件地址和状态
     pub fn update(&mut self, hardware_addr: MacAddr, state: ArpState) {
+        let old_state = self.state;
         self.hardware_addr = hardware_addr;
         self.state = state;
         self.updated_at = Instant::now();
         if state == ArpState::Reachable {
             self.confirmed_at = Instant::now();
+        }
+        // 状态转换时重置 retry_count
+        if old_state != state {
+            self.retry_count = 0;
         }
     }
 
@@ -299,13 +304,12 @@ impl ArpCache {
     /// - false: 条目不存在或不是Stale状态
     pub fn mark_used(&mut self, ifindex: u32, ip_addr: Ipv4Addr) -> bool {
         let key = (ifindex, ip_addr);
-        if let Some(entry) = self.entries.get_mut(&key) {
-            if entry.state == ArpState::Stale {
+        if let Some(entry) = self.entries.get_mut(&key)
+            && entry.state == ArpState::Stale {
                 entry.state = ArpState::Delay;
                 entry.updated_at = Instant::now();
                 return true;
             }
-        }
         false
     }
 
@@ -320,11 +324,10 @@ impl ArpCache {
         let keys: Vec<ArpKey> = self.entries.keys().copied().collect();
 
         for key in keys {
-            if self.age_entry(&key) {
-                if let Some(entry) = self.entries.get(&key) {
+            if self.age_entry(&key)
+                && let Some(entry) = self.entries.get(&key) {
                     pending.push((key.0, key.1, entry.state));
                 }
-            }
         }
 
         pending

@@ -1,13 +1,10 @@
-// tests/queue_integration_test.rs
-//
 // RingQueue 集成测试
-// 测试队列与其他模块的集成
 
 use core_net::common::queue::{RingQueue, MIN_QUEUE_CAPACITY};
 use core_net::common::packet::Packet;
 use core_net::common::CoreError;
 
-// ========== 8.3.1 与Packet模块集成 ==========
+// 与Packet模块集成
 
 #[test]
 fn test_packet_queue_flow() {
@@ -69,18 +66,16 @@ fn test_large_packet() {
     assert_eq!(received.as_slice(), &[0u8; 1500][..]);
 }
 
-// ========== 8.3.2 并发场景模拟（单线程） ==========
+// 并发场景模拟（单线程）
 
 #[test]
 fn test_producer_consumer_pattern() {
     let mut q: RingQueue<u32> = RingQueue::new(100);
 
-    // 模拟生产者
     for i in 0..50 {
         assert!(q.enqueue(i).is_ok());
     }
 
-    // 模拟消费者
     let mut consumed = 0;
     while let Some(value) = q.dequeue() {
         assert_eq!(value, consumed);
@@ -93,7 +88,6 @@ fn test_producer_consumer_pattern() {
 fn test_burst_enqueue() {
     let mut q: RingQueue<u32> = RingQueue::new(100);
 
-    // 快速连续入队
     for i in 0..100 {
         assert!(q.enqueue(i).is_ok());
     }
@@ -106,12 +100,10 @@ fn test_burst_enqueue() {
 fn test_burst_dequeue() {
     let mut q: RingQueue<u32> = RingQueue::new(100);
 
-    // 先填满队列
     for i in 0..100 {
         q.enqueue(i).unwrap();
     }
 
-    // 快速连续出队
     for i in 0..100 {
         assert_eq!(q.dequeue(), Some(i));
     }
@@ -123,22 +115,19 @@ fn test_burst_dequeue() {
 fn test_alternating_ops() {
     let mut q: RingQueue<u32> = RingQueue::new(10);
 
-    // 交替入队出队操作
     for i in 0..20 {
         if i % 3 == 0 {
-            // 每三次入队一次
             q.enqueue(i).unwrap();
         } else if !q.is_empty() {
             q.dequeue();
         }
     }
 
-    // 验证队列状态一致
     assert!(!q.is_full());
     assert!(q.len() <= 10);
 }
 
-// ========== 8.3.3 边界压力测试 ==========
+// 边界压力测试
 
 #[test]
 fn test_stress_fill_drain() {
@@ -196,12 +185,11 @@ fn test_random_ops() {
 
 #[test]
 fn test_zero_capacity_handling() {
-    // 容量为0时自动修正为MIN_QUEUE_CAPACITY
     let q: RingQueue<u8> = RingQueue::new(0);
     assert_eq!(q.capacity(), MIN_QUEUE_CAPACITY);
 }
 
-// ========== 8.3.4 与CoreError集成 ==========
+// 与CoreError集成
 
 #[test]
 fn test_queue_error_conversion() {
@@ -212,7 +200,6 @@ fn test_queue_error_conversion() {
     let result = q.enqueue(3);
     assert!(result.is_err());
 
-    // 转换为CoreError
     let core_error: CoreError = result.unwrap_err().into();
     matches!(core_error, CoreError::QueueFull);
 }

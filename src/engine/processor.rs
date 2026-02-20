@@ -5,6 +5,7 @@
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
 use crate::protocols::{arp, ip, icmp, Ipv4Addr};
+use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
 
@@ -68,21 +69,63 @@ impl From<crate::protocols::ip::IpError> for ProcessError {
 pub struct PacketProcessor {
     name: String,
     verbose: bool,
+    /// 系统上下文（使用依赖注入模式）
+    /// 包含接口管理器、ARP缓存等状态
+    context: SystemContext,
 }
 
 impl PacketProcessor {
-    pub fn new() -> Self {
+    /// 使用系统上下文创建处理器（推荐方式）
+    ///
+    /// # 参数
+    /// - `context`: 系统上下文，包含接口、ARP缓存等状态
+    ///
+    /// # 示例
+    ///
+    /// ```
+    /// use core_net::engine::PacketProcessor;
+    /// use core_net::context::SystemContext;
+    ///
+    /// let ctx = SystemContext::new();
+    /// let processor = PacketProcessor::with_context(ctx);
+    /// ```
+    pub fn with_context(context: SystemContext) -> Self {
         Self {
-            name: String::from("DefaultProcessor"),
+            name: String::from("ContextProcessor"),
             verbose: false,
+            context,
         }
     }
 
-    pub fn with_name(name: String) -> Self {
+    /// 使用系统上下文和名称创建处理器
+    ///
+    /// # 参数
+    /// - `name`: 处理器名称
+    /// - `context`: 系统上下文
+    pub fn with_name_and_context(name: String, context: SystemContext) -> Self {
         Self {
             name,
             verbose: false,
+            context,
         }
+    }
+
+    #[deprecated(note = "使用 with_context 方法替代")]
+    pub fn new() -> Self {
+        panic!("PacketProcessor::new() 已弃用，请使用 PacketProcessor::with_context(SystemContext) 创建处理器");
+    }
+
+    #[deprecated(note = "使用 with_name_and_context 方法替代")]
+    pub fn with_name(_name: String) -> Self {
+        panic!("PacketProcessor::with_name() 已弃用，请使用 PacketProcessor::with_name_and_context(String, SystemContext) 创建处理器");
+    }
+
+    /// 设置系统上下文
+    ///
+    /// # 参数
+    /// - `context`: 系统上下文
+    pub fn set_context(&mut self, context: SystemContext) {
+        self.context = context;
     }
 
     pub fn with_verbose(mut self, verbose: bool) -> Self {
@@ -189,14 +232,16 @@ impl PacketProcessor {
 
     /// 处理 ARP 报文（统一入口）
     ///
-    /// 调用 ARP 模块的统一处理接口。
+    /// 调用 ARP 模块的统一处理接口，使用 SystemContext 模式。
     ///
     /// # 参数
     /// - packet: Packet（已去除以太网头部）
     /// - eth_src: 原始以太网帧的源MAC地址
     fn handle_arp_packet(&self, mut packet: Packet, eth_src: crate::protocols::MacAddr) -> ProcessResult {
         let ifindex = packet.get_ifindex();
-        let result = arp::process_arp_packet(&mut packet, eth_src, ifindex, self.verbose)
+
+        // 使用 SystemContext 模式
+        let result = arp::process_arp_packet_with_context(&mut packet, eth_src, ifindex, &self.context, self.verbose)
             .map_err(|e| ProcessError::ParseError(format!("ARP处理失败: {}", e)))?;
 
         // 根据处理结果返回
@@ -247,22 +292,22 @@ impl PacketProcessor {
         // 根据 IP 协议字段分发
         match ip_hdr.protocol {
             ip::IP_PROTO_ICMP => {
-                return self.handle_icmp(eth_hdr, ip_hdr, packet);
+                self.handle_icmp(eth_hdr, ip_hdr, packet)
             }
             ip::IP_PROTO_TCP => {
-                return Err(ProcessError::UnsupportedProtocol(
+                Err(ProcessError::UnsupportedProtocol(
                     String::from("TCP protocol not implemented")
-                ));
+                ))
             }
             ip::IP_PROTO_UDP => {
-                return Err(ProcessError::UnsupportedProtocol(
+                Err(ProcessError::UnsupportedProtocol(
                     String::from("UDP protocol not implemented")
-                ));
+                ))
             }
             _ => {
-                return Err(ProcessError::UnsupportedProtocol(
+                Err(ProcessError::UnsupportedProtocol(
                     format!("Unknown IP protocol: {}", ip_hdr.protocol)
-                ));
+                ))
             }
         }
     }
@@ -327,13 +372,10 @@ impl PacketProcessor {
     }
 
     /// 获取接口的 MAC 地址
+    ///
+    /// 使用系统上下文获取接口信息
     fn get_interface_mac(&self, ifindex: u32) -> Result<crate::protocols::MacAddr, ProcessError> {
-        use crate::interface::global_manager;
-
-        let global_mgr = global_manager()
-            .ok_or_else(|| ProcessError::ParseError("全局接口管理器未初始化".to_string()))?;
-
-        let guard = global_mgr.lock()
+        let guard = self.context.interfaces.lock()
             .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
 
         let iface = guard.get_by_index(ifindex)
@@ -343,13 +385,10 @@ impl PacketProcessor {
     }
 
     /// 获取接口的 IP 地址
+    ///
+    /// 使用系统上下文获取接口信息
     fn get_interface_ip(&self, ifindex: u32) -> Result<Ipv4Addr, ProcessError> {
-        use crate::interface::global_manager;
-
-        let global_mgr = global_manager()
-            .ok_or_else(|| ProcessError::ParseError("全局接口管理器未初始化".to_string()))?;
-
-        let guard = global_mgr.lock()
+        let guard = self.context.interfaces.lock()
             .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
 
         let iface = guard.get_by_index(ifindex)
@@ -379,16 +418,22 @@ impl PacketProcessor {
 
 impl Default for PacketProcessor {
     fn default() -> Self {
-        Self::new()
+        Self {
+            name: String::from("DefaultProcessor"),
+            verbose: false,
+            context: SystemContext::new(),
+        }
     }
 }
 
 pub fn process_packet(packet: Packet) -> ProcessResult {
-    PacketProcessor::new().process(packet)
+    let ctx = SystemContext::new();
+    PacketProcessor::with_context(ctx).process(packet)
 }
 
 pub fn process_packet_verbose(packet: Packet) -> ProcessResult {
-    PacketProcessor::new().with_verbose(true).process(packet)
+    let ctx = SystemContext::new();
+    PacketProcessor::with_context(ctx).with_verbose(true).process(packet)
 }
 
 // --- 测试模块 ---
@@ -535,22 +580,25 @@ mod tests {
 
     #[test]
     fn test_processor_creation() {
-        let processor = PacketProcessor::new();
-        assert_eq!(processor.name(), "DefaultProcessor");
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
+        assert_eq!(processor.name(), "ContextProcessor");
     }
 
     #[test]
-    fn test_processor_with_name() {
-        let processor = PacketProcessor::with_name(String::from("TestProcessor"));
+    fn test_processor_with_name_and_context() {
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_name_and_context(String::from("TestProcessor"), ctx);
         assert_eq!(processor.name(), "TestProcessor");
     }
 
     #[test]
     fn test_processor_verbose() {
-        let processor = PacketProcessor::new().with_verbose(true);
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx).with_verbose(true);
         // verbose 是私有字段，无法直接访问
         // 但我们可以验证 with_verbose 返回了处理器
-        assert_eq!(processor.name(), "DefaultProcessor");
+        assert_eq!(processor.name(), "ContextProcessor");
     }
 
     #[test]
@@ -561,13 +609,15 @@ mod tests {
 
     #[test]
     fn test_processor_name() {
-        let processor = PacketProcessor::with_name(String::from("MyProcessor"));
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_name_and_context(String::from("MyProcessor"), ctx);
         assert_eq!(processor.name(), "MyProcessor");
     }
 
     #[test]
     fn test_dispatch_vlan_8021q() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -603,7 +653,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_vlan_8021ad() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -631,7 +682,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_arp() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
         let src_ip = Ipv4Addr::new(192, 168, 1, 1);
@@ -646,7 +698,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_ipv4_unsupported() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&MacAddr::broadcast().bytes);
@@ -675,7 +728,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_ipv6_unsupported() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&MacAddr::broadcast().bytes);
@@ -697,7 +751,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_unknown_ethertype() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let packet = create_malformed_packet();
         let result = processor.process(packet);
@@ -713,7 +768,8 @@ mod tests {
 
     #[test]
     fn test_handle_vlan_single_tag() {
-        let processor = PacketProcessor::new().with_verbose(true);
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx).with_verbose(true);
 
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -741,7 +797,8 @@ mod tests {
 
     #[test]
     fn test_handle_vlan_qinq_double_tag() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -767,7 +824,8 @@ mod tests {
 
     #[test]
     fn test_handle_vlan_inner_arp_dispatch() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -806,7 +864,8 @@ mod tests {
 
     #[test]
     fn test_handle_vlan_boundary_vid_0() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -830,7 +889,8 @@ mod tests {
 
     #[test]
     fn test_handle_vlan_boundary_vid_4095() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -853,7 +913,8 @@ mod tests {
 
     #[test]
     fn test_handle_vlan_truncated_packet() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         // 构造截断的 VLAN 报文（不足 4 字节用于 VLAN 标签）
         let mut bytes = Vec::new();
@@ -872,7 +933,8 @@ mod tests {
 
     #[test]
     fn test_handle_arp_request() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
         let src_ip = Ipv4Addr::new(192, 168, 1, 1);
@@ -887,7 +949,8 @@ mod tests {
 
     #[test]
     fn test_handle_arp_reply() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let dst_mac = MacAddr::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -903,7 +966,8 @@ mod tests {
 
     #[test]
     fn test_handle_arp_broadcast_target() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
         let src_ip = Ipv4Addr::new(192, 168, 1, 1);
@@ -918,7 +982,8 @@ mod tests {
 
     #[test]
     fn test_handle_arp_unicast_target() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         // 构造目标 MAC 为本机（零地址）的 ARP 报文
         let dst_mac = MacAddr::zero();
@@ -1026,7 +1091,8 @@ mod tests {
 
     #[test]
     fn test_full_vlan_arp_flow() {
-        let processor = PacketProcessor::new().with_verbose(true);
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx).with_verbose(true);
 
         // 构造完整的以太网 + VLAN + ARP 报文
         let dst_mac = MacAddr::broadcast();
@@ -1066,7 +1132,8 @@ mod tests {
 
     #[test]
     fn test_error_propagation() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
 
         // 构造会导致 VLAN 解析错误的报文
         let mut bytes = Vec::new();
@@ -1085,7 +1152,8 @@ mod tests {
 
     #[test]
     fn test_empty_packet() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
         let packet = Packet::from_bytes(vec![]);
 
         let result = processor.process(packet);
@@ -1094,7 +1162,8 @@ mod tests {
 
     #[test]
     fn test_truncated_ethernet_header() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
         let packet = create_truncated_packet();
 
         let result = processor.process(packet);

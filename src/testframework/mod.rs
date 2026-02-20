@@ -16,4 +16,4 @@ mod global_state;
 pub use error::{HarnessError, HarnessResult};
 pub use injector::PacketInjector;
 pub use harness::TestHarness;
-pub use global_state::{GlobalStateManager, InterfaceTestConfig};
+pub use global_state::GlobalStateManager;

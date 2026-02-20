@@ -4,21 +4,39 @@
 
 use crate::common::Packet;
 use crate::interface::InterfaceManager;
+use crate::context::SystemContext;
 use crate::testframework::error::{HarnessError, HarnessResult};
 
 /// 报文注入器
 pub struct PacketInjector<'a> {
-    /// 接口管理器的可变引用
-    interfaces: &'a mut InterfaceManager,
+    /// 接口管理器的可变引用（直接模式）
+    interfaces: Option<&'a mut InterfaceManager>,
+
+    /// 系统上下文的引用（SystemContext 模式）
+    context: Option<&'a SystemContext>,
 }
 
 impl<'a> PacketInjector<'a> {
-    /// 创建新的注入器
+    /// 创建新的注入器（直接模式）
     ///
     /// # 参数
     /// - interfaces: 接口管理器的可变引用
     pub fn new(interfaces: &'a mut InterfaceManager) -> Self {
-        Self { interfaces }
+        Self {
+            interfaces: Some(interfaces),
+            context: None,
+        }
+    }
+
+    /// 使用系统上下文创建注入器
+    ///
+    /// # 参数
+    /// - context: 系统上下文的引用
+    pub fn with_context(context: &'a SystemContext) -> Self {
+        Self {
+            interfaces: None,
+            context: Some(context),
+        }
     }
 
     /// 向指定接口注入单个报文
@@ -35,13 +53,21 @@ impl<'a> PacketInjector<'a> {
         interface_name: &str,
         packet: Packet,
     ) -> HarnessResult<()> {
-        // 获取指定接口的可变引用
-        let iface = self.interfaces.get_by_name_mut(interface_name)?;
-
-        // 将报文放入接收队列
-        iface.rxq.enqueue(packet).map_err(|e| HarnessError::QueueError(format!("{:?}", e)))?;
-
-        Ok(())
+        if let Some(interfaces) = &mut self.interfaces {
+            // 直接模式：使用接口管理器的可变引用
+            let iface = interfaces.get_by_name_mut(interface_name)?;
+            iface.rxq.enqueue(packet).map_err(|e| HarnessError::QueueError(format!("{:?}", e)))?;
+            Ok(())
+        } else if let Some(context) = self.context {
+            // SystemContext 模式：使用上下文中的接口
+            let mut interfaces = context.interfaces.lock()
+                .map_err(|e| HarnessError::QueueError(format!("锁定接口管理器失败: {}", e)))?;
+            let iface = interfaces.get_by_name_mut(interface_name)?;
+            iface.rxq.enqueue(packet).map_err(|e| HarnessError::QueueError(format!("{:?}", e)))?;
+            Ok(())
+        } else {
+            Err(HarnessError::InterfaceError("注入器未正确初始化".to_string()))
+        }
     }
 
     /// 向指定接口注入多个报文

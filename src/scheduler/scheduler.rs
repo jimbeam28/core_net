@@ -7,6 +7,7 @@ use crate::common::queue::RingQueue;
 use crate::common::Packet;
 use crate::engine::PacketProcessor;
 use crate::interface::InterfaceManager;
+use crate::context::SystemContext;
 
 // --- 错误类型定义 ---
 
@@ -76,6 +77,10 @@ pub struct Scheduler {
 
     /// 是否启用详细输出
     verbose: bool,
+
+    /// 系统上下文（用于 SystemContext 模式）
+    /// 注意：保留 Option 以支持多种运行模式
+    context: Option<SystemContext>,
 }
 
 impl Scheduler {
@@ -91,6 +96,7 @@ impl Scheduler {
             name,
             processor: None,
             verbose: false,
+            context: None,
         }
     }
 
@@ -109,6 +115,15 @@ impl Scheduler {
     /// - `verbose`: 是否启用详细输出
     pub fn with_verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
+        self
+    }
+
+    /// 设置系统上下文
+    ///
+    /// # 参数
+    /// - `context`: 系统上下文
+    pub fn with_context(mut self, context: SystemContext) -> Self {
+        self.context = Some(context);
         self
     }
 
@@ -144,7 +159,11 @@ impl Scheduler {
                     // 根据是否有自定义处理器选择处理方式
                     let result = match &self.processor {
                         Some(processor) => processor.process(packet),
-                        None => PacketProcessor::new().process(packet),
+                        None => {
+                            // 使用调度器的上下文，如果没有则创建默认的
+                            let ctx = self.context.as_ref().cloned().unwrap_or_else(SystemContext::new);
+                            PacketProcessor::with_context(ctx).process(packet)
+                        }
                     };
 
                     // 处理结果
@@ -153,7 +172,7 @@ impl Scheduler {
                             count += 1;
                             // 如果返回响应报文，放入 TxQ
                             if let Some(response_packet) = response {
-                                if let Err(_) = txq.enqueue(response_packet) {
+                                if txq.enqueue(response_packet).is_err() {
                                     if self.verbose {
                                         println!("警告: TxQ 已满，响应报文丢失");
                                     }
@@ -182,6 +201,136 @@ impl Scheduler {
         }
 
         Ok(count)
+    }
+
+    /// 运行调度循环，遍历所有接口的接收队列（使用 SystemContext）
+    ///
+    /// 从所有接口的接收队列中取出报文进行处理，直到所有队列为空。
+    /// 如果协议处理返回响应报文，将其放入对应接口的发送队列。
+    ///
+    /// # 参数
+    /// - `context`: 系统上下文的引用
+    ///
+    /// # 行为
+    /// 1. 遍历所有接口
+    /// 2. 对每个接口的接收队列循环出队
+    /// 3. 若队列为空，继续处理下一个接口
+    /// 4. 若成功取出报文，调用 processor.process() 处理
+    /// 5. 若返回响应报文，将其放入该接口的 txq
+    /// 6. 处理失败仅记录，不中断调度
+    ///
+    /// # 返回
+    /// - `Ok(count)`: 成功处理的报文总数
+    /// - `Err(ScheduleError)`: 调度过程中发生严重错误
+    ///
+    /// # 死锁避免
+    /// **重要**：为避免死锁，处理每个报文时必须释放接口锁。
+    /// 因为处理器内部可能需要访问接口信息（如ARP处理获取接口MAC/IP），
+    /// 如果在持有接口锁的情况下调用处理器，会导致同一线程递归获取Mutex锁而死锁。
+    /// 因此采用"收集-处理-放回"三阶段模式：
+    /// 1. 从RxQ取出报文，释放锁
+    /// 2. 处理报文（可自由获取任何锁）
+    /// 3. 重新获取锁，将响应放入TxQ
+    pub fn run_all_interfaces_context(&self, context: &SystemContext) -> ScheduleResult<usize> {
+        let mut total_count = 0;
+
+        if self.verbose {
+            println!("=== 调度器 [{}] 开始运行（SystemContext 模式）===", self.name);
+        }
+
+        // 获取接口数量
+        let iface_count = {
+            let interfaces = context.interfaces.lock()
+                .map_err(|e| ScheduleError::Other(format!("锁定接口管理器失败: {}", e)))?;
+            interfaces.len()
+        };
+
+        if self.verbose {
+            println!("接口数量: {}", iface_count);
+        }
+
+        // 遍历所有接口
+        for index in 0..iface_count {
+            let iface_index = index as u32;
+            let mut iface_count = 0;
+
+            // 循环处理当前接口的所有报文
+            loop {
+                // 第一阶段：从RxQ取出报文（持有锁的时间尽可能短）
+                let packet_opt = {
+                    let mut interfaces = context.interfaces.lock()
+                        .map_err(|e| ScheduleError::Other(format!("锁定接口管理器失败: {}", e)))?;
+
+                    let iface = interfaces.get_by_index_mut(iface_index)
+                        .map_err(|e| ScheduleError::Other(format!("获取接口失败: {}", e)))?;
+
+                    if self.verbose && iface_count == 0 {
+                        println!("--- 处理接口 [{}] ({}) ---", iface.index, iface.name);
+                    }
+
+                    match iface.rxq.dequeue() {
+                        Some(mut packet) => {
+                            packet.set_ifindex(iface.index);
+                            Some(packet)
+                        }
+                        None => None,
+                    }
+                };
+
+                // 第二阶段：处理报文（不持有接口锁，避免死锁）
+                let response_packet = match packet_opt {
+                    Some(pkt) => {
+                        iface_count += 1;
+                        let result = match &self.processor {
+                            Some(processor) => processor.process(pkt),
+                            None => PacketProcessor::with_context(context.clone()).process(pkt),
+                        };
+
+                        match result {
+                            Ok(response) => response,
+                            Err(e) => {
+                                if self.verbose {
+                                    println!("  报文处理失败: {}", e);
+                                }
+                                None
+                            }
+                        }
+                    }
+                    None => None,
+                };
+
+                // 第三阶段：将响应放入TxQ（重新获取锁）
+                if let Some(response) = response_packet {
+                    let mut interfaces = context.interfaces.lock()
+                        .map_err(|e| ScheduleError::Other(format!("锁定接口管理器失败: {}", e)))?;
+
+                    if let Ok(iface) = interfaces.get_by_index_mut(iface_index) {
+                        if iface.txq.enqueue(response).is_err() {
+                            if self.verbose {
+                                println!("  警告: 接口 [{}] TxQ 已满，响应报文丢失", iface.name);
+                            }
+                        } else if self.verbose {
+                            println!("  响应报文已放入接口 [{}] TxQ", iface.name);
+                        }
+                    }
+                } else if response_packet.is_none() {
+                    // 没有更多报文，退出循环
+                    break;
+                }
+            }
+
+            if self.verbose && iface_count > 0 {
+                println!("--- 接口 [{}] 处理完成，处理了 {} 个报文 ---", iface_index, iface_count);
+            }
+
+            total_count += iface_count;
+        }
+
+        if self.verbose {
+            println!("=== 调度器 [{}] 完成，共处理了 {} 个报文 ===", self.name, total_count);
+        }
+
+        Ok(total_count)
     }
 
     /// 运行调度循环，遍历所有接口的接收队列
@@ -228,7 +377,11 @@ impl Scheduler {
                             // 根据是否有自定义处理器选择处理方式
                             let result = match &self.processor {
                                 Some(processor) => processor.process(packet),
-                                None => PacketProcessor::new().process(packet),
+                                None => {
+                                    // 使用调度器的上下文，如果没有则创建默认的
+                                    let ctx = self.context.as_ref().cloned().unwrap_or_else(SystemContext::new);
+                                    PacketProcessor::with_context(ctx).process(packet)
+                                }
                             };
 
                             // 处理结果
@@ -237,7 +390,7 @@ impl Scheduler {
                                     iface_count += 1;
                                     // 如果返回响应报文，放入该接口的 TxQ
                                     if let Some(response_packet) = response {
-                                        if let Err(_) = iface.txq.enqueue(response_packet) {
+                                        if iface.txq.enqueue(response_packet).is_err() {
                                             if self.verbose {
                                                 println!("  警告: 接口 [{}] TxQ 已满，响应报文丢失", iface.name);
                                             }
@@ -322,8 +475,9 @@ mod tests {
 
     /// 创建测试调度器（带默认处理器）
     fn create_test_scheduler() -> Scheduler {
+        let ctx = SystemContext::new();
         Scheduler::new("TestScheduler".to_string())
-            .with_processor(PacketProcessor::new())
+            .with_processor(PacketProcessor::with_context(ctx))
     }
 
     /// 创建测试报文
@@ -431,7 +585,8 @@ mod tests {
 
     #[test]
     fn test_scheduler_with_processor() {
-        let processor = PacketProcessor::new();
+        let ctx = SystemContext::new();
+        let processor = PacketProcessor::with_context(ctx);
         let scheduler = Scheduler::new("TestScheduler".to_string())
             .with_processor(processor);
         // 验证调度器带处理器创建成功
@@ -454,8 +609,9 @@ mod tests {
 
     #[test]
     fn test_scheduler_chain() {
+        let ctx = SystemContext::new();
         let scheduler = Scheduler::new("ChainedScheduler".to_string())
-            .with_processor(PacketProcessor::new())
+            .with_processor(PacketProcessor::with_context(ctx))
             .with_verbose(true);
         let mut rxq = RingQueue::<Packet>::new(10);
         let mut txq = RingQueue::<Packet>::new(10);
@@ -765,8 +921,9 @@ mod tests {
 
     #[test]
     fn test_run_all_interfaces_verbose_mode() {
+        let ctx = SystemContext::new();
         let scheduler = Scheduler::new("VerboseTestScheduler".to_string())
-            .with_processor(PacketProcessor::new())
+            .with_processor(PacketProcessor::with_context(ctx))
             .with_verbose(true);
 
         let mut manager = create_single_interface_manager();

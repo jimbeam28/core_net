@@ -4,7 +4,7 @@
 
 use crate::common::{CoreError, Packet, Result as CoreResult};
 use crate::protocols::Ipv4Addr;
-use crate::interface::global_manager;
+use crate::context::SystemContext;
 
 use super::header::Ipv4Header;
 use super::protocol::Ipv4Protocol;
@@ -34,6 +34,7 @@ pub type IpResult<T> = std::result::Result<T, IpError>;
 /// # 参数
 /// - packet: 可变引用的 Packet（已去除以太网头部）
 /// - ifindex: 接口索引
+/// - context: 系统上下文，用于访问接口信息
 ///
 /// # 返回
 /// - Ok(IpProcessResult): 处理结果
@@ -48,6 +49,7 @@ pub type IpResult<T> = std::result::Result<T, IpError>;
 pub fn process_ip_packet(
     packet: &mut Packet,
     ifindex: u32,
+    context: &SystemContext,
 ) -> IpResult<IpProcessResult> {
     // 1. 解析 IP 头部
     let ip_hdr = Ipv4Header::from_packet(packet)
@@ -72,7 +74,7 @@ pub fn process_ip_packet(
     }
 
     // 4. 检查目的地址是否为本机地址
-    let is_local = is_local_address(ip_hdr.dest_addr, ifindex)?;
+    let is_local = is_local_address(context, ip_hdr.dest_addr, ifindex)?;
 
     if !is_local {
         // 不是发送给本机的报文
@@ -132,15 +134,12 @@ fn verify_header_checksum(packet: &Packet, header_len: usize) -> CoreResult<()> 
 }
 
 /// 检查目的地址是否为本机地址
-fn is_local_address(dest_addr: Ipv4Addr, ifindex: u32) -> IpResult<bool> {
-    let global_mgr = global_manager()
-        .ok_or_else(|| IpError::destination_unreachable(dest_addr))?;
-
-    let guard = global_mgr.lock()
+fn is_local_address(context: &SystemContext, dest_addr: Ipv4Addr, ifindex: u32) -> IpResult<bool> {
+    let interfaces = context.interfaces.lock()
         .map_err(|_| IpError::destination_unreachable(dest_addr))?;
 
     // 检查是否有接口配置了此地址
-    let is_local = guard.get_by_index(ifindex)
+    let is_local = interfaces.get_by_index(ifindex)
         .map(|iface| iface.ip_addr == dest_addr)
         .unwrap_or(false);
 
@@ -167,7 +166,7 @@ fn extract_payload(packet: &Packet, header_len: usize) -> IpResult<Vec<u8>> {
     let payload_len = remaining - payload_start;
 
     let payload_data = packet.peek(payload_len)
-        .ok_or_else(|| IpError::PacketTooShort {
+        .ok_or(IpError::PacketTooShort {
             expected: payload_len,
             found: 0,
         })?;
