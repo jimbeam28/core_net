@@ -182,21 +182,19 @@ fn test_boot_schedule_shutdown_cycle() {
     let scheduler = Scheduler::new("BootCycleTestScheduler".to_string())
         .with_processor(PacketProcessor::with_context(SystemContext::new()));
 
-    if context.get_interface("eth0").is_some() {
-        if let Some(iface) = context.get_interface_mut("eth0") {
-            for i in 0..5 {
-                let packet = create_test_packet(vec![0x01, 0x02, 0x03, 0x04, i as u8]);
-                let _ = iface.rxq.enqueue(packet);
-            }
+    if context.get_interface("eth0").is_some()
+        && let Some(iface) = context.get_interface_mut("eth0") {
+        for i in 0..5 {
+            let packet = create_test_packet(vec![0x01, 0x02, 0x03, 0x04, i as u8]);
+            let _ = iface.rxq.enqueue(packet);
         }
     }
 
-    if context.get_interface("lo").is_some() {
-        if let Some(iface) = context.get_interface_mut("lo") {
-            for i in 0..3 {
-                let packet = create_test_packet(vec![0x05, 0x06, 0x07, 0x08, i as u8]);
-                let _ = iface.rxq.enqueue(packet);
-            }
+    if context.get_interface("lo").is_some()
+        && let Some(iface) = context.get_interface_mut("lo") {
+        for i in 0..3 {
+            let packet = create_test_packet(vec![0x05, 0x06, 0x07, 0x08, i as u8]);
+            let _ = iface.rxq.enqueue(packet);
         }
     }
 

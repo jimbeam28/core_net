@@ -171,11 +171,6 @@ impl ArpCache {
         }
     }
 
-    /// 使用默认配置创建 ARP 缓存
-    pub fn default() -> Self {
-        ArpCache::new(ArpConfig::default())
-    }
-
     /// 获取配置引用
     pub fn config(&self) -> &ArpConfig {
         &self.config
@@ -377,6 +372,13 @@ impl ArpCache {
         } else {
             0
         }
+    }
+}
+
+// 实现 Default trait
+impl Default for ArpCache {
+    fn default() -> Self {
+        Self::new(ArpConfig::default())
     }
 }
 

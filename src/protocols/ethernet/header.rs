@@ -36,15 +36,15 @@ impl EthernetHeader {
         }
 
         let mut dst_bytes = [0u8; 6];
-        for i in 0..6 {
-            dst_bytes[i] = packet.read(1)
+        for dst_byte in &mut dst_bytes {
+            *dst_byte = packet.read(1)
                 .ok_or_else(|| CoreError::parse_error("读取目标MAC地址失败"))?[0];
         }
         let dst_mac = MacAddr::new(dst_bytes);
 
         let mut src_bytes = [0u8; 6];
-        for i in 0..6 {
-            src_bytes[i] = packet.read(1)
+        for src_byte in &mut src_bytes {
+            *src_byte = packet.read(1)
                 .ok_or_else(|| CoreError::parse_error("读取源MAC地址失败"))?[0];
         }
         let src_mac = MacAddr::new(src_bytes);

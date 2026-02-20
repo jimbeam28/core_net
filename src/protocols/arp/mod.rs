@@ -139,8 +139,8 @@ impl ArpPacket {
 
         // 读取发送方硬件地址
         let mut sender_hardware_bytes = [0u8; 6];
-        for i in 0..6 {
-            sender_hardware_bytes[i] = match packet.read(1) {
+        for sender_hardware_byte in &mut sender_hardware_bytes {
+            *sender_hardware_byte = match packet.read(1) {
                 Some(data) => data[0],
                 None => return Err(CoreError::parse_error("读取发送方硬件地址失败")),
             };
@@ -149,8 +149,8 @@ impl ArpPacket {
 
         // 读取发送方协议地址
         let mut sender_protocol_bytes = [0u8; 4];
-        for i in 0..4 {
-            sender_protocol_bytes[i] = match packet.read(1) {
+        for sender_protocol_byte in &mut sender_protocol_bytes {
+            *sender_protocol_byte = match packet.read(1) {
                 Some(data) => data[0],
                 None => return Err(CoreError::parse_error("读取发送方协议地址失败")),
             };
@@ -159,8 +159,8 @@ impl ArpPacket {
 
         // 读取目标硬件地址
         let mut target_hardware_bytes = [0u8; 6];
-        for i in 0..6 {
-            target_hardware_bytes[i] = match packet.read(1) {
+        for target_hardware_byte in &mut target_hardware_bytes {
+            *target_hardware_byte = match packet.read(1) {
                 Some(data) => data[0],
                 None => return Err(CoreError::parse_error("读取目标硬件地址失败")),
             };
@@ -169,8 +169,8 @@ impl ArpPacket {
 
         // 读取目标协议地址
         let mut target_protocol_bytes = [0u8; 4];
-        for i in 0..4 {
-            target_protocol_bytes[i] = match packet.read(1) {
+        for target_protocol_byte in &mut target_protocol_bytes {
+            *target_protocol_byte = match packet.read(1) {
                 Some(data) => data[0],
                 None => return Err(CoreError::parse_error("读取目标协议地址失败")),
             };

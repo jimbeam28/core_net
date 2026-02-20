@@ -46,6 +46,13 @@ impl SystemContext {
     }
 }
 
+// 实现 Default trait
+impl Default for SystemContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ========== 单元测试 ==========
 
 #[cfg(test)]

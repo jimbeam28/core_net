@@ -16,6 +16,7 @@ fn create_vlan_tci(pcp: u8, dei: bool, vid: u16) -> u16 {
 }
 
 /// 构造带 VLAN 标签的完整报文
+#[allow(clippy::too_many_arguments)]
 fn create_vlan_packet(
     dst_mac: MacAddr,
     src_mac: MacAddr,

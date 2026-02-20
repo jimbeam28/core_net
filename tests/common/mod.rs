@@ -1,4 +1,5 @@
 // 测试公共模块 - 提供各测试文件共用的辅助函数和配置
+#![allow(dead_code)]
 
 use core_net::testframework::{HarnessError, HarnessResult, GlobalStateManager};
 use core_net::interface::{InterfaceConfig, InterfaceState, MacAddr, Ipv4Addr, NetworkInterface};
@@ -175,32 +176,12 @@ pub fn verify_context_txq_count(context: &SystemContext, iface_name: &str, expec
         .unwrap_or(false)
 }
 
-/// 验证接口 RxQ 中的报文数量
-pub fn verify_context_rxq_count(context: &SystemContext, iface_name: &str, expected: usize) -> bool {
-    let guard = context.interfaces.lock();
-    if guard.is_err() {
-        return false;
-    }
-    guard.unwrap().get_by_name(iface_name)
-        .map(|iface| iface.rxq.len() == expected)
-        .unwrap_or(false)
-}
-
 /// 清空指定接口的 TxQ
 pub fn clear_context_txq(context: &SystemContext, iface_name: &str) -> HarnessResult<()> {
     let mut interfaces = context.interfaces.lock()
         .map_err(|e| HarnessError::InterfaceError(format!("锁定接口管理器失败: {}", e)))?;
     let iface = interfaces.get_by_name_mut(iface_name)?;
     iface.txq.clear();
-    Ok(())
-}
-
-/// 清空指定接口的 RxQ
-pub fn clear_context_rxq(context: &SystemContext, iface_name: &str) -> HarnessResult<()> {
-    let mut interfaces = context.interfaces.lock()
-        .map_err(|e| HarnessError::InterfaceError(format!("锁定接口管理器失败: {}", e)))?;
-    let iface = interfaces.get_by_name_mut(iface_name)?;
-    iface.rxq.clear();
     Ok(())
 }
 

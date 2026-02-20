@@ -40,15 +40,6 @@ impl VlanTag {
         Ok(VlanTag { pcp, dei, vid })
     }
 
-    /// 创建默认VLAN标签 (PCP=0, DEI=false, VID=1)
-    pub fn default() -> Self {
-        VlanTag {
-            pcp: 0,
-            dei: false,
-            vid: 1,
-        }
-    }
-
     /// 验证VLAN ID是否有效
     ///
     /// 有效范围: 1-4094
@@ -160,6 +151,10 @@ impl VlanTag {
 // 实现Default trait
 impl Default for VlanTag {
     fn default() -> Self {
-        Self::default()
+        VlanTag {
+            pcp: 0,
+            dei: false,
+            vid: 1,
+        }
     }
 }

@@ -95,7 +95,6 @@ impl GlobalStateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocols::arp::{ArpEntry, ArpState};
 
     #[test]
     fn test_create_context() {

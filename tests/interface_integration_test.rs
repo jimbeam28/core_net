@@ -6,7 +6,7 @@ use core_net::context::SystemContext;
 use serial_test::serial;
 
 mod common;
-use common::{create_test_eth0_config, create_test_lo_config};
+use common::create_test_eth0_config;
 
 // 场景一：系统上电初始化流程
 
@@ -72,7 +72,7 @@ fn test_multi_interface_coordination() {
 
     for i in 0..3 {
         let iface = manager.get_by_index(i).unwrap();
-        assert_eq!(iface.index(), i as u32);
+        assert_eq!(iface.index(), i);
     }
 }
 
@@ -148,7 +148,7 @@ fn test_runtime_interface_configuration() {
 #[test]
 fn test_system_context_runtime_modification() {
     // 测试通过系统上下文修改接口配置
-    let mut ctx = SystemContext::from_config();
+    let ctx = SystemContext::from_config();
 
     let original_ip = {
         let interfaces = ctx.interfaces.lock().unwrap();

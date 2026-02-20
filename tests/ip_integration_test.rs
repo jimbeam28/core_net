@@ -3,19 +3,17 @@
 // 测试 IPv4 协议的头部解析、分片检测、地址类型判断等
 
 use core_net::testframework::{
-    TestHarness, GlobalStateManager,
+    TestHarness,
 };
 use core_net::interface::{MacAddr, Ipv4Addr};
 use core_net::protocols::{ETH_P_IP, IP_PROTO_ICMP};
 use core_net::protocols::ip::{Ipv4Header, encapsulate_ip_datagram};
-use core_net::protocols::icmp::create_echo_request;
 use core_net::common::Packet;
-use core_net::context::SystemContext;
 
 use serial_test::serial;
 
 mod common;
-use common::{create_ip_header, create_echo_request_packet,
+use common::{create_echo_request_packet,
              inject_packet_to_context, verify_context_txq_count, create_test_context};
 
 // 测试环境配置：本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100

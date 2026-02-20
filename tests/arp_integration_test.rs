@@ -4,7 +4,7 @@
 // 测试 ARP 协议的报文接收场景、状态转换、边界条件和多接口场景
 
 use core_net::testframework::{
-    TestHarness, GlobalStateManager, HarnessResult,
+    TestHarness,
 };
 use core_net::interface::{MacAddr, Ipv4Addr};
 use core_net::protocols::arp::ArpState;
@@ -439,7 +439,7 @@ fn test_arp_cache_capacity_limit() {
     // 填满缓存
     for i in 1..=5 {
         let ip = Ipv4Addr::new(192, 168, 1, i);
-        let mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, i as u8]);
+        let mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, i]);
         cache.update_arp(0, ip, mac, ArpState::Reachable);
     }
 
@@ -697,7 +697,7 @@ fn test_aging_timer_reachable_to_stale() {
 #[test]
 #[serial]
 fn test_aging_timer_stale_refresh() {
-    let ctx = create_test_context();
+    let _ctx = create_test_context();
 
     let ip_addr = Ipv4Addr::new(192, 168, 1, 10);
     let mac_addr = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
