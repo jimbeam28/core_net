@@ -98,7 +98,10 @@ pub struct SystemContext {
 }
 ```
 
-**注意**：队列现在由接口管理器内部的每个接口持有，SystemContext 只持有接口管理器的所有权。
+**注意**：
+- 队列由接口管理器内部的每个接口持有
+- 本模块的 SystemContext 是简化版，仅包含接口管理器
+- 完整的 SystemContext（依赖注入模式，包含 Arc<Mutex<T>> 封装的所有资源）见 [context.md](context.md)
 
 ---
 

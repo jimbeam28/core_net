@@ -831,7 +831,7 @@ use crate::common::addr::Ipv4Addr;
 
 | 子模块 | 使用内容 | 用途 |
 |-------|---------|------|
-| `interface/global.rs` | `INTERFACE_GLOBAL` | 获取接口信息 |
+| `SystemContext.interfaces` | `Arc<Mutex<InterfaceManager>>` | 获取接口信息 |
 | `interface/iface.rs` | `Interface` 结构体 | 接口状态和配置 |
 | `interface/types.rs` | 接口相关类型 | MTU、地址等 |
 
@@ -839,9 +839,11 @@ use crate::common::addr::Ipv4Addr;
 
 ```rust
 // 获取接收接口的 IP 地址（用于 ICMP 响应的源地址）
-use crate::interface::global::INTERFACE_GLOBAL;
-
-let iface = INTERFACE_GLOBAL.lock()
+// 通过 SystemContext 传递（依赖注入模式）
+let iface = context
+    .interfaces
+    .lock()
+    .unwrap()
     .get_interface_by_name(received_iface_name)?;
 
 let source_addr = iface.ipv4_addr;  // 用作 ICMP 响应的源地址
@@ -1016,20 +1018,27 @@ icmp.ping("192.168.1.1".parse()?, 4)?;
 ```
 1. Common 模块 (packet, error, addr, queue)
    ↓
-2. Interface 模块 (iface, global)
+2. Interface 模块 (iface, manager)
    ↓
-3. Ethernet 模块
+3. SystemContext 创建 (context 模块)
+   ├── Arc<Mutex<InterfaceManager>>
+   ├── Arc<Mutex<ArpCache>>
+   └── Arc<Mutex<EchoManager>>
    ↓
-4. ARP 模块
+4. Ethernet 模块
    ↓
-5. IP 模块 (依赖 Ethernet, ARP)
+5. ARP 模块
    ↓
-6. ICMP 模块 (依赖 IP, Interface, Common)
+6. IP 模块 (依赖 SystemContext)
    ↓
-7. Processor/Engine (依赖所有协议模块)
+7. ICMP 模块 (依赖 SystemContext)
    ↓
-8. Scheduler (依赖 Processor)
+8. Processor/Engine (接收 SystemContext 引用)
+   ↓
+9. Scheduler (接收 SystemContext 引用)
 ```
+
+**说明**：使用依赖注入模式后，SystemContext 在早期创建，然后通过引用传递给各个模块，替代了原来的全局状态访问模式。
 
 ### 6.11 数据流示例
 

@@ -695,9 +695,10 @@ impl From<ipv4::IpError> for ProcessError {
 src/engine/
 ├── mod.rs           # 模块入口，导出公共接口
 ├── processor.rs     # PacketProcessor 实现（薄层设计） ✅ 已实现
-├── context.rs      # 处理上下文（规划中，用于传递接口信息）
 └── dispatcher.rs   # 协议分发器（未来可选，将分发逻辑独立）
 ```
+
+**说明**：处理器通过 `SystemContext` 获取接口信息，无需独立的 context.rs 文件。
 
 ### 模块导出
 

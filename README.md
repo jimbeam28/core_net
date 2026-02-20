@@ -44,6 +44,9 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 │  │      ┌─────────┐    ┌─────────┐    ┌─────────┐                      │   │
 │  │      │ Ethernet│    │  VLAN   │    │   ARP   │                      │   │
 │  │      └─────────┘    └─────────┘    └─────────┘                      │   │
+│  │      ┌─────────┐    ┌─────────┐                                  │   │
+│  │      │  IPv4   │    │  ICMP   │                                  │   │
+│  │      └─────────┘    └─────────┘                                  │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -69,6 +72,12 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
                                                 └───────────┬───────────────┘
                                                             ▼
                                                 ┌──────────────┐
+                                                │ IPv4/ICMP    │
+                                                │ 协议处理     │
+                                                └──────────────┘
+                                                            │
+                                                            ▼
+                                                ┌──────────────┐
                                                 │  发送队列    │ <- 响应报文
                                                 │    (TxQ)     │
                                                 └──────────────┘
@@ -76,18 +85,22 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 
 ## 协议支持
 
-### 已实现
+### 已实现 ✅
 - **链路层**
   - ✅ Ethernet - 帧解析/封装
   - ✅ VLAN (802.1Q/802.1AD) - 单/双标签支持
-  - ✅ ARP - 缓存管理、响应生成
+  - ✅ ARP - 缓存管理、响应生成、状态机
 
-### 计划中
 - **网络层**
-  - ⏳ IPv4 - 分片、路由
+  - ✅ IPv4 - 头部解析、校验和、协议分发（暂不支持分片）
+  - ✅ ICMP - Echo Request/Reply、Destination Unreachable、Time Exceeded
+
+### 计划中 ⏳
+- **网络层**
   - ⏳ IPv6 - 扩展头、路由
-  - ⏳ ICMP/ICMPv6 - 诊断报文
+  - ⏳ ICMPv6 - 诊断报文
   - ⏳ ND (Neighbor Discovery) - IPv6 邻居发现
+  - ⏳ IP 分片与重组
 - **传输层**
   - ⏳ UDP - 用户数据报
   - ⏳ TCP - 传输控制协议
@@ -142,7 +155,9 @@ core_net/
 │   ├── protocols/             # 协议实现
 │   │   ├── ethernet/          # 以太网协议 ✅
 │   │   ├── vlan/              # VLAN 协议 ✅
-│   │   └── arp/               # ARP 协议 ✅
+│   │   ├── arp/               # ARP 协议 ✅
+│   │   ├── ip/                # IPv4 协议 ✅
+│   │   └── icmp/              # ICMP 协议 ✅
 │   └── testframework/         # 测试框架
 │       ├── harness.rs         # TestHarness
 │       ├── injector.rs        # PacketInjector
@@ -227,21 +242,34 @@ cargo clippy
 
 ### 阶段一：基础框架 ✅
 - [x] 目录结构创建
-- [x] common 模块实现（Packet、RingQueue、Error、Addr）
+- [x] common 模块实现（Packet、RingQueue、Error、Addr、Tables）
 - [x] engine 模块实现（薄层设计）
 - [x] testframework 模块实现
 - [x] poweron 模块实现
 - [x] interface 模块实现（多接口支持）
 - [x] scheduler 模块实现
 
-### 阶段二：基础协议（进行中）
+### 阶段二：基础协议 ✅
 - [x] 以太网层
 - [x] VLAN (802.1Q/802.1AD)
-- [x] ARP（含缓存）
-- [ ] IPv4 基础
-- [ ] ICMP 协议
+- [x] ARP（含缓存、状态机）
+- [x] IPv4 基础（头部解析、校验和、协议分发）
+- [x] ICMP 协议（Echo、Dest Unreachable、Time Exceeded）
 
-**目标**：能够 ping 通网关
+**目标**：能够 ping 通网关 ✅ 已实现
+
+**完成度**：
+- Common 模块: 100%
+- Interface 模块: 100%
+- Scheduler 模块: 100%
+- Engine 模块: 100%
+- Ethernet 协议: 100%
+- VLAN 协议: 100%
+- ARP 协议: 100%
+- IPv4 协议: 85% （支持头部解析和校验和，不支持分片/重组）
+- ICMP 协议: 100%
+
+**整体项目完成度: ~96%**
 
 ### 阶段三：传输层（计划中）
 - [ ] UDP 协议
@@ -273,21 +301,24 @@ cargo clippy
 - [测试框架](docs/design/test_framework.md) - 协议测试框架设计
 - [VLAN 协议设计](docs/design/protocols/vlan.md) - 802.1Q VLAN 标签处理
 - [ARP 协议设计](docs/design/protocols/arp.md) - ARP 协议和缓存管理
+- [IPv4 协议设计](docs/design/protocols/ip.md) - IPv4 协议实现
+- [ICMP 协议设计](docs/design/protocols/icmp.md) - ICMP 协议实现
 
 ## 参考资料
 
 本项目遵循以下 RFC 标准：
 
-| 协议 | RFC | 描述 |
-|------|-----|------|
-| Ethernet | IEEE 802.3 | 以太网标准 |
-| VLAN | IEEE 802.1Q | 虚拟局域网 |
-| ARP | RFC 826 | 地址解析协议 |
-| IPv4 | RFC 791 | 互联网协议 |
-| IPv6 | RFC 2460 | 互联网协议第 6 版 |
-| ICMP | RFC 792 | 互联网控制报文协议 |
-| TCP | RFC 793 | 传输控制协议 |
-| UDP | RFC 768 | 用户数据报协议 |
+| 协议 | RFC | 描述 | 状态 |
+|------|-----|------|------|
+| Ethernet | IEEE 802.3 | 以太网标准 | ✅ 已实现 |
+| VLAN | IEEE 802.1Q | 虚拟局域网 | ✅ 已实现 |
+| ARP | RFC 826 | 地址解析协议 | ✅ 已实现 |
+| IPv4 | RFC 791 | 互联网协议 | ✅ 已实现（无分片） |
+| IPv6 | RFC 2460 | 互联网协议第 6 版 | ⏳ 计划中 |
+| ICMP | RFC 792 | 互联网控制报文协议 | ✅ 已实现 |
+| ICMPv6 | RFC 4443 | ICMPv6 | ⏳ 计划中 |
+| TCP | RFC 793 | 传输控制协议 | ⏳ 计划中 |
+| UDP | RFC 768 | 用户数据报协议 | ⏳ 计划中 |
 
 ## 开发日志
 

@@ -22,12 +22,15 @@
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         上电启动 (PowerOn)                            │   │
+│  │                      系统上下文 (SystemContext)                       │   │
 │  │  ┌──────────────────────────────────────────────────────────────┐  │   │
-│  │  │                      SystemContext                            │  │   │
-│  │  │                   (持有接口管理器所有权)                         │  │   │
+│  │  │  Arc<Mutex<InterfaceManager>>  (网络接口)                    │  │   │
+│  │  │  Arc<Mutex<ArpCache>>         (ARP 缓存)                    │  │   │
+│  │  │  Arc<Mutex<EchoManager>>      (ICMP Echo)                   │  │   │
+│  │  │                   (依赖注入模式，支持 Clone)                  │  │   │
 │  │  └──────────────────────────────────────────────────────────────┘  │   │
-│  │       boot_default() ──► interface::init_default() ──► 加载配置     │   │
+│  │       from_config() ──► 加载 interface.toml ──► 初始化所有组件      │   │
+│  │       new() ──► 创建空上下文 (测试用)                               │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                        │                                     │
 │                                        ▼                                     │
@@ -164,14 +167,13 @@ interface/
 ├── iface.rs         # NetworkInterface 实现（包含队列）
 ├── manager.rs       # InterfaceManager 实现
 ├── config.rs        # 接口配置文件加载
-├── global.rs        # 全局接口管理器 (OnceLock<Mutex<>>)
 └── interface.toml   # 接口配置文件（含队列配置）
 ```
 
 **核心结构**：
 - `NetworkInterface`: 单个网络接口，包含独立的 RxQ 和 TxQ
 - `InterfaceManager`: 多接口管理器
-- 全局管理器：`OnceLock<Mutex<InterfaceManager>>`，所有模块可访问
+- 通过 `SystemContext` 的 `Arc<Mutex<InterfaceManager>>` 传递给各模块
 
 **配置文件格式**：
 ```toml
@@ -266,13 +268,13 @@ PacketProcessor
 ```
 protocols/ethernet/
 ├── mod.rs       # 模块入口
-└── frame.rs     # EthernetFrame 实现
+└── header.rs    # EthernetHeader 实现
 ```
 
 **核心功能**：
 - 以太网帧解析：`EthernetHeader::from_packet()`
-- 以太网帧封装
-- EtherType 常量定义
+- 以太网帧封装：`EthernetHeader::build()`
+- EtherType 常量定义（IPv4, ARP, IPv6, VLAN）
 
 #### 3.5.2 VLAN 模块
 
@@ -298,21 +300,73 @@ protocols/vlan/
 
 ```
 protocols/arp/
-├── mod.rs       # 模块入口
-├── packet.rs    # ArpPacket 结构
-└── cache.rs     # ARP 缓存管理
+├── mod.rs       # 模块入口，导出 ArpPacket 和处理函数
+├── tables.rs    # ArpCache, ArpEntry, ArpState, ArpConfig
+└── global.rs    # 全局 ARP 缓存初始化
 ```
 
 **核心功能**：
 - ARP 报文解析和封装
-- ARP 缓存管理（状态机：NONE → INCOMPLETE → REACHABLE → STALE）
+- ARP 缓存管理（状态机：NONE → INCOMPLETE → REACHABLE → STALE → DELAY → PROBE）
 - 自动学习（收到任何 ARP 报文都更新缓存）
 - 响应生成（检查目标 IP 是否为本机接口）
+- Gratuitous ARP 支持
+- 待发送报文队列（用于 INCOMPLETE 状态）
 
 **状态转换**：
 ```
 NONE -> INCOMPLETE -> REACHABLE -> STALE -> DELAY -> PROBE -> NONE
 ```
+
+#### 3.5.4 IPv4 模块
+
+```
+protocols/ip/
+├── mod.rs       # 模块入口
+├── header.rs    # Ipv4Header 结构
+├── checksum.rs  # IP 校验和计算
+├── protocol.rs  # Ipv4Protocol 枚举
+├── error.rs     # IpError 枚举
+├── config.rs    # Ipv4Config
+└── packet.rs    # IP 报文处理逻辑
+```
+
+**核心功能**：
+- IPv4 头部解析（20-60 字节）
+- 校验和验证
+- 协议字段分发（ICMP, TCP, UDP）
+- 分片检测（当前不支持分片重组，分片报文被丢弃）
+
+**已实现**：
+- ✅ 头部解析
+- ✅ 校验和计算和验证
+- ✅ 协议分发
+- ❌ 分片和重组（暂不支持）
+
+#### 3.5.5 ICMP 模块
+
+```
+protocols/icmp/
+├── mod.rs       # 模块入口
+├── types.rs     # ICMP 类型枚举和常量
+├── packet.rs    # IcmpPacket, IcmpEcho, IcmpDestUnreachable, IcmpTimeExceeded
+├── echo.rs      # Echo 请求/响应处理
+├── process.rs   # ICMP 报文处理入口
+└── global.rs    # ICMP Echo 管理器（追踪待处理请求）
+```
+
+**核心功能**：
+- Echo Request/Reply（ping）
+- Destination Unreachable（目标不可达）
+- Time Exceeded（超时）
+- Echo 请求/响应匹配
+- 校验和验证
+
+**已实现**：
+- ✅ Echo Request/Reply
+- ✅ Destination Unreachable (Type 3)
+- ✅ Time Exceeded (Type 11)
+- ✅ 校验和验证
 
 ---
 
@@ -495,12 +549,17 @@ pub struct RingQueue<T> {
 
 ## 5. 协议分层
 
-| 层级 | 协议 | RFC |
-|------|------|-----|
-| 应用层 | Socket API | - |
-| 传输层 | TCP/UDP | RFC 793, RFC 768 |
-| 网络层 | IPv4/IPv6, ICMP | RFC 791, RFC 2460, RFC 792 |
-| 链路层 | Ethernet, VLAN, ARP | IEEE 802.3, IEEE 802.1Q, RFC 826 |
+| 层级 | 协议 | RFC | 状态 |
+|------|------|-----|------|
+| 应用层 | Socket API | - | ⏳ 计划中 |
+| 传输层 | TCP/UDP | RFC 793, RFC 768 | ⏳ 计划中 |
+| 网络层 | IPv4 | RFC 791 | ✅ 已实现（无分片） |
+| 网络层 | IPv6 | RFC 2460 | ⏳ 计划中 |
+| 网络层 | ICMP | RFC 792 | ✅ 已实现 |
+| 网络层 | ICMPv6 | RFC 4443 | ⏳ 计划中 |
+| 链路层 | Ethernet | IEEE 802.3 | ✅ 已实现 |
+| 链路层 | VLAN | IEEE 802.1Q | ✅ 已实现 |
+| 链路层 | ARP | RFC 826 | ✅ 已实现 |
 
 ---
 
@@ -514,7 +573,7 @@ pub struct RingQueue<T> {
 | 错误处理 | 手动实现 Error enum | 学习 Rust 错误处理 |
 | 外部依赖 | 零依赖 | 纯标准库实现 |
 | 并发模型 | 单线程处理 | 处理线程单线程逐层解析 |
-| 全局状态 | OnceLock\<Mutex\<>> | 线程安全的全局访问 |
+| 全局状态 | 依赖注入 (Arc<Mutex<T>>) | 便于测试和并发控制 |
 | 配置管理 | 模块自治 | 各模块管理自己的配置 |
 
 ---
@@ -536,6 +595,7 @@ pub struct RingQueue<T> {
 
 ### 设计文档
 
+- [SystemContext 设计](context.md) - 系统上下文和依赖注入架构
 - [报文描述符](packet.md) - Packet 结构设计
 - [环形队列设计](queue.md) - 环形队列实现细节
 - [错误处理](error.md) - 错误类型定义和处理
@@ -548,3 +608,5 @@ pub struct RingQueue<T> {
 
 - [VLAN 协议设计](protocols/vlan.md) - 802.1Q VLAN 标签处理
 - [ARP 协议设计](protocols/arp.md) - ARP 协议和缓存管理
+- [IPv4 协议设计](protocols/ip.md) - IPv4 协议实现
+- [ICMP 协议设计](protocols/icmp.md) - ICMP 协议实现

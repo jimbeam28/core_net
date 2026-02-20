@@ -222,3 +222,99 @@ fn test_example() {
 4. **Mutex 安全**：自动恢复毒化 Mutex，避免死锁
 5. **简洁易用**：最小化 API，减少学习成本
 
+---
+
+## 七、依赖注入模式下的测试
+
+### 7.1 简化的测试流程
+
+CoreNet 使用依赖注入模式后，测试不再需要复杂的全局状态管理：
+
+```rust
+#[test]
+fn test_with_context() {
+    // 直接创建测试上下文（包含所有必要组件）
+    let ctx = SystemContext::new();
+
+    // 添加测试接口
+    ctx.interfaces.lock().unwrap()
+        .add_from_config(test_config()).unwrap();
+
+    // 创建测试报文
+    let packet = create_test_packet();
+
+    // 注入报文
+    ctx.interfaces.lock().unwrap()
+        .get_by_name_mut("eth0").unwrap()
+        .rxq.enqueue(packet).unwrap();
+
+    // 运行调度器（传递上下文引用）
+    let mut scheduler = Scheduler::with_context(&ctx);
+    let count = scheduler.run_all_interfaces().unwrap();
+
+    // 验证结果
+    assert_eq!(count, 1);
+}
+```
+
+### 7.2 与全局状态模式的对比
+
+| 特性 | 全局状态模式 | 依赖注入模式 |
+|------|-------------|-------------|
+| 初始化 | `GlobalStateManager::setup_global_state()` | `SystemContext::new()` |
+| 资源访问 | `GlobalStateManager::get_or_recover_xxx_lock()` | `ctx.xxx.lock().unwrap()` |
+| 测试隔离 | 需要手动清理全局状态 | 每个测试独立创建上下文 |
+| Mutex 毒化 | 需要特殊处理 | 由 Arc<Mutex<T>> 自动处理 |
+| 并发测试 | 需要 `#[serial]` 序列化 | 天然隔离，可并行 |
+
+### 7.3 TestHarness 更新
+
+新的 TestHarness 支持接收 SystemContext：
+
+```rust
+pub struct TestHarness {
+    /// 使用依赖注入模式
+    context: SystemContext,
+    scheduler: Scheduler,
+    processor: PacketProcessor,
+}
+
+impl TestHarness {
+    /// 从 SystemContext 创建测试框架
+    pub fn with_context(context: SystemContext) -> Self {
+        // ...
+    }
+
+    /// 便捷方法：创建空上下文的测试框架
+    pub fn new() -> Self {
+        Self::with_context(SystemContext::new())
+    }
+}
+```
+
+### 7.4 推荐的测试模式
+
+```rust
+#[test]
+fn test_protocol_with_di() {
+    // 1. 创建上下文
+    let ctx = SystemContext::new();
+
+    // 2. 配置测试环境
+    setup_test_interfaces(&ctx);
+    setup_test_arp_cache(&ctx);
+
+    // 3. 创建测试框架
+    let mut harness = TestHarness::with_context(ctx.clone());
+
+    // 4. 注入报文并运行
+    harness.injector().inject("eth0", test_packet()).unwrap();
+    harness.run().unwrap();
+
+    // 5. 验证结果（使用原始上下文引用）
+    let iface = ctx.interfaces.lock().unwrap()
+        .get_by_name("eth0").unwrap();
+    assert_eq!(iface.txq.len(), 1);
+}
+```
+

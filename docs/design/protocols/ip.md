@@ -588,18 +588,28 @@ pub enum Ipv4Error {
 
 **关键交互：**
 ```rust
-// 检查目的地址是否为本机
-fn is_local_address(dest_addr: Ipv4Addr) -> bool {
-    INTERFACE_GLOBAL
+// 检查目的地址是否为本机（依赖注入模式）
+fn is_local_address(
+    dest_addr: Ipv4Addr,
+    interfaces: &Arc<Mutex<InterfaceManager>>
+) -> bool {
+    interfaces
+        .lock()
+        .unwrap()
         .get_interface_by_ip(dest_addr)
         .is_some()
 }
 
 // 获取接口 MTU
-let mtu = INTERFACE_GLOBAL
+let mtu = context
+    .interfaces
+    .lock()
+    .unwrap()
     .get_interface_by_ip(source_addr)?
     .mtu;
 ```
+
+**说明**：IP 模块通过 `SystemContext` 获取 `Arc<Mutex<InterfaceManager>>` 的引用来访问接口信息，而非使用全局状态。
 
 ### 6.3 与协议模块的交互
 
@@ -667,9 +677,10 @@ if ethertype == EtherType::Ipv4 {
 ```
 1. Common 模块初始化
 2. Interface 模块初始化（配置接口 IP 地址）
-3. IPv4 模块初始化（初始化重组表、配置参数）
-4. Engine/Processor 初始化（注册 IPv4 处理器）
-5. Scheduler 启动
+3. SystemContext 创建（包含 Arc<Mutex<InterfaceManager>>, Arc<Mutex<ArpCache>>）
+4. IPv4 模块初始化（配置参数，通过 SystemContext 访问接口）
+5. Engine/Processor 初始化（注册 IPv4 处理器，接收 SystemContext 引用）
+6. Scheduler 启动（接收 SystemContext 引用）
 ```
 
 ---
