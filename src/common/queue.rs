@@ -5,7 +5,7 @@
 
 use crate::common::CoreError;
 
-// ========== 常量定义 ==========
+// --- 常量定义 ---
 
 /// 默认队列容量
 pub const DEFAULT_QUEUE_CAPACITY: usize = 256;
@@ -16,7 +16,7 @@ pub const MIN_QUEUE_CAPACITY: usize = 2;
 /// 最大队列容量
 pub const MAX_QUEUE_CAPACITY: usize = 65536;
 
-// ========== 队列错误 ==========
+// --- 队列错误 ---
 
 /// 队列错误
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,7 +47,7 @@ impl From<QueueError> for CoreError {
     }
 }
 
-// ========== RingQueue：环形队列 ==========
+// --- RingQueue：环形队列 ---
 
 /// 环形队列
 ///
@@ -151,14 +151,14 @@ impl<T> RingQueue<T> {
     }
 }
 
-// ========== 单元测试 ==========
+// --- 单元测试 ---
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::packet::Packet;
 
-    // ========== 8.2.1 基础功能测试 ==========
+    // --- 基础功能测试 ---
 
     #[test]
     fn test_new_queue() {
@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(q.capacity(), MAX_QUEUE_CAPACITY);
     }
 
-    // ========== 8.2.2 入队出队测试 ==========
+    // --- 入队出队测试 ---
 
     #[test]
     fn test_enqueue_single() {
@@ -235,7 +235,7 @@ mod tests {
         assert!(q.is_empty());
     }
 
-    // ========== 8.2.3 边界条件测试 ==========
+    // --- 边界条件测试 ---
 
     #[test]
     fn test_enqueue_full() {
@@ -267,7 +267,7 @@ mod tests {
         assert_eq!(q.dequeue(), Some(1));
     }
 
-    // ========== 8.2.4 环形特性测试 ==========
+    // --- 环形特性测试 ---
 
     #[test]
     fn test_wrap_around() {
@@ -306,7 +306,7 @@ mod tests {
         }
     }
 
-    // ========== 8.2.5 状态查询测试 ==========
+    // --- 状态查询测试 ---
 
     #[test]
     fn test_is_empty() {
@@ -348,7 +348,7 @@ mod tests {
         assert_eq!(q2.capacity(), 100);
     }
 
-    // ========== 8.2.6 清空操作测试 ==========
+    // --- 清空操作测试 ---
 
     #[test]
     fn test_clear_empty() {
@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 3);
     }
 
-    // ========== 8.2.7 泛型类型测试 ==========
+    // --- 泛型类型测试 ---
 
     #[test]
     fn test_with_u8() {

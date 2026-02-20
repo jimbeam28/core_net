@@ -6,7 +6,7 @@ use crate::common::{CoreError, Packet, Result};
 use crate::protocols::Ipv4Addr;
 use super::checksum::calculate_checksum;
 
-// ========== IP 协议常量 ==========
+// --- IP 协议常量 ---
 
 /// IP 版本 4
 pub const IP_VERSION: u8 = 4;
@@ -26,7 +26,7 @@ pub const IP_PROTO_UDP: u8 = 17;
 /// 默认 TTL 值
 pub const DEFAULT_TTL: u8 = 64;
 
-// ========== IPv4 头部 ==========
+// --- IPv4 头部 ---
 
 /// IPv4 头部
 #[derive(Debug, Clone, PartialEq)]

@@ -391,7 +391,7 @@ pub fn process_packet_verbose(packet: Packet) -> ProcessResult {
     PacketProcessor::new().with_verbose(true).process(packet)
 }
 
-// ========== 测试模块 ==========
+// --- 测试模块 ---
 
 #[cfg(test)]
 mod tests {
@@ -400,7 +400,7 @@ mod tests {
     use crate::protocols::arp::{ArpPacket, ArpOperation};
     use crate::protocols::ethernet;
 
-    // ========== 测试辅助函数 ==========
+    // --- 测试辅助函数 ---
 
     /// 构造以太网头部字节
     #[allow(dead_code)]
@@ -533,8 +533,6 @@ mod tests {
         Packet::from_bytes(bytes)
     }
 
-    // ========== 1. 基础功能测试组 ==========
-
     #[test]
     fn test_processor_creation() {
         let processor = PacketProcessor::new();
@@ -566,8 +564,6 @@ mod tests {
         let processor = PacketProcessor::with_name(String::from("MyProcessor"));
         assert_eq!(processor.name(), "MyProcessor");
     }
-
-    // ========== 2. 协议分发测试组 ==========
 
     #[test]
     fn test_dispatch_vlan_8021q() {
@@ -714,8 +710,6 @@ mod tests {
             _ => panic!("Expected UnsupportedProtocol error"),
         }
     }
-
-    // ========== 3. VLAN 处理测试组 ==========
 
     #[test]
     fn test_handle_vlan_single_tag() {
@@ -876,8 +870,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ========== 4. ARP 处理测试组 ==========
-
     #[test]
     fn test_handle_arp_request() {
         let processor = PacketProcessor::new();
@@ -940,8 +932,6 @@ mod tests {
         // 零地址应该通过验证
         assert!(result.is_ok() || result.is_err());
     }
-
-    // ========== 5. 错误转换测试组 ==========
 
     #[test]
     fn test_error_from_core_error_parse() {
@@ -1010,8 +1000,6 @@ mod tests {
         }
     }
 
-    // ========== 6. 便捷函数测试组 ==========
-
     #[test]
     fn test_process_packet() {
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
@@ -1035,8 +1023,6 @@ mod tests {
         let result = process_packet_verbose(packet);
         assert!(result.is_ok() || result.is_err());
     }
-
-    // ========== 7. 完整流程测试组 ==========
 
     #[test]
     fn test_full_vlan_arp_flow() {

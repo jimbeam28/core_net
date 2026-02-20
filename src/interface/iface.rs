@@ -195,8 +195,6 @@ pub struct InterfaceConfig {
 mod tests {
     use super::*;
 
-    // ========== 测试辅助函数 ==========
-
     /// 创建测试用接口
     fn create_test_interface() -> NetworkInterface {
         NetworkInterface::new(
@@ -221,8 +219,6 @@ mod tests {
             state: Some(InterfaceState::Up),
         }
     }
-
-    // ========== NetworkInterface 创建测试 ==========
 
     #[test]
     fn test_interface_new() {
@@ -273,8 +269,6 @@ mod tests {
         assert_eq!(iface.gateway, None);
     }
 
-    // ========== 属性设置测试 ==========
-
     #[test]
     fn test_interface_set_ip_addr() {
         let mut iface = create_test_interface();
@@ -323,8 +317,6 @@ mod tests {
         assert_eq!(iface.mtu, 9000);
     }
 
-    // ========== 状态管理测试 ==========
-
     #[test]
     fn test_interface_up_down() {
         let mut iface = create_test_interface();
@@ -364,8 +356,6 @@ mod tests {
         assert_eq!(iface.state, InterfaceState::Error);
     }
 
-    // ========== 网络地址计算测试 ==========
-
     #[test]
     fn test_network_address() {
         let mut iface = create_test_interface();
@@ -402,8 +392,6 @@ mod tests {
 
         assert_eq!(iface.network_address(), Ipv4Addr::new(10, 0, 0, 0));
     }
-
-    // ========== 广播地址计算测试 ==========
 
     #[test]
     fn test_broadcast_address() {
@@ -493,8 +481,6 @@ mod tests {
         assert!(iface.ip_addr.is_loopback());
     }
 
-    // ========== 队列测试 ==========
-
     #[test]
     fn test_interface_queues_capacity() {
         let iface = NetworkInterface::new(
@@ -512,8 +498,6 @@ mod tests {
         let _ = &iface.rxq;
         let _ = &iface.txq;
     }
-
-    // ========== InterfaceConfig 测试 ==========
 
     #[test]
     fn test_interface_config_clone() {

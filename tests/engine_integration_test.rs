@@ -72,6 +72,7 @@ fn create_arp_request_packet(
 }
 
 /// 构造 QinQ 双层标签报文
+#[allow(dead_code)]
 fn create_qinq_packet(
     dst_mac: MacAddr,
     src_mac: MacAddr,
@@ -107,16 +108,11 @@ fn create_qinq_packet(
     Packet::from_bytes(bytes)
 }
 
-// ========== 集成测试场景 ==========
+// 集成测试场景
 
 /// 场景一：VLAN + ARP 完整流程
 ///
 /// 涉及模块：ethernet、vlan、arp、processor
-/// 测试内容：
-/// - 注入完整的以太网帧（带 VLAN 标签 + ARP 报文）
-/// - 验证逐层解析流程
-/// - 验证 VLAN 模块正确解析标签
-/// - 验证 ARP 模块正确处理
 #[test]
 fn test_vlan_arp_full_flow() {
     let processor = PacketProcessor::new().with_verbose(true);
@@ -162,28 +158,12 @@ fn test_vlan_arp_full_flow() {
 /// 场景二：多标签 VLAN 报文处理（QinQ）
 ///
 /// 涉及模块：vlan、processor
-/// 测试内容：
-/// - 注入 QinQ 双层标签报文
-/// - 验证外层和内层标签都被正确解析
-/// - 验证内层协议被正确分发
 #[test]
 fn test_qinq_double_tag_processing() {
     let processor = PacketProcessor::new().with_verbose(true);
 
     let dst_mac = MacAddr::broadcast();
     let src_mac = MacAddr::new([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
-
-    // 构造 QinQ 报文：外层 VLAN 10 + 内层 VLAN 20 + 内层 ARP
-    // 创建基础报文（会被下面的完整报文替换）
-    let _packet = create_qinq_packet(
-        dst_mac,
-        src_mac,
-        10,   // 外层 VLAN
-        20,   // 内层 VLAN
-        ETH_P_ARP,
-        vec
-![0x01, 0x02, 0x03, 0x04],
-    );
 
     // 构造完整的 QinQ + ARP 报文
     let mut bytes = Vec::new();
@@ -220,10 +200,6 @@ fn test_qinq_double_tag_processing() {
 }
 
 /// 场景三：处理器与协议模块错误传播
-///
-/// 测试内容：
-/// - 验证协议模块错误正确传播到处理器
-/// - 验证错误类型转换正确
 #[test]
 fn test_error_propagation_from_protocols() {
     let processor = PacketProcessor::new();

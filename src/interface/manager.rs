@@ -141,8 +141,6 @@ mod tests {
     use super::*;
     use crate::interface::types::{MacAddr, Ipv4Addr};
 
-    // ========== 测试辅助函数 ==========
-
     /// 创建测试用接口
     fn create_test_interface(name: &str, index: u32) -> NetworkInterface {
         NetworkInterface::new(
@@ -183,8 +181,6 @@ mod tests {
         manager
     }
 
-    // ========== InterfaceManager 创建测试 ==========
-
     #[test]
     fn test_manager_new() {
         let manager = InterfaceManager::new(512, 1024);
@@ -201,8 +197,6 @@ mod tests {
         assert!(manager.is_empty());
         assert_eq!(manager.len(), 0);
     }
-
-    // ========== 添加接口测试 ==========
 
     #[test]
     fn test_add_interface() {
@@ -278,8 +272,6 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(manager.len(), 1);
     }
-
-    // ========== 查询接口测试 ==========
 
     #[test]
     fn test_get_by_name() {
@@ -357,8 +349,6 @@ mod tests {
         assert!(iface.is_up());
     }
 
-    // ========== 遍历接口测试 ==========
-
     #[test]
     fn test_interfaces_slice() {
         let manager = create_populated_manager();
@@ -398,8 +388,6 @@ mod tests {
         }
         assert_eq!(count, 3);
     }
-
-    // ========== 边界条件测试 ==========
 
     #[test]
     fn test_empty_manager() {
@@ -443,8 +431,6 @@ mod tests {
         }
     }
 
-    // ========== 队列容量测试 ==========
-
     #[test]
     fn test_manager_queue_capacity() {
         let _manager = InterfaceManager::new(512, 1024);
@@ -457,8 +443,6 @@ mod tests {
         // 接口已创建，队列已使用指定容量初始化
         assert_eq!(manager_with_iface.len(), 1);
     }
-
-    // ========== 错误处理测试 ==========
 
     #[test]
     fn test_get_by_name_empty_string() {

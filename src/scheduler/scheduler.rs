@@ -8,7 +8,7 @@ use crate::common::Packet;
 use crate::engine::PacketProcessor;
 use crate::interface::InterfaceManager;
 
-// ========== 错误类型定义 ==========
+// --- 错误类型定义 ---
 
 /// 调度错误
 #[derive(Debug)]
@@ -35,7 +35,7 @@ impl std::fmt::Display for ScheduleError {
 
 impl std::error::Error for ScheduleError {}
 
-// ========== 错误转换 ==========
+// --- 错误转换 ---
 
 /// 从 CoreError 转换
 impl From<crate::common::CoreError> for ScheduleError {
@@ -62,7 +62,7 @@ impl From<crate::engine::ProcessError> for ScheduleError {
 /// 调度结果类型
 pub type ScheduleResult<T> = Result<T, ScheduleError>;
 
-// ========== Scheduler 调度器 ==========
+// --- Scheduler 调度器 ---
 
 /// 调度器
 ///
@@ -277,7 +277,7 @@ impl Scheduler {
     }
 }
 
-// ========== 便捷函数 ==========
+// --- 便捷函数 ---
 
 /// 使用默认调度器处理接收队列
 ///
@@ -307,7 +307,7 @@ pub fn schedule_packets_verbose(rxq: &mut RingQueue<Packet>, txq: &mut RingQueue
         .run(rxq, txq)
 }
 
-// ========== 单元测试 ==========
+// --- 单元测试 ---
 
 #[cfg(test)]
 mod tests {
@@ -318,7 +318,7 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    // ========== 测试辅助函数 ==========
+    // --- 测试辅助函数 ---
 
     /// 创建测试调度器（带默认处理器）
     fn create_test_scheduler() -> Scheduler {
@@ -418,8 +418,6 @@ mod tests {
         }
     }
 
-    // ========== 1. 基础功能测试组 ==========
-
     #[test]
     fn test_scheduler_new() {
         let scheduler = Scheduler::new("TestScheduler".to_string());
@@ -464,8 +462,6 @@ mod tests {
         let result = scheduler.run(&mut rxq, &mut txq);
         assert!(result.is_ok());
     }
-
-    // ========== 2. 单队列调度测试组 ==========
 
     #[test]
     fn test_run_empty_queue() {
@@ -612,8 +608,6 @@ mod tests {
         // 这里只验证不崩溃
         let _txq_len = txq.len();
     }
-
-    // ========== 3. 多接口调度测试组 ==========
 
     #[test]
     fn test_run_all_interfaces_empty_manager() {
@@ -787,8 +781,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // ========== 4. 便捷函数测试组 ==========
-
     #[test]
     fn test_schedule_packets() {
         let mut rxq = RingQueue::<Packet>::new(10);
@@ -839,8 +831,6 @@ mod tests {
         assert_eq!(result2.unwrap(), 0);
     }
 
-    // ========== 5. 错误处理测试组 ==========
-
     #[test]
     fn test_schedule_error_queue_error() {
         let scheduler = create_test_scheduler();
@@ -871,8 +861,6 @@ mod tests {
         assert!(result.is_ok());
         assert!(rxq.is_empty());
     }
-
-    // ========== 6. 边界条件测试组 ==========
 
     #[test]
     fn test_run_max_queue_capacity() {
@@ -923,8 +911,6 @@ mod tests {
         let result = scheduler.run(&mut rxq, &mut txq);
         assert!(result.is_ok());
     }
-
-    // ========== 7. 数据流测试组 ==========
 
     #[test]
     fn test_data_flow_rxq_to_processor() {

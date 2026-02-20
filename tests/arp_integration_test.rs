@@ -2,31 +2,23 @@
 //
 // 根据 docs/design/protocols/arp.md 第6章的测试设计实现
 // 测试 ARP 协议的报文接收场景、状态转换、边界条件和多接口场景
-//
-// 设计原则：
-// 1. 在本文件实现创建报文和校验本地资源/响应报文
-// 2. 在所有用例执行前初始化全局资源，在所有用例执行后释放全局资源
-// 3. 在每个用例执行后清空全局资源
-// 4. 报文的测试用例序列化执行，使用 serial_test 确保串行
 
 use core_net::testframework::{
-    TestHarness, HarnessError, HarnessResult, GlobalStateManager,
+    TestHarness, GlobalStateManager, HarnessResult,
 };
 use core_net::interface::{MacAddr, Ipv4Addr};
-use core_net::protocols::arp::{ArpState, ArpPacket, ArpOperation, encapsulate_ethernet};
+use core_net::protocols::arp::ArpState;
 use core_net::common::{Packet, Table};
 
-// 使用 serial_test 确保测试串行执行
 use serial_test::serial;
 
-// ========== 测试环境配置 ==========
-//
-// 本测试使用与 src/interface/interface.toml 一致的配置
-// 本机接口配置：
-// - eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
-// - lo: ifindex=1, MAC=00:00:00:00:00:00, IP=127.0.0.1
+mod common;
+use common::{create_arp_request_packet, create_arp_reply_packet,
+             create_gratuitous_arp_packet, inject_packet_to_interface, verify_txq_count};
 
-// ========== 全局测试生命周期管理 ==========
+// 测试环境配置：本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
+
+// ========== 全局测试生命周期 ==========
 
 /// 全局测试设置：在所有测试前执行一次
 fn global_setup() {
@@ -35,87 +27,7 @@ fn global_setup() {
 
 /// 每个测试后的清理函数
 fn clear_test_state() {
-    // 重新初始化确保状态一致性
     GlobalStateManager::clear_global_state().expect("全局状态清理失败");
-}
-
-// ========== 报文创建辅助函数 ==========
-
-/// 创建ARP请求报文（带以太网封装）
-///
-/// # 参数
-/// - src_mac: 源MAC地址
-/// - src_ip: 源IP地址
-/// - dst_ip: 目标IP地址
-///
-/// # 返回
-/// 完整的以太网帧（包含ARP报文）
-fn create_arp_request_packet(
-    src_mac: MacAddr,
-    src_ip: Ipv4Addr,
-    dst_ip: Ipv4Addr,
-) -> Packet {
-    let arp_packet = ArpPacket::new(
-        ArpOperation::Request,
-        src_mac,
-        src_ip,
-        MacAddr::broadcast(),  // 请求时目标MAC为广播地址
-        dst_ip,
-    );
-
-    let frame = encapsulate_ethernet(&arp_packet, MacAddr::broadcast(), src_mac);
-    Packet::from_bytes(frame)
-}
-
-/// 创建ARP响应报文（带以太网封装）
-///
-/// # 参数
-/// - src_mac: 源MAC地址（响应者的MAC）
-/// - src_ip: 源IP地址（响应者的IP）
-/// - dst_mac: 目标MAC地址（请求者的MAC）
-/// - dst_ip: 目标IP地址（请求者的IP）
-///
-/// # 返回
-/// 完整的以太网帧（包含ARP报文）
-fn create_arp_reply_packet(
-    src_mac: MacAddr,
-    src_ip: Ipv4Addr,
-    dst_mac: MacAddr,
-    dst_ip: Ipv4Addr,
-) -> Packet {
-    let arp_packet = ArpPacket::new(
-        ArpOperation::Reply,
-        src_mac,
-        src_ip,
-        dst_mac,
-        dst_ip,
-    );
-
-    let frame = encapsulate_ethernet(&arp_packet, dst_mac, src_mac);
-    Packet::from_bytes(frame)
-}
-
-/// 创建免费ARP报文（带以太网封装）
-///
-/// # 特征：SPA == TPA
-///
-/// # 参数
-/// - mac: MAC地址
-/// - ip: IP地址
-///
-/// # 返回
-/// 完整的以太网帧（包含免费ARP报文）
-fn create_gratuitous_arp_packet(mac: MacAddr, ip: Ipv4Addr) -> Packet {
-    let arp_packet = ArpPacket::new(
-        ArpOperation::Request,  // 免费ARP通常使用Request操作码
-        mac,
-        ip,
-        MacAddr::zero(),        // THA = 0
-        ip,                     // TPA = SPA（免费ARP特征）
-    );
-
-    let frame = encapsulate_ethernet(&arp_packet, MacAddr::broadcast(), mac);
-    Packet::from_bytes(frame)
 }
 
 /// 创建格式错误的ARP报文（长度不足）
@@ -155,39 +67,6 @@ fn create_malformed_arp_packet_invalid_opcode() -> Packet {
     Packet::from_bytes(arp_data)
 }
 
-// ========== 报文注入辅助函数 ==========
-
-/// 注入报文到全局接口的RxQ
-///
-/// # 参数
-/// - interface_name: 接口名称
-/// - packet: 要注入的报文
-fn inject_packet_to_global_interface(
-    interface_name: &str,
-    packet: Packet,
-) -> HarnessResult<()> {
-    let mut guard = GlobalStateManager::get_or_recover_interface_lock();
-    let iface = guard.get_by_name_mut(interface_name)?;
-    iface.rxq.enqueue(packet).map_err(|e| HarnessError::QueueError(format!("{:?}", e)))?;
-    Ok(())
-}
-
-// ========== 验证辅助函数 ==========
-
-/// 验证TxQ中的报文数量
-///
-/// # 参数
-/// - interface_name: 接口名称
-/// - expected: 期望的报文数量
-///
-/// # 返回
-/// true if 数量匹配
-fn verify_txq_count(interface_name: &str, expected: usize) -> bool {
-    let guard = GlobalStateManager::get_or_recover_interface_lock();
-    guard.get_by_name(interface_name)
-        .map(|iface| iface.txq.len() == expected)
-        .unwrap_or(false)
-}
 
 /// 验证ARP缓存条目
 ///
@@ -224,13 +103,9 @@ fn clear_interface_txq(interface_name: &str) -> HarnessResult<()> {
     Ok(())
 }
 
-// ========== 场景1：收到ARP请求（目标IP是本机）==========
+// 场景1：收到ARP请求（目标IP是本机）
 //
 // 根据 arp.md 6.1.2 节设计
-//
-// 测试目标：
-// 1. 验证自动学习发送方MAC地址到ARP缓存
-// 2. 验证生成ARP响应报文
 
 #[test]
 #[serial]
@@ -245,7 +120,7 @@ fn test_arp_request_target_is_local() {
 
     // 创建并注入ARP请求报文
     let request = create_arp_request_packet(sender_mac, sender_ip, target_ip);
-    inject_packet_to_global_interface("eth0", request).unwrap();
+    inject_packet_to_interface("eth0", request).unwrap();
 
     // 运行调度器
     let mut harness = TestHarness::with_global_manager();
@@ -268,12 +143,9 @@ fn test_arp_request_target_is_local() {
     clear_test_state();
 }
 
-// ========== 场景2：收到ARP请求（目标IP不是本机）==========
+// 场景2：收到ARP请求（目标IP不是本机）
 //
 // 根据 arp.md 6.1.3 节设计
-//
-// 测试目标：
-// 1. 验证仍然自动学习发送方MAC地址（被动学习）
 
 #[test]
 #[serial]
@@ -287,7 +159,7 @@ fn test_arp_request_target_not_local() {
 
     // 创建并注入ARP请求报文
     let request = create_arp_request_packet(sender_mac, sender_ip, target_ip);
-    inject_packet_to_global_interface("eth0", request).unwrap();
+    inject_packet_to_interface("eth0", request).unwrap();
 
     // 运行调度器
     let mut harness = TestHarness::with_global_manager();
@@ -303,13 +175,9 @@ fn test_arp_request_target_not_local() {
     clear_test_state();
 }
 
-// ========== 场景3：收到ARP响应（匹配等待的请求）==========
+// 场景3：收到ARP响应（匹配等待的请求）
 //
 // 根据 arp.md 6.1.4 节设计
-//
-// 测试目标：
-// 1. 验证Incomplete状态转换为Reachable
-// 2. 验证pending_packets被清空
 
 #[test]
 #[serial]
@@ -330,7 +198,7 @@ fn test_arp_reply_matching_incomplete() {
 
     // 创建并注入ARP响应报文
     let reply = create_arp_reply_packet(sender_mac, sender_ip, local_mac, local_ip);
-    inject_packet_to_global_interface("eth0", reply).unwrap();
+    inject_packet_to_interface("eth0", reply).unwrap();
 
     // 运行调度器
     let mut harness = TestHarness::with_global_manager();
@@ -354,12 +222,9 @@ fn test_arp_reply_matching_incomplete() {
     clear_test_state();
 }
 
-// ========== 场景4：收到ARP响应（无等待的请求）==========
+// 场景4：收到ARP响应（无等待的请求）
 //
 // 根据 arp.md 6.1.5 节设计
-//
-// 测试目标：
-// 1. 验证自动学习（创建新条目）
 
 #[test]
 #[serial]
@@ -380,7 +245,7 @@ fn test_arp_reply_no_incomplete() {
 
     // 创建并注入ARP响应报文
     let reply = create_arp_reply_packet(sender_mac, sender_ip, local_mac, local_ip);
-    inject_packet_to_global_interface("eth0", reply).unwrap();
+    inject_packet_to_interface("eth0", reply).unwrap();
 
     // 运行调度器
     let mut harness = TestHarness::with_global_manager();
@@ -402,13 +267,9 @@ fn test_arp_reply_no_incomplete() {
     clear_test_state();
 }
 
-// ========== 场景5：收到Gratuitous ARP（免费ARP）==========
+// 场景5：收到Gratuitous ARP（免费ARP）
 //
 // 根据 arp.md 6.1.6 节设计
-//
-// 测试目标：
-// 1. 验证识别免费ARP（SPA == TPA）
-// 2. 验证更新ARP缓存
 
 #[test]
 #[serial]
@@ -421,7 +282,7 @@ fn test_gratuitous_arp() {
 
     // 创建并注入免费ARP报文
     let garp = create_gratuitous_arp_packet(sender_mac, sender_ip);
-    inject_packet_to_global_interface("eth0", garp).unwrap();
+    inject_packet_to_interface("eth0", garp).unwrap();
 
     // 运行调度器
     let mut harness = TestHarness::with_global_manager();
@@ -437,13 +298,9 @@ fn test_gratuitous_arp() {
     clear_test_state();
 }
 
-// ========== 场景6：收到重复的ARP报文==========
+// 场景6：收到重复的ARP报文
 //
 // 根据 arp.md 6.1.7 节设计
-//
-// 测试目标：
-// 1. 验证更新时间戳
-// 2. 验证不创建新条目
 
 #[test]
 #[serial]
@@ -457,7 +314,7 @@ fn test_duplicate_arp_packet() {
 
     // 第一次：注入ARP请求
     let request1 = create_arp_request_packet(sender_mac, sender_ip, target_ip);
-    inject_packet_to_global_interface("eth0", request1).unwrap();
+    inject_packet_to_interface("eth0", request1).unwrap();
     let mut harness = TestHarness::with_global_manager();
     harness.run().unwrap();
 
@@ -477,7 +334,7 @@ fn test_duplicate_arp_packet() {
 
     // 第二次：注入相同的ARP请求
     let request2 = create_arp_request_packet(sender_mac, sender_ip, target_ip);
-    inject_packet_to_global_interface("eth0", request2).unwrap();
+    inject_packet_to_interface("eth0", request2).unwrap();
     let mut harness = TestHarness::with_global_manager();
     harness.run().unwrap();
 
@@ -500,7 +357,7 @@ fn test_duplicate_arp_packet() {
     clear_test_state();
 }
 
-// ========== 场景7：收到格式错误的ARP报文==========
+// 场景7：收到格式错误的ARP报文
 
 #[test]
 #[serial]
@@ -509,7 +366,7 @@ fn test_malformed_arp_packet_length() {
 
     // 创建长度不足的ARP报文
     let short_packet = create_malformed_arp_packet_short();
-    inject_packet_to_global_interface("eth0", short_packet).unwrap();
+    inject_packet_to_interface("eth0", short_packet).unwrap();
 
     // 运行调度器（应该正常处理，不panic）
     let mut harness = TestHarness::with_global_manager();
@@ -526,7 +383,7 @@ fn test_malformed_arp_packet_invalid_opcode() {
 
     // 创建无效操作码的ARP报文
     let invalid_packet = create_malformed_arp_packet_invalid_opcode();
-    inject_packet_to_global_interface("eth0", invalid_packet).unwrap();
+    inject_packet_to_interface("eth0", invalid_packet).unwrap();
 
     // 运行调度器
     let mut harness = TestHarness::with_global_manager();
@@ -536,7 +393,7 @@ fn test_malformed_arp_packet_invalid_opcode() {
     clear_test_state();
 }
 
-// ========== 状态转换测试 ==========
+// 状态转换测试
 
 #[test]
 #[serial]
@@ -606,7 +463,7 @@ fn test_arp_cache_remove_entry() {
     clear_test_state();
 }
 
-// ========== 边界条件测试 ==========
+// 边界条件测试
 
 #[test]
 #[serial]
@@ -678,7 +535,7 @@ fn test_arp_special_ip_addresses() {
     clear_test_state();
 }
 
-// ========== 多接口测试 ==========
+// 多接口测试
 
 #[test]
 #[serial]
@@ -695,7 +552,7 @@ fn test_arp_interface_isolation() {
         Ipv4Addr::new(192, 168, 1, 100),
     );
 
-    inject_packet_to_global_interface("eth0", request).unwrap();
+    inject_packet_to_interface("eth0", request).unwrap();
     let mut harness = TestHarness::with_global_manager();
     harness.run().unwrap();
 
@@ -728,7 +585,7 @@ fn test_arp_same_ip_multiple_interfaces() {
         Ipv4Addr::new(192, 168, 1, 100),
     );
 
-    inject_packet_to_global_interface("eth0", request).unwrap();
+    inject_packet_to_interface("eth0", request).unwrap();
     let mut harness = TestHarness::with_global_manager();
     harness.run().unwrap();
 
@@ -746,7 +603,7 @@ fn test_arp_same_ip_multiple_interfaces() {
     clear_test_state();
 }
 
-// ========== 集成测试：以太网封装验证 ==========
+// 集成测试：以太网封装验证
 
 #[test]
 #[serial]
@@ -777,9 +634,9 @@ fn test_arp_with_ethernet_encapsulation() {
     clear_test_state();
 }
 
-// ========== 定时器测试 ==========
+// 定时器测试
 
-// ========== 6.3.1 重传定时器测试 ==========
+// 6.3.1 重传定时器测试
 
 #[test]
 #[serial]
@@ -853,7 +710,7 @@ fn test_retrans_timer_max_retries_exceeded() {
     clear_test_state();
 }
 
-// ========== 6.3.2 老化定时器测试 ==========
+// 6.3.2 老化定时器测试
 
 #[test]
 #[serial]
@@ -937,7 +794,7 @@ fn test_aging_timer_stale_refresh() {
     clear_test_state();
 }
 
-// ========== 6.3.3 延迟定时器测试 ==========
+// 6.3.3 延迟定时器测试
 
 #[test]
 #[serial]
@@ -1001,7 +858,7 @@ fn test_delay_timer_expires_to_probe() {
     clear_test_state();
 }
 
-// ========== 6.3.4 探测定时器测试 ==========
+// 6.3.4 探测定时器测试
 
 #[test]
 #[serial]
@@ -1104,7 +961,7 @@ fn test_probe_timer_success_recovery() {
     clear_test_state();
 }
 
-// ========== 状态转换测试 ==========
+// 状态转换测试
 
 #[test]
 #[serial]
@@ -1142,7 +999,7 @@ fn test_resolve_ip_timeout() {
     clear_test_state();
 }
 
-// ========== 边界条件测试：等待队列溢出 ==========
+// 边界条件测试：等待队列溢出
 
 #[test]
 #[serial]
@@ -1210,7 +1067,7 @@ fn test_pending_packets_non_incomplete_error() {
     clear_test_state();
 }
 
-// ========== 定时器集成测试 ==========
+// 定时器集成测试
 
 #[test]
 #[serial]

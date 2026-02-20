@@ -3,104 +3,25 @@
 // Scheduler 模块集成测试
 // 测试调度器与引擎、接口模块之间的交互
 
-use core_net::common::{MacAddr, Ipv4Addr, ETH_P_ARP};
+use core_net::common::{MacAddr, Ipv4Addr};
 use core_net::engine::PacketProcessor;
-use core_net::interface::{InterfaceConfig, InterfaceManager, InterfaceState};
-use core_net::protocols::arp::{ArpPacket, ArpOperation};
-use core_net::protocols::Packet;
+use core_net::interface::InterfaceManager;
 use core_net::poweron::{boot_default, shutdown};
 use core_net::scheduler::Scheduler;
 
-// ========== 测试辅助函数 ==========
-
-/// 创建测试报文（至少 14 字节，满足以太网帧最小长度）
-fn create_test_packet(data: Vec<u8>) -> Packet {
-    // 如果数据太短，添加填充以满足以太网帧最小长度（14 字节）
-    if data.len() < 14 {
-        let mut padded = data;
-        while padded.len() < 14 {
-            padded.push(0);
-        }
-        Packet::from_bytes(padded)
-    } else {
-        Packet::from_bytes(data)
-    }
-}
-
-/// 创建 ARP 请求报文
-fn create_arp_request_packet(
-    dst_mac: MacAddr,
-    src_mac: MacAddr,
-    src_ip: Ipv4Addr,
-    dst_ip: Ipv4Addr,
-) -> Packet {
-    let arp_pkt = ArpPacket::new(
-        ArpOperation::Request,
-        src_mac,
-        src_ip,
-        MacAddr::zero(),
-        dst_ip,
-    );
-
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(&dst_mac.bytes);
-    bytes.extend_from_slice(&src_mac.bytes);
-    bytes.extend_from_slice(&ETH_P_ARP.to_be_bytes());
-    bytes.extend_from_slice(&arp_pkt.to_bytes());
-
-    Packet::from_bytes(bytes)
-}
-
-/// 创建 eth0 配置
-fn create_eth0_config() -> InterfaceConfig {
-    InterfaceConfig {
-        name: "eth0".to_string(),
-        mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
-        ip_addr: Ipv4Addr::new(192, 168, 1, 100),
-        netmask: Ipv4Addr::new(255, 255, 255, 0),
-        gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
-        mtu: Some(1500),
-        state: Some(InterfaceState::Up),
-    }
-}
-
-/// 创建 lo 配置
-fn create_lo_config() -> InterfaceConfig {
-    InterfaceConfig {
-        name: "lo".to_string(),
-        mac_addr: MacAddr::zero(),
-        ip_addr: Ipv4Addr::new(127, 0, 0, 1),
-        netmask: Ipv4Addr::new(255, 0, 0, 0),
-        gateway: None,
-        mtu: Some(65535),
-        state: Some(InterfaceState::Up),
-    }
-}
+// 使用公共测试模块
+mod common;
+use common::{
+    create_test_eth0_config, create_test_lo_config, create_test_packet,
+    create_arp_request_packet, count_all_rxq_packets, count_all_txq_packets,
+};
 
 /// 创建多接口管理器
 fn create_multi_interface_manager() -> InterfaceManager {
     let mut manager = InterfaceManager::new(256, 256);
-    manager.add_from_config(create_eth0_config()).unwrap();
-    manager.add_from_config(create_lo_config()).unwrap();
+    manager.add_from_config(create_test_eth0_config()).unwrap();
+    manager.add_from_config(create_test_lo_config()).unwrap();
     manager
-}
-
-/// 计算所有接口 RxQ 中的报文总数
-fn count_all_rxq_packets(manager: &InterfaceManager) -> usize {
-    let mut count = 0;
-    for iface in manager.interfaces() {
-        count += iface.rxq.len();
-    }
-    count
-}
-
-/// 计算所有接口 TxQ 中的报文总数
-fn count_all_txq_packets(manager: &InterfaceManager) -> usize {
-    let mut count = 0;
-    for iface in manager.interfaces() {
-        count += iface.txq.len();
-    }
-    count
 }
 
 /// 向指定接口的 RxQ 注入报文
@@ -122,12 +43,12 @@ fn inject_arp_to_rxq(
     dst_ip: Ipv4Addr,
 ) {
     if let Ok(iface) = manager.get_by_name_mut(iface_name) {
-        let packet = create_arp_request_packet(MacAddr::broadcast(), src_mac, src_ip, dst_ip);
+        let packet = create_arp_request_packet(src_mac, src_ip, dst_ip);
         let _ = iface.rxq.enqueue(packet);
     }
 }
 
-// ========== 场景一：完整的报文处理流程 ==========
+// 场景一：完整的报文处理流程
 
 #[test]
 fn test_full_packet_processing_flow() {
@@ -160,7 +81,7 @@ fn test_full_packet_processing_flow() {
 fn test_single_interface_full_flow() {
     // 单接口的完整流程测试
     let mut manager = InterfaceManager::new(256, 256);
-    manager.add_from_config(create_eth0_config()).unwrap();
+    manager.add_from_config(create_test_eth0_config()).unwrap();
 
     // 注入报文
     inject_packets_to_rxq(&mut manager, "eth0", 10);
@@ -201,7 +122,7 @@ fn test_arp_response_flow() {
     let _txq_count = count_all_txq_packets(&manager);
 }
 
-// ========== 场景二：多接口负载均衡 ==========
+// 场景二：多接口负载均衡
 
 #[test]
 fn test_multi_interface_load_balancing() {
@@ -279,7 +200,7 @@ fn test_multi_interface_all_empty() {
     assert_eq!(result.unwrap(), 0);
 }
 
-// ========== 场景三：系统上电后的调度 ==========
+// 场景三：系统上电后的调度
 
 #[test]
 fn test_boot_schedule_shutdown_cycle() {
@@ -344,7 +265,7 @@ fn test_boot_with_arp_schedule_shutdown() {
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
         let src_ip = Ipv4Addr::new(192, 168, 1, 1);
         let dst_ip = Ipv4Addr::new(192, 168, 1, 100);
-        let arp_packet = create_arp_request_packet(MacAddr::broadcast(), src_mac, src_ip, dst_ip);
+        let arp_packet = create_arp_request_packet(src_mac, src_ip, dst_ip);
         let _ = iface.rxq.enqueue(arp_packet);
     }
 
@@ -379,7 +300,7 @@ fn test_multiple_boot_schedule_cycles() {
     }
 }
 
-// ========== 额外集成测试 ==========
+// 额外集成测试
 
 #[test]
 fn test_scheduler_verbose_mode_integration() {

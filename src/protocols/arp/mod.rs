@@ -28,8 +28,6 @@ pub use global::{
     init_default_arp_cache,
 };
 
-// ========== ARP 操作码 ==========
-
 /// ARP 操作码
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -55,8 +53,6 @@ impl ArpOperation {
         self as u16
     }
 }
-
-// ========== ARP 报文结构 ==========
 
 /// ARP 报文
 #[derive(Debug, Clone)]
@@ -238,8 +234,6 @@ impl ArpPacket {
     }
 }
 
-// ========== ARP 报文处理核心逻辑 ==========
-
 /// 处理已解析的 ArpPacket
 ///
 /// 根据设计文档第 4.2 节的规范实现：
@@ -344,64 +338,6 @@ pub fn process_pending_packets(pending: &mut VecDeque<Packet>) -> usize {
     count
 }
 
-// ========== ARP 请求/响应发送 ==========
-
-/// 发送 ARP 请求
-///
-/// 用于解析目标 IP 地址的 MAC 地址
-///
-/// # 参数
-/// - _ifindex: 网络接口索引（保留用于未来扩展）
-/// - src_mac: 本机 MAC 地址
-/// - src_ip: 本机 IP 地址
-/// - target_ip: 目标 IP 地址
-///
-/// # 返回
-/// - 构造的 ARP 请求报文
-pub fn send_arp_request(
-    _ifindex: u32,
-    src_mac: MacAddr,
-    src_ip: Ipv4Addr,
-    target_ip: Ipv4Addr,
-) -> ArpPacket {
-    ArpPacket::new(
-        ArpOperation::Request,
-        src_mac,
-        src_ip,
-        MacAddr::broadcast(),  // 请求时目标 MAC 为广播地址
-        target_ip,
-    )
-}
-
-/// 发送 ARP 响应
-///
-/// 构造 ARP 响应报文
-///
-/// # 参数
-/// - local_mac: 本机 MAC 地址
-/// - local_ip: 本机 IP 地址
-/// - target_mac: 目标 MAC 地址（请求者的 MAC）
-/// - target_ip: 目标 IP 地址（请求者的 IP）
-///
-/// # 返回
-/// - 构造的 ARP 响应报文
-pub fn send_arp_reply(
-    local_mac: MacAddr,
-    local_ip: Ipv4Addr,
-    target_mac: MacAddr,
-    target_ip: Ipv4Addr,
-) -> ArpPacket {
-    ArpPacket::new(
-        ArpOperation::Reply,
-        local_mac,
-        local_ip,
-        target_mac,
-        target_ip,
-    )
-}
-
-// ========== ARP 处理结果 ==========
-
 /// ARP 处理结果
 #[derive(Debug)]
 pub enum ArpProcessResult {
@@ -411,17 +347,7 @@ pub enum ArpProcessResult {
     Reply(Vec<u8>),
 }
 
-// ========== 以太网帧封装辅助函数 ==========
-
 /// 将 ARP 报文封装为以太网帧
-///
-/// # 参数
-/// - arp_packet: ARP 报文
-/// - dst_mac: 目标 MAC 地址
-/// - src_mac: 源 MAC 地址
-///
-/// # 返回
-/// - 完整的以太网帧字节数组
 pub fn encapsulate_ethernet(
     arp_packet: &ArpPacket,
     dst_mac: MacAddr,
@@ -429,8 +355,6 @@ pub fn encapsulate_ethernet(
 ) -> Vec<u8> {
     ethernet::build_ethernet_frame(dst_mac, src_mac, 0x0806, &arp_packet.to_bytes())
 }
-
-// ========== 统一处理接口 ==========
 
 /// 处理ARP报文（统一入口，processor调用）
 ///
@@ -502,7 +426,7 @@ pub fn process_arp_packet(
                     reply_arp.sender_protocol_addr,
                     reply_arp.target_protocol_addr);
             }
-            let frame = encapsulate_ethernet(&reply_arp, eth_src, local_mac);
+            let frame = ethernet::build_ethernet_frame(eth_src, local_mac, 0x0806, &reply_arp.to_bytes());
             Ok(ArpProcessResult::Reply(frame))
         }
         None => Ok(ArpProcessResult::NoReply),

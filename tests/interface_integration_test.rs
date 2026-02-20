@@ -5,7 +5,8 @@
 use core_net::interface;
 use core_net::interface::{InterfaceState, MacAddr, Ipv4Addr};
 
-// ========== 场景一：系统上电初始化流程 ==========
+
+// 场景一：系统上电初始化流程
 
 #[test]
 fn test_boot_initialization_flow() {
@@ -91,7 +92,7 @@ fn test_manual_initialization() {
     let _ = interface::init_global_manager(manager);
 }
 
-// ========== 场景二：多接口协同工作 ==========
+// 场景二：多接口协同工作
 
 #[test]
 fn test_multi_interface_coordination() {
@@ -183,7 +184,7 @@ fn test_interface_queue_independence() {
     assert!(manager.get_by_name("eth1").unwrap().is_up());
 }
 
-// ========== 场景三：接口配置运行时修改 ==========
+// 场景三：接口配置运行时修改
 
 #[test]
 fn test_runtime_interface_configuration() {
@@ -266,7 +267,7 @@ fn test_global_manager_runtime_modification() {
     }
 }
 
-// ========== 辅助测试 ==========
+// 辅助测试
 
 #[test]
 fn test_interface_network_address_calculation() {

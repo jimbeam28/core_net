@@ -3,19 +3,12 @@
 // 测试场景：
 // - 场景一：完整的系统生命周期
 // - 场景二：与全局管理器集成
-// - 场景三：与调度器集成（如果 scheduler 模块可用）
 
 use core_net::poweron::{boot_default, shutdown, SystemContext};
-use core_net::interface::{InterfaceState, Ipv4Addr, MacAddr};
-use core_net::interface::update_interface;
-use core_net::protocols::Packet;
+use core_net::interface::{InterfaceState, Ipv4Addr, MacAddr, update_interface};
 
-// ========== 测试辅助函数 ==========
-
-/// 创建测试用报文
-fn create_test_packet(data: Vec<u8>) -> Packet {
-    Packet::from_bytes(data)
-}
+mod common;
+use common::create_test_packet;
 
 /// 向接口的 RxQ 注入报文
 fn inject_packets(context: &mut SystemContext, iface_name: &str, count: usize) {
@@ -37,7 +30,7 @@ fn count_all_packets(context: &SystemContext) -> usize {
     count
 }
 
-// ========== 场景一：完整的系统生命周期 ==========
+// 场景一：完整的系统生命周期
 
 #[test]
 fn test_complete_lifecycle() {
@@ -131,7 +124,7 @@ fn test_lifecycle_multiple_cycles() {
     }
 }
 
-// ========== 场景二：与全局管理器集成 ==========
+// 场景二：与全局管理器集成
 
 #[test]
 fn test_global_manager_integration() {
@@ -263,7 +256,7 @@ fn test_global_manager_error_handling() {
     }
 }
 
-// ========== 场景三：完整集成测试 ==========
+// 场景三：完整集成测试
 
 #[test]
 fn test_full_integration_scenario() {

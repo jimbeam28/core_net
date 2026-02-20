@@ -1,32 +1,23 @@
 // ICMP 协议集成测试
 //
 // 测试 ICMP 协议的 Echo Request/Reply、Destination Unreachable、Time Exceeded
-//
-// 设计原则：
-// 1. 在本文件实现创建报文和校验本地资源/响应报文
-// 2. 在所有用例执行前初始化全局资源，在所有用例执行后释放全局资源
-// 3. 在每个用例执行后清空全局资源
-// 4. 报文的测试用例序列化执行，使用 serial_test 确保串行
 
 use core_net::testframework::{
-    TestHarness, HarnessError, HarnessResult, GlobalStateManager,
+    TestHarness, GlobalStateManager,
 };
 use core_net::interface::{MacAddr, Ipv4Addr};
-use core_net::protocols::{ETH_P_IP, IP_PROTO_ICMP};
+use core_net::protocols::{ETH_P_IP};
 use core_net::protocols::icmp::{IcmpPacket, IcmpEcho, create_echo_request};
-use core_net::protocols::ip::Ipv4Header;
 use core_net::common::Packet;
 
-// 使用 serial_test 确保测试串行执行
 use serial_test::serial;
 
-// ========== 测试环境配置 ==========
-//
-// 本测试使用与 src/interface/interface.toml 一致的配置
-// 本机接口配置：
-// - eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
+mod common;
+use common::{create_ip_header, inject_packet_to_interface, verify_txq_count};
 
-// ========== 全局测试生命周期管理 ==========
+// 测试环境配置：本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
+
+// ========== 全局测试生命周期 ==========
 
 /// 全局测试设置：在所有测试前执行一次
 fn global_setup() {
@@ -36,14 +27,6 @@ fn global_setup() {
 /// 每个测试后的清理函数
 fn clear_test_state() {
     GlobalStateManager::clear_global_state().expect("全局状态清理失败");
-}
-
-// ========== 报文创建辅助函数 ==========
-
-/// 创建 IP 头部
-fn create_ip_header(src_ip: Ipv4Addr, dst_ip: Ipv4Addr, payload_len: usize) -> Vec<u8> {
-    let ip_header = Ipv4Header::new(src_ip, dst_ip, IP_PROTO_ICMP, payload_len);
-    ip_header.to_bytes()
 }
 
 /// 创建 Echo Request 报文（带 IP 封装）
@@ -109,23 +92,7 @@ fn create_echo_reply_packet(
     Packet::from_bytes(frame)
 }
 
-/// 注入报文到全局接口的 RxQ
-fn inject_packet_to_interface(iface_name: &str, packet: Packet) -> HarnessResult<()> {
-    let mut guard = GlobalStateManager::get_or_recover_interface_lock();
-    let iface = guard.get_by_name_mut(iface_name)?;
-    iface.rxq.enqueue(packet).map_err(|e| HarnessError::QueueError(format!("{:?}", e)))?;
-    Ok(())
-}
-
-/// 验证 TxQ 中的报文数量
-fn verify_txq_count(iface_name: &str, expected: usize) -> bool {
-    let guard = GlobalStateManager::get_or_recover_interface_lock();
-    guard.get_by_name(iface_name)
-        .map(|iface| iface.txq.len() == expected)
-        .unwrap_or(false)
-}
-
-// ========== 1. Echo Request/Reply 测试组 ==========
+// 1. Echo Request/Reply 测试组
 
 #[test]
 #[serial]
@@ -179,7 +146,7 @@ fn test_icmp_echo_identifier_sequence_match() {
     clear_test_state();
 }
 
-// ========== 2. 边界条件测试组 ==========
+// 2. 边界条件测试组
 
 #[test]
 #[serial]
@@ -263,7 +230,7 @@ fn test_icmp_checksum_validation() {
     clear_test_state();
 }
 
-// ========== 3. ICMP 类型解析测试组 ==========
+// 3. ICMP 类型解析测试组
 
 #[test]
 #[serial]
@@ -303,7 +270,7 @@ fn test_icmp_echo_roundtrip() {
     assert_eq!(decoded.data, original.data);
 }
 
-// ========== 4. Destination Unreachable 测试组 ==========
+// 4. Destination Unreachable 测试组
 
 #[test]
 #[serial]
@@ -351,7 +318,7 @@ fn test_icmp_dest_unreachable_no_reply() {
     clear_test_state();
 }
 
-// ========== 5. 非本机 IP 测试组 ==========
+// 5. 非本机 IP 测试组
 
 #[test]
 #[serial]
@@ -376,7 +343,7 @@ fn test_icmp_not_for_us() {
     clear_test_state();
 }
 
-// ========== 6. 多接口测试组 ==========
+// 6. 多接口测试组
 
 #[test]
 #[serial]
@@ -401,7 +368,7 @@ fn test_icmp_multiple_interfaces() {
     clear_test_state();
 }
 
-// ========== 7. 序列号回绕测试 ==========
+// 7. 序列号回绕测试
 
 #[test]
 #[serial]
@@ -425,7 +392,7 @@ fn test_icmp_sequence_wraparound() {
     clear_test_state();
 }
 
-// ========== 8. Echo Reply 匹配测试 ==========
+// 8. Echo Reply 匹配测试
 
 #[test]
 #[serial]
