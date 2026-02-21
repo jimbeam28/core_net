@@ -7,7 +7,7 @@ use crate::protocols::Ipv4Addr;
 use crate::protocols::ip::verify_checksum;
 use crate::context::SystemContext;
 
-use super::packet::{IcmpPacket, IcmpEcho};
+use super::packet::{IcmpPacket, IcmpEcho, is_broadcast_addr, is_multicast_addr};
 use super::types::*;
 use super::echo::{handle_echo_request, handle_echo_reply, EchoProcessResult};
 
@@ -46,9 +46,13 @@ pub fn process_icmp_packet(
     // 读取数据用于校验和验证
     let data = packet.peek(packet.remaining()).unwrap_or(&[]);
 
-    // 验证校验和
+    // 验证校验和 - 校验和错误时静默丢弃，不返回错误
+    // RFC 792: 不应该对 ICMP 错误报文发送 ICMP 错误报文
     if !verify_checksum(data, 2) {
-        return Err(CoreError::invalid_packet("ICMP校验和错误"));
+        if verbose {
+            println!("ICMP: 校验和错误，静默丢弃");
+        }
+        return Ok(IcmpProcessResult::NoReply);
     }
 
     // 解析 ICMP 报文
@@ -64,17 +68,17 @@ pub fn process_icmp_packet(
         IcmpPacket::Echo(echo) => {
             handle_echo_packet(echo, source_addr, dest_addr, context, verbose)
         }
-        IcmpPacket::DestUnreachable(_) => {
+        IcmpPacket::DestUnreachable(dest_unreach) => {
             // Destination Unreachable 是错误消息，不需要响应
             if verbose {
-                println!("ICMP: 收到 Destination Unreachable");
+                println!("ICMP: 收到 Destination Unreachable Code={}", dest_unreach.code);
             }
             Ok(IcmpProcessResult::Processed)
         }
-        IcmpPacket::TimeExceeded(_) => {
+        IcmpPacket::TimeExceeded(time_exceeded) => {
             // Time Exceeded 是错误消息，不需要响应
             if verbose {
-                println!("ICMP: 收到 Time Exceeded");
+                println!("ICMP: 收到 Time Exceeded Code={}", time_exceeded.code);
             }
             Ok(IcmpProcessResult::Processed)
         }
@@ -91,13 +95,34 @@ fn handle_echo_packet(
 ) -> Result<IcmpProcessResult> {
     if echo.is_request() {
         // 处理 Echo Request
+
+        // 检查目标地址是否为广播/多播地址
+        // RFC 1122: 不应该响应广播地址的 Echo Request
+        if is_broadcast_addr(dest_addr.as_bytes()) || is_multicast_addr(dest_addr.as_bytes()) {
+            if verbose {
+                println!("ICMP: 忽略发往广播/多播地址的 Echo Request");
+            }
+            return Ok(IcmpProcessResult::NoReply);
+        }
+
         if verbose {
-            println!("ICMP: 收到 Echo Request ID={} Seq={} from {}",
-                echo.identifier, echo.sequence, source_addr);
+            println!("ICMP: 收到 Echo Request ID={} Seq={} from {} to {}",
+                echo.identifier, echo.sequence, source_addr, dest_addr);
         }
 
         match handle_echo_request(&echo, dest_addr)? {
             EchoProcessResult::Reply(reply) => {
+                // 检查速率限制
+                let mut echo_manager = context.icmp_echo.lock()
+                    .map_err(|e| CoreError::parse_error(format!("锁定Echo管理器失败: {}", e)))?;
+
+                if !echo_manager.can_send_echo_reply() {
+                    if verbose {
+                        println!("ICMP: 超过速率限制，不发送 Echo Reply");
+                    }
+                    return Ok(IcmpProcessResult::NoReply);
+                }
+
                 if verbose {
                     println!("ICMP: 发送 Echo Reply ID={} Seq={}",
                         reply.identifier, reply.sequence);
@@ -114,7 +139,7 @@ fn handle_echo_packet(
                 echo.identifier, echo.sequence, source_addr);
         }
 
-        match handle_echo_reply(&echo, &context.icmp_echo)? {
+        match handle_echo_reply(&echo, source_addr, &context.icmp_echo)? {
             EchoProcessResult::Matched { identifier, sequence, rtt_ms } => {
                 if verbose {
                     println!("ICMP: Echo Reply 匹配成功 ID={} Seq={} RTT={}ms",
@@ -225,8 +250,15 @@ mod tests {
 
     #[test]
     fn test_create_dest_unreachable() {
-        let original = vec
-![0x45u8, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00];
+        // Need at least IP header (20 bytes) + 8 bytes data
+        let original = vec![
+            0x45, 0x00, 0x00, 0x1c,  // Version/IHL, TOS, Total Length
+            0x00, 0x00, 0x00, 0x00,  // ID, Flags/Fragment
+            0x40, 0x01, 0x00, 0x00,  // TTL, Protocol, Checksum
+            0xc0, 0xa8, 0x01, 0x01,  // Source IP
+            0xc0, 0xa8, 0x01, 0x02,  // Dest IP
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 8 bytes data
+        ];
         let packet = create_dest_unreachable(0, original);
 
         assert_eq!(packet[0], ICMP_TYPE_DEST_UNREACHABLE);

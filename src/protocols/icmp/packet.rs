@@ -4,7 +4,15 @@
 
 use crate::common::{CoreError, Packet, Result};
 use super::types::*;
-use crate::protocols::ip::calculate_checksum;
+use crate::protocols::ip::{calculate_checksum, IP_MIN_HEADER_LEN};
+
+// ========== 辅助常量 ==========
+
+/// ICMP 错误报文需要返回的最小数据量（IP 头部 + 8 字节数据）
+pub const ICMP_ORIGINAL_DATAGRAM_MIN_LEN: usize = IP_MIN_HEADER_LEN + 8;
+
+/// Broadcast address: 255.255.255.255
+const IPV4_BROADCAST: [u8; 4] = [255, 255, 255, 255];
 
 // ========== Echo Request/Reply ==========
 
@@ -69,9 +77,16 @@ impl IcmpEcho {
         let type_ = packet.read(1)
             .ok_or_else(|| CoreError::parse_error("读取Echo类型失败"))?[0];
 
-        // 读取代码
+        // 读取代码并验证（RFC 792: Echo Request/Reply 的 Code 必须为 0）
         let code = packet.read(1)
             .ok_or_else(|| CoreError::parse_error("读取Echo代码失败"))?[0];
+
+        if code != 0 {
+            return Err(CoreError::invalid_packet(format!(
+                "Echo报文Code字段无效：{}（必须为0）",
+                code
+            )));
+        }
 
         // 读取校验和
         let checksum_bytes = packet.read(2)
@@ -215,6 +230,99 @@ impl IcmpTimeExceeded {
 
 // ========== 辅助函数 ==========
 
+/// 从原始数据报中提取 IP 头部加上前 8 字节数据
+///
+/// # 参数
+/// - datagram: 原始 IP 数据报
+///
+/// # 返回
+/// - Ok(Vec<u8>): IP 头部 + 8 字节数据
+/// - Err(CoreError): 数据报长度不足
+pub fn extract_ip_header_plus_data(datagram: &[u8]) -> Result<Vec<u8>> {
+    if datagram.len() < IP_MIN_HEADER_LEN {
+        return Err(CoreError::invalid_packet(format!(
+            "原始数据报长度不足：{} < {}",
+            datagram.len(),
+            IP_MIN_HEADER_LEN
+        )));
+    }
+
+    // 读取 IHL 计算实际头部长度
+    let ihl = datagram[0] & 0x0F;
+    let header_len = (ihl as usize) * 4;
+
+    if datagram.len() < header_len {
+        return Err(CoreError::invalid_packet(format!(
+            "原始数据报头部长度无效：IHL={} 需要{} 实际{}",
+            ihl,
+            header_len,
+            datagram.len()
+        )));
+    }
+
+    // 计算 IP 头部 + 8 字节数据的总长度
+    let extract_len = header_len + 8;
+    if datagram.len() < extract_len {
+        return Err(CoreError::invalid_packet(format!(
+            "原始数据报长度不足以提取头部+8字节：需要{} 实际{}",
+            extract_len,
+            datagram.len()
+        )));
+    }
+
+    Ok(datagram[..extract_len].to_vec())
+}
+
+/// 验证原始数据报是否满足 ICMP 错误报文要求
+///
+/// # 参数
+/// - datagram: 原始 IP 数据报
+/// - name: 报文类型名称（用于错误消息）
+///
+/// # 返回
+/// - Ok(()): 验证通过
+/// - Err(CoreError): 验证失败
+pub fn validate_original_datagram(datagram: &[u8], name: &str) -> Result<()> {
+    if datagram.len() < ICMP_ORIGINAL_DATAGRAM_MIN_LEN {
+        return Err(CoreError::invalid_packet(format!(
+            "{}原始数据报长度不足：需要至少{}字节（IP头部+8字节）实际{}字节",
+            name,
+            ICMP_ORIGINAL_DATAGRAM_MIN_LEN,
+            datagram.len()
+        )));
+    }
+
+    // 验证 IP 头部有效性
+    if datagram.len() < IP_MIN_HEADER_LEN {
+        return Err(CoreError::invalid_packet(format!(
+            "{}原始数据报长度不足以包含IP头部",
+            name
+        )));
+    }
+
+    // 读取 IHL 并验证
+    let ihl = datagram[0] & 0x0F;
+    if ihl < 5 {
+        return Err(CoreError::invalid_packet(format!(
+            "{}原始数据报IP头部IHL无效：{}",
+            name, ihl
+        )));
+    }
+
+    Ok(())
+}
+
+/// Check if IPv4 address is broadcast address
+pub fn is_broadcast_addr(addr: &[u8; 4]) -> bool {
+    *addr == IPV4_BROADCAST
+}
+
+/// Check if IPv4 address is multicast address
+pub fn is_multicast_addr(addr: &[u8; 4]) -> bool {
+    // Multicast range: 224.0.0.0/4, high 4 bits of first byte are 1110 (0xE0)
+    (addr[0] & 0xF0) == 0xE0
+}
+
 /// 解析带原始数据报的 ICMP 报文（用于 Destination Unreachable 和 Time Exceeded）
 fn parse_icmp_with_original_datagram(
     packet: &mut Packet,
@@ -235,6 +343,10 @@ fn parse_icmp_with_original_datagram(
         .ok_or_else(|| CoreError::parse_error("读取类型失败"))?[0];
     let code = packet.read(1)
         .ok_or_else(|| CoreError::parse_error("读取代码失败"))?[0];
+
+    // 验证 Code 字段是否合法
+    validate_error_code(type_, code)?;
+
     let checksum_bytes = packet.read(2)
         .ok_or_else(|| CoreError::parse_error("读取校验和失败"))?;
     let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
@@ -251,7 +363,44 @@ fn parse_icmp_with_original_datagram(
         }
     }
 
+    // 验证原始数据报长度
+    validate_original_datagram(&original_datagram, name)?;
+
     Ok((type_, code, checksum, original_datagram))
+}
+
+/// 验证 ICMP 错误报文的 Code 字段是否合法
+///
+/// # 参数
+/// - type_: ICMP 类型
+/// - code: ICMP 代码
+///
+/// # 返回
+/// - Ok(()): 验证通过
+/// - Err(CoreError): 验证失败
+fn validate_error_code(type_: u8, code: u8) -> Result<()> {
+    match type_ {
+        ICMP_TYPE_DEST_UNREACHABLE => {
+            // Destination Unreachable Code 范围：0-5
+            if code > 5 {
+                return Err(CoreError::invalid_packet(format!(
+                    "Destination Unreachable Code无效：{}",
+                    code
+                )));
+            }
+        }
+        ICMP_TYPE_TIME_EXCEEDED => {
+            // Time Exceeded Code 范围：0-1
+            if code > 1 {
+                return Err(CoreError::invalid_packet(format!(
+                    "Time Exceeded Code无效：{}",
+                    code
+                )));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// 编码带原始数据报的 ICMP 报文（用于 Destination Unreachable 和 Time Exceeded）
@@ -362,7 +511,15 @@ mod tests {
 
     #[test]
     fn test_dest_unreachable_encode_decode() {
-        let original = vec![0x45u8, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00];
+        // Need at least IP header (20 bytes) + 8 bytes data
+        let original = vec![
+            0x45, 0x00, 0x00, 0x1c,  // Version/IHL, TOS, Total Length
+            0x00, 0x00, 0x00, 0x00,  // ID, Flags/Fragment
+            0x40, 0x01, 0x00, 0x00,  // TTL, Protocol, Checksum
+            0xc0, 0xa8, 0x01, 0x01,  // Source IP
+            0xc0, 0xa8, 0x01, 0x02,  // Dest IP
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 8 bytes data
+        ];
         let dest = IcmpDestUnreachable {
             type_: ICMP_TYPE_DEST_UNREACHABLE,
             code: 0,
@@ -374,7 +531,7 @@ mod tests {
         assert_eq!(bytes[0], ICMP_TYPE_DEST_UNREACHABLE);
         assert_eq!(bytes[1], 0);
 
-        // 解析
+        // Parse
         let mut packet = Packet::from_bytes(bytes);
         let decoded = IcmpDestUnreachable::from_packet(&mut packet).unwrap();
 
@@ -385,7 +542,15 @@ mod tests {
 
     #[test]
     fn test_time_exceeded_encode_decode() {
-        let original = vec![0x45u8, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x00];
+        // Need at least IP header (20 bytes) + 8 bytes data
+        let original = vec![
+            0x45, 0x00, 0x00, 0x1c,  // Version/IHL, TOS, Total Length
+            0x00, 0x00, 0x00, 0x00,  // ID, Flags/Fragment
+            0x40, 0x01, 0x00, 0x00,  // TTL, Protocol, Checksum
+            0xc0, 0xa8, 0x01, 0x01,  // Source IP
+            0xc0, 0xa8, 0x01, 0x02,  // Dest IP
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 8 bytes data
+        ];
         let time = IcmpTimeExceeded {
             type_: ICMP_TYPE_TIME_EXCEEDED,
             code: 0,
@@ -397,7 +562,7 @@ mod tests {
         assert_eq!(bytes[0], ICMP_TYPE_TIME_EXCEEDED);
         assert_eq!(bytes[1], 0);
 
-        // 解析
+        // Parse
         let mut packet = Packet::from_bytes(bytes);
         let decoded = IcmpTimeExceeded::from_packet(&mut packet).unwrap();
 

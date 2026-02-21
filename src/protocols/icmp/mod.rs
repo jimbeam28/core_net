@@ -23,6 +23,11 @@ pub use packet::{
     IcmpDestUnreachable,
     IcmpTimeExceeded,
     IcmpPacket,
+    extract_ip_header_plus_data,
+    validate_original_datagram,
+    is_broadcast_addr,
+    is_multicast_addr,
+    ICMP_ORIGINAL_DATAGRAM_MIN_LEN,
 };
 pub use echo::{
     EchoProcessResult,
@@ -42,4 +47,5 @@ pub use process::{
 pub use global::{
     PendingEcho,
     EchoManager,
+    IcmpConfig,
 };
