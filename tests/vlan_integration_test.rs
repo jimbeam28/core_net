@@ -151,7 +151,7 @@ fn test_vlan_tag_creation_valid() {
     assert!(tag.is_ok());
     let tag = tag.unwrap();
     assert_eq!(tag.pcp, 3);
-    assert_eq!(tag.dei, true);
+    assert!(tag.dei);
     assert_eq!(tag.vid, 100);
 }
 
@@ -220,7 +220,7 @@ fn test_vlan_tag_encode_decode() {
 fn test_vlan_tag_default() {
     let tag = VlanTag::default();
     assert_eq!(tag.pcp, 0);
-    assert_eq!(tag.dei, false);
+    assert!(!tag.dei);
     assert_eq!(tag.vid, 1);
 }
 
@@ -238,7 +238,7 @@ fn test_parse_vlan_from_packet() {
     assert!(parsed.is_ok());
     let parsed_tag = parsed.unwrap();
     assert_eq!(parsed_tag.pcp, 3);
-    assert_eq!(parsed_tag.dei, true);
+    assert!(parsed_tag.dei);
     assert_eq!(parsed_tag.vid, 100);
 }
 
@@ -615,7 +615,7 @@ fn test_vlan_frame_structure() {
     assert_eq!(frame.tpid(), 0x9100);
     assert_eq!(frame.tag().vid, 1234);
     assert_eq!(frame.tag().pcp, 5);
-    assert_eq!(frame.tag().dei, true);
+    assert!(frame.tag().dei);
 }
 
 #[test]

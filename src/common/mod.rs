@@ -9,7 +9,7 @@ pub use error::{CoreError, Result};
 pub use queue::{RingQueue, QueueError, DEFAULT_QUEUE_CAPACITY, MIN_QUEUE_CAPACITY, MAX_QUEUE_CAPACITY};
 pub use tables::Table;
 pub use packet::Packet;
-pub use addr::{MacAddr, Ipv4Addr, AddrError};
+pub use addr::{MacAddr, Ipv4Addr, Ipv6Addr, AddrError};
 
 // 重新导出协议模块的类型（保持向后兼容）
 pub use crate::protocols::{

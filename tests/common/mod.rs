@@ -1,11 +1,13 @@
 // 测试公共模块 - 提供各测试文件共用的辅助函数和配置
-#![allow(dead_code)]
 
 use core_net::testframework::{HarnessError, HarnessResult, GlobalStateManager};
 use core_net::interface::{InterfaceConfig, InterfaceState, MacAddr, Ipv4Addr, NetworkInterface};
+use core_net::protocols::Ipv6Addr;
 use core_net::protocols::arp::{ArpPacket, ArpOperation, encapsulate_ethernet};
 use core_net::protocols::IP_PROTO_ICMP;
 use core_net::protocols::ip::Ipv4Header;
+use core_net::protocols::ipv6::{IpProtocol, encapsulate_ipv6_packet};
+use core_net::protocols::ETH_P_IPV6;
 use core_net::common::Packet;
 use core_net::context::SystemContext;
 
@@ -251,4 +253,70 @@ impl QueueAccessor for core_net::interface::InterfaceManager {
     fn interfaces(&self) -> &[Self::Interface] {
         self.interfaces()
     }
+}
+
+// ========== IPv6 辅助函数 ==========
+
+/// 创建 IPv6 Echo Request 报文（带以太网封装）
+pub fn create_ipv6_echo_request_packet(
+    src_mac: MacAddr,
+    src_ipv6: Ipv6Addr,
+    dst_ipv6: Ipv6Addr,
+    identifier: u16,
+    sequence: u16,
+) -> Packet {
+    // ICMPv6 Echo Request 报文
+    let icmp_data = vec![0x42; 32]; // 数据负载
+
+    // ICMPv6 Echo Request: Type=128, Code=0
+    let mut icmp_packet = Vec::with_capacity(4 + icmp_data.len());
+    icmp_packet.push(128); // Type: Echo Request
+    icmp_packet.push(0);   // Code: 0
+    icmp_packet.extend_from_slice(&identifier.to_be_bytes()); // Identifier
+    icmp_packet.extend_from_slice(&sequence.to_be_bytes());   // Sequence
+    icmp_packet.extend_from_slice(&icmp_data);
+
+    // 封装 IPv6 头部
+    let ipv6_packet = encapsulate_ipv6_packet(
+        src_ipv6,
+        dst_ipv6,
+        IpProtocol::IcmpV6,
+        &icmp_packet,
+        64, // Hop Limit
+    );
+
+    // 封装以太网头部
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]); // 广播目的 MAC
+    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IPV6.to_be_bytes());
+    frame.extend_from_slice(&ipv6_packet);
+
+    Packet::from_bytes(frame)
+}
+
+/// 创建 IPv6 数据包（带以太网封装）
+pub fn create_ipv6_packet(
+    dst_mac: MacAddr,
+    src_mac: MacAddr,
+    src_ipv6: Ipv6Addr,
+    dst_ipv6: Ipv6Addr,
+    next_header: IpProtocol,
+    payload: Vec<u8>,
+) -> Packet {
+    let ipv6_packet = encapsulate_ipv6_packet(
+        src_ipv6,
+        dst_ipv6,
+        next_header,
+        &payload,
+        64, // Hop Limit
+    );
+
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&dst_mac.bytes);
+    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IPV6.to_be_bytes());
+    frame.extend_from_slice(&ipv6_packet);
+
+    Packet::from_bytes(frame)
 }

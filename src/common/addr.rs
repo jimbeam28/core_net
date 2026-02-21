@@ -200,6 +200,249 @@ impl FromStr for Ipv4Addr {
     }
 }
 
+// ========== IPv6 地址 ==========
+
+/// IPv6 地址（128 位）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Ipv6Addr {
+    pub bytes: [u8; 16],
+}
+
+impl Ipv6Addr {
+    /// 从 8 个 16 位段创建 IPv6 地址
+    pub const fn new(a: u16, b: u16, c: u16, d: u16,
+                     e: u16, f: u16, g: u16, h: u16) -> Self {
+        Ipv6Addr {
+            bytes: [
+                (a >> 8) as u8, a as u8,
+                (b >> 8) as u8, b as u8,
+                (c >> 8) as u8, c as u8,
+                (d >> 8) as u8, d as u8,
+                (e >> 8) as u8, e as u8,
+                (f >> 8) as u8, f as u8,
+                (g >> 8) as u8, g as u8,
+                (h >> 8) as u8, h as u8,
+            ],
+        }
+    }
+
+    /// 从字节数组创建 IPv6 地址
+    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+        Ipv6Addr { bytes }
+    }
+
+    /// 未指定地址 ::
+    pub const UNSPECIFIED: Ipv6Addr = Ipv6Addr { bytes: [0; 16] };
+
+    /// 环回地址 ::1
+    pub const LOOPBACK: Ipv6Addr = Ipv6Addr {
+        bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+    };
+
+    /// 所有节点组播地址 ff02::1
+    pub const ALL_NODES_MULTICAST: Ipv6Addr = Ipv6Addr {
+        bytes: [0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+    };
+
+    /// 链路本地所有节点组播地址 ff02::1
+    pub const LINK_LOCAL_ALL_NODES: Ipv6Addr = Ipv6Addr {
+        bytes: [0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+    };
+
+    /// 链路本地所有路由器组播地址 ff02::2
+    pub const LINK_LOCAL_ALL_ROUTERS: Ipv6Addr = Ipv6Addr {
+        bytes: [0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]
+    };
+
+    /// 创建链路本地地址 fe80::/64
+    pub fn link_local(eui64: [u8; 8]) -> Self {
+        let mut bytes = [0u8; 16];
+        bytes[0] = 0xfe;
+        bytes[1] = 0x80;
+        bytes[8..16].copy_from_slice(&eui64);
+        Ipv6Addr { bytes }
+    }
+
+    /// 转换为字节数组引用
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.bytes
+    }
+
+    /// 判断是否为未指定地址 ::
+    pub fn is_unspecified(&self) -> bool {
+        self.bytes == [0; 16]
+    }
+
+    /// 判断是否为环回地址 ::1
+    pub fn is_loopback(&self) -> bool {
+        self.bytes == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+    }
+
+    /// 判断是否为组播地址 (ff00::/8)
+    pub fn is_multicast(&self) -> bool {
+        self.bytes[0] == 0xff
+    }
+
+    /// 判断是否为链路本地地址 (fe80::/10)
+    pub fn is_link_local(&self) -> bool {
+        self.bytes[0] == 0xfe && (self.bytes[1] & 0xc0) == 0x80
+    }
+
+    /// 判断是否为站点本地地址 (已弃用, fec0::/10)
+    pub fn is_site_local(&self) -> bool {
+        self.bytes[0] == 0xfe && (self.bytes[1] & 0xc0) == 0xc0
+    }
+
+    /// 判断是否为全球单播地址 (2000::/3)
+    pub fn is_global_unicast(&self) -> bool {
+        (self.bytes[0] & 0xe0) == 0x20
+    }
+
+    /// 判断是否为单播地址（非组播）
+    pub fn is_unicast(&self) -> bool {
+        !self.is_multicast()
+    }
+}
+
+impl fmt::Display for Ipv6Addr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // 将 16 字节转换为 8 个 u16 段
+        let segments: [u16; 8] = [
+            u16::from_be_bytes([self.bytes[0], self.bytes[1]]),
+            u16::from_be_bytes([self.bytes[2], self.bytes[3]]),
+            u16::from_be_bytes([self.bytes[4], self.bytes[5]]),
+            u16::from_be_bytes([self.bytes[6], self.bytes[7]]),
+            u16::from_be_bytes([self.bytes[8], self.bytes[9]]),
+            u16::from_be_bytes([self.bytes[10], self.bytes[11]]),
+            u16::from_be_bytes([self.bytes[12], self.bytes[13]]),
+            u16::from_be_bytes([self.bytes[14], self.bytes[15]]),
+        ];
+
+        // 特殊情况：全部为零 -> ::
+        if segments.iter().all(|&s| s == 0) {
+            return write!(f, "::");
+        }
+
+        // 找到最长的连续零段（至少2段才压缩）
+        let mut longest_zero_start = 0;
+        let mut longest_zero_len = 0;
+        let mut current_zero_start = 0;
+        let mut current_zero_len = 0;
+
+        for (i, &seg) in segments.iter().enumerate() {
+            if seg == 0 {
+                if current_zero_len == 0 {
+                    current_zero_start = i;
+                }
+                current_zero_len += 1;
+            } else {
+                if current_zero_len > longest_zero_len && current_zero_len >= 2 {
+                    longest_zero_start = current_zero_start;
+                    longest_zero_len = current_zero_len;
+                }
+                current_zero_len = 0;
+            }
+        }
+        // 检查最后一段
+        if current_zero_len > longest_zero_len && current_zero_len >= 2 {
+            longest_zero_start = current_zero_start;
+            longest_zero_len = current_zero_len;
+        }
+
+        // 如果没有找到至少2段的连续零，则不压缩
+        if longest_zero_len < 2 {
+            // 不使用压缩
+            for (i, &seg) in segments.iter().enumerate() {
+                write!(f, "{:x}", seg)?;
+                if i < 7 { write!(f, ":")?; }
+            }
+            return Ok(());
+        }
+
+        // 使用压缩格式
+        for &seg in segments.iter().take(longest_zero_start) {
+            write!(f, "{:x}", seg)?;
+            write!(f, ":")?;
+        }
+
+        // 写入 ::（如果压缩段在开头，前面没有冒号，需要两个；否则前面已经有一个了）
+        if longest_zero_start == 0 {
+            write!(f, "::")?;
+        } else {
+            write!(f, ":")?;
+        }
+
+        for (i, &seg) in segments.iter().enumerate().skip(longest_zero_start + longest_zero_len) {
+            write!(f, "{:x}", seg)?;
+            if i < 7 { write!(f, ":")?; }
+        }
+
+        Ok(())
+    }
+}
+
+impl FromStr for Ipv6Addr {
+    type Err = AddrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // 处理压缩的 ::
+        let parts: Vec<&str> = s.split("::").collect();
+
+        let segments: Vec<u16> = if parts.len() == 1 {
+            // 没有 :: 的情况
+            s.split(':')
+                .map(|p| u16::from_str_radix(p, 16)
+                    .map_err(|_| AddrError::InvalidIpAddr(s.to_string())))
+                .collect::<Result<Vec<_>, _>>()?
+        } else if parts.len() == 2 {
+            // 有 :: 的情况
+            let left: Vec<u16> = if parts[0].is_empty() {
+                Vec::new()
+            } else {
+                parts[0].split(':')
+                    .map(|p| u16::from_str_radix(p, 16)
+                        .map_err(|_| AddrError::InvalidIpAddr(s.to_string())))
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+
+            let right: Vec<u16> = if parts[1].is_empty() {
+                Vec::new()
+            } else {
+                parts[1].split(':')
+                    .map(|p| u16::from_str_radix(p, 16)
+                        .map_err(|_| AddrError::InvalidIpAddr(s.to_string())))
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+
+            // 计算需要填充的零段数量
+            let zeros_needed = 8 - left.len() - right.len();
+            if zeros_needed > 8 {
+                return Err(AddrError::InvalidIpAddr(s.to_string()));
+            }
+
+            // 合并：左段 + 零段 + 右段
+            left.iter().copied()
+                .chain(std::iter::repeat_n(0, zeros_needed))
+                .chain(right.iter().copied())
+                .collect()
+        } else {
+            return Err(AddrError::InvalidIpAddr(s.to_string()));
+        };
+
+        if segments.len() != 8 {
+            return Err(AddrError::InvalidIpAddr(s.to_string()));
+        }
+
+        let mut bytes = [0u8; 16];
+        for (i, segment) in segments.iter().enumerate() {
+            bytes[i * 2] = (segment >> 8) as u8;
+            bytes[i * 2 + 1] = (*segment & 0xFF) as u8;
+        }
+
+        Ok(Ipv6Addr::from_bytes(bytes))
+    }
+}
+
 // ========== 地址错误类型 ==========
 
 /// 地址解析错误
