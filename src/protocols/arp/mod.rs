@@ -194,6 +194,20 @@ impl ArpPacket {
         }
         let target_hardware_addr = MacAddr::new(target_hardware_bytes);
 
+        // 验证 MAC 地址的有效性
+        // 拒绝广播或组播 MAC 地址作为源地址
+        if sender_hardware_addr.is_broadcast() || sender_hardware_addr.is_multicast() {
+            return Err(CoreError::invalid_packet(
+                format!("无效的发送方MAC地址: {}（不能为广播或组播地址）", sender_hardware_addr)
+            ));
+        }
+        // 对于 ARP 响应，目标 MAC 不应为广播地址
+        if operation == ArpOperation::Reply && target_hardware_addr.is_broadcast() {
+            return Err(CoreError::invalid_packet(
+                format!("无效的目标MAC地址: {}（ARP响应的目标MAC不能为广播地址）", target_hardware_addr)
+            ));
+        }
+
         // 读取目标协议地址
         let mut target_protocol_bytes = [0u8; 4];
         for target_protocol_byte in &mut target_protocol_bytes {
@@ -357,6 +371,11 @@ pub fn handle_arp_packet(
             );
 
             // 第二步：检查目标 IP 是否是本机
+            // 拒绝广播地址的 ARP 请求
+            if packet.target_protocol_addr.is_broadcast() {
+                return Ok(ArpHandleResult::no_reply());
+            }
+
             // 对于普通ARP请求：TPA是本机IP时响应
             // 对于GARP请求：SPA=TPA且是本机IP时也需要响应
             let should_reply = if is_garp {
@@ -402,7 +421,6 @@ pub fn handle_arp_packet(
                 // 场景1：有条目存在
                 if matches!(entry.state, ArpState::Incomplete | ArpState::Delay | ArpState::Probe) {
                     // Incomplete/Delay/Probe -> Reachable：收到匹配的响应
-                    let _old_state = entry.state;
                     entry.state = ArpState::Reachable;
                     entry.hardware_addr = packet.sender_hardware_addr;
                     entry.updated_at = std::time::Instant::now();
@@ -411,10 +429,6 @@ pub fn handle_arp_packet(
 
                     // 取出等待队列中的数据包（如果有）
                     pending_packets = entry.take_pending().into_iter().collect();
-
-                    if !pending_packets.is_empty() {
-                        // 记录：从 {old_state:?} 状态恢复，有 {count} 个数据包待发送
-                    }
                 } else {
                     // 其他状态：自动学习，更新MAC地址和时间戳
                     entry.hardware_addr = packet.sender_hardware_addr;
@@ -506,21 +520,30 @@ pub fn process_arp_packet_with_context(
     }
 
     // 2. 获取接口信息（从 context.interfaces）
-    let (local_mac, local_ip) = {
+    let (local_mac, all_local_ips) = {
         let guard = context.interfaces.lock()
             .map_err(|e| CoreError::parse_error(format!("锁定接口管理器失败: {}", e)))?;
         let iface = guard.get_by_index(ifindex)
             .map_err(|e| CoreError::parse_error(format!("获取接口失败: {}", e)))?;
+
+        // 收集所有接口的 IP 地址（用于检查是否需要响应 ARP 请求）
+        // 根据设计文档第3.3.1节：检查"本机任一接口IP地址"
+        let all_ips: Vec<Ipv4Addr> = guard.interfaces()
+            .iter()
+            .filter(|iface| iface.is_up())  // 只收集处于 UP 状态的接口
+            .map(|iface| iface.ip_addr)
+            .collect();
+
         // 锁在这里自动释放
-        (iface.mac_addr, iface.ip_addr)
+        (iface.mac_addr, all_ips)
     };
 
     // 3. 获取 ARP 缓存（从 context.arp_cache）
     let mut cache = context.arp_cache.lock()
         .map_err(|e| CoreError::parse_error(format!("锁定 ARP 缓存失败: {}", e)))?;
 
-    // 4. 调用核心处理逻辑
-    let handle_result = handle_arp_packet(&mut cache, ifindex, &arp_pkt, &[local_ip], local_mac)?;
+    // 4. 调用核心处理逻辑（传入所有接口的 IP 地址）
+    let handle_result = handle_arp_packet(&mut cache, ifindex, &arp_pkt, &all_local_ips, local_mac)?;
 
     // 5. 处理等待队列中的数据包（如果有）
     // 将等待的报文封装到以太网帧并放入接口的txq
@@ -671,10 +694,7 @@ pub fn resolve_ip(
         }
     }
 
-    // 没有条目，创建None状态条目（初始状态）
-    cache.update_arp(ifindex, target_ip, MacAddr::zero(), ArpState::None);
-
-    // 立即转为Incomplete状态
+    // 没有条目，创建 Incomplete 状态条目
     cache.update_arp(ifindex, target_ip, MacAddr::zero(), ArpState::Incomplete);
 
     // 将数据包加入等待队列

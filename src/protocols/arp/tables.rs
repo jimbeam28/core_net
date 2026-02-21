@@ -495,12 +495,18 @@ impl Table<ArpKey, ArpEntry> for ArpCache {
     }
 
     fn cleanup(&mut self) {
+        let now = Instant::now();
         let entries_to_remove: Vec<_> = self.entries
             .iter()
             .filter(|(_, entry)| {
-                // 清理处于 None 状态且已过期的条目
+                // 只清理处于 None 状态且创建时间超过 30 秒的条目
+                // 避免删除刚创建的临时状态
                 if entry.state == ArpState::None {
-                    return true;
+                    // 检查是否创建超过 30 秒（使用 aging_timeout 作为参考）
+                    let age_threshold = self.config.aging_timeout;
+                    if now.duration_since(entry.created_at).as_secs() >= age_threshold {
+                        return true;
+                    }
                 }
                 false
             })
