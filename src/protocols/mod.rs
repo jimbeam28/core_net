@@ -23,6 +23,9 @@ pub mod icmp;
 // UDP 协议
 pub mod udp;
 
+// TCP 协议
+pub mod tcp;
+
 // 从 common 模块重新导出类型
 pub use crate::common::{
     Packet,
@@ -52,7 +55,6 @@ pub use vlan::{
 pub use ip::{
     Ipv4Header,
     IP_PROTO_ICMP,
-    IP_PROTO_TCP,
     IP_PROTO_UDP,
 };
 
@@ -92,4 +94,28 @@ pub use udp::{
     UDP_HEADER_SIZE,
     UDP_MIN_LENGTH,
     UDP_CONFIG_DEFAULT,
+};
+
+// TCP 模块导出
+pub use tcp::{
+    TcpHeader,
+    TcpSegment,
+    TcpConfig,
+    TcpProcessResult,
+    TcpError,
+    TcpConnectionId,
+    TcpState,
+    TcpConnectionManager,
+    Tcb,
+    IP_PROTO_TCP,
+    TCP_MIN_HEADER_LEN,
+    TCP_MAX_HEADER_LEN,
+    TCP_CONFIG_DEFAULT,
+    process_tcp_packet,
+    encapsulate_tcp_segment,
+    encapsulate_tcp_header,
+    create_syn,
+    create_ack,
+    create_fin,
+    create_rst,
 };

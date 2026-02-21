@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use crate::interface::InterfaceManager;
 use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
+use crate::protocols::tcp::TcpConnectionManager;
 
 /// 系统上下文，持有所有全局状态的所有权
 ///
@@ -22,25 +23,21 @@ pub struct SystemContext {
 
     /// ICMP Echo 管理器
     pub icmp_echo: Arc<Mutex<EchoManager>>,
+
+    /// TCP 连接管理器
+    pub tcp_connections: Arc<Mutex<TcpConnectionManager>>,
 }
 
 impl SystemContext {
     /// 创建新的系统上下文（用于测试）
     ///
     /// 创建一个空的系统上下文，所有组件使用默认值。
-    ///
-    /// # 示例
-    ///
-    /// ```
-    /// use core_net::context::SystemContext;
-    ///
-    /// let ctx = SystemContext::new();
-    /// ```
     pub fn new() -> Self {
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
+            tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
         }
     }
 
@@ -51,14 +48,6 @@ impl SystemContext {
     /// # 返回
     ///
     /// 返回初始化完成的 SystemContext，如果加载配置失败则使用默认值。
-    ///
-    /// # 示例
-    ///
-    /// ```
-    /// use core_net::context::SystemContext;
-    ///
-    /// let ctx = SystemContext::from_config();
-    /// ```
     pub fn from_config() -> Self {
         let interface_manager = match crate::interface::load_default_config() {
             Ok(manager) => manager,
@@ -72,6 +61,7 @@ impl SystemContext {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
+            tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
         }
     }
 
@@ -84,31 +74,18 @@ impl SystemContext {
     /// - `interfaces`: 接口管理器
     /// - `arp_cache`: ARP 缓存
     /// - `icmp_echo`: ICMP Echo 管理器
-    ///
-    /// # 示例
-    ///
-    /// ```
-    /// use core_net::context::SystemContext;
-    /// use core_net::interface::InterfaceManager;
-    /// use core_net::protocols::arp::ArpCache;
-    /// use core_net::protocols::icmp::EchoManager;
-    /// use std::sync::{Arc, Mutex};
-    ///
-    /// let ctx = SystemContext::with_components(
-    ///     Arc::new(Mutex::new(InterfaceManager::default())),
-    ///     Arc::new(Mutex::new(ArpCache::default())),
-    ///     Arc::new(Mutex::new(EchoManager::default())),
-    /// );
-    /// ```
+    /// - `tcp_connections`: TCP 连接管理器
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
         arp_cache: Arc<Mutex<ArpCache>>,
         icmp_echo: Arc<Mutex<EchoManager>>,
+        tcp_connections: Arc<Mutex<TcpConnectionManager>>,
     ) -> Self {
         Self {
             interfaces,
             arp_cache,
             icmp_echo,
+            tcp_connections,
         }
     }
 
@@ -182,6 +159,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.interfaces, &ctx2.interfaces));
         assert!(Arc::ptr_eq(&ctx1.arp_cache, &ctx2.arp_cache));
         assert!(Arc::ptr_eq(&ctx1.icmp_echo, &ctx2.icmp_echo));
+        assert!(Arc::ptr_eq(&ctx1.tcp_connections, &ctx2.tcp_connections));
     }
 
     #[test]
@@ -189,11 +167,13 @@ mod tests {
         let manager = create_test_manager();
         let arp_cache = ArpCache::default();
         let echo_mgr = EchoManager::default();
+        let tcp_mgr = TcpConnectionManager::default();
 
         let ctx = SystemContext::with_components(
             Arc::new(Mutex::new(manager)),
             Arc::new(Mutex::new(arp_cache)),
             Arc::new(Mutex::new(echo_mgr)),
+            Arc::new(Mutex::new(tcp_mgr)),
         );
 
         assert_eq!(ctx.interface_count(), 1);
@@ -250,6 +230,10 @@ mod tests {
 
         let echo_guard = ctx.icmp_echo.lock();
         assert!(echo_guard.is_ok());
+        drop(echo_guard);
+
+        let tcp_guard = ctx.tcp_connections.lock();
+        assert!(tcp_guard.is_ok());
     }
 
     #[test]

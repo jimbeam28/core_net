@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::{arp, ip, icmp, ipv6, udp, Ipv4Addr};
+use crate::protocols::{arp, ip, icmp, ipv6, udp, tcp, Ipv4Addr};
 use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
@@ -70,6 +70,13 @@ impl From<crate::protocols::ip::IpError> for ProcessError {
 impl From<crate::protocols::ipv6::Ipv6Error> for ProcessError {
     fn from(err: crate::protocols::ipv6::Ipv6Error) -> Self {
         ProcessError::ParseError(err.to_string())
+    }
+}
+
+// 添加 TCP 错误类型转换
+impl From<crate::protocols::tcp::TcpError> for ProcessError {
+    fn from(err: crate::protocols::tcp::TcpError) -> Self {
+        ProcessError::ParseError(format!("TCP错误: {}", err))
     }
 }
 
@@ -297,9 +304,7 @@ impl PacketProcessor {
                 self.handle_udp(eth_hdr, ip_hdr, packet)
             }
             ip::IP_PROTO_TCP => {
-                Err(ProcessError::UnsupportedProtocol(
-                    String::from("TCP protocol not implemented")
-                ))
+                self.handle_tcp(eth_hdr, ip_hdr, packet)
             }
             _ => {
                 Err(ProcessError::UnsupportedProtocol(
@@ -464,6 +469,81 @@ impl PacketProcessor {
                 // 在实际实现中，这里应该根据应用层的处理决定是否响应
                 if self.verbose {
                     println!("UDP: 数据已交付给应用层");
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    /// 处理 TCP 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ip_hdr: IP 头部
+    /// - packet: Packet（已去除 IP 头部）
+    fn handle_tcp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
+        // 获取接口索引
+        let ifindex = packet.get_ifindex();
+
+        // 获取本接口的 IP 地址（用作响应的源地址）
+        let our_ip = self.get_interface_ip(ifindex)?;
+
+        if self.verbose {
+            println!("TCP: 处理 TCP 报文 源={}:{} 目的={}:{}",
+                ip_hdr.source_addr, 0, ip_hdr.dest_addr, 0);
+        }
+
+        // 处理 TCP 报文
+        let result = tcp::process_tcp_packet(
+            packet,
+            ip_hdr.source_addr,
+            our_ip,
+            &self.context,
+            &tcp::TCP_CONFIG_DEFAULT,
+        ).map_err(|e| ProcessError::ParseError(format!("TCP处理失败: {}", e)))?;
+
+        // 根据处理结果返回
+        match result {
+            tcp::TcpProcessResult::NoReply => Ok(None),
+            tcp::TcpProcessResult::Reply(tcp_bytes) => {
+                // 获取本接口的 MAC 地址
+                let our_mac = self.get_interface_mac(ifindex)?;
+
+                // 封装为 IP 数据报
+                let ip_reply = ip::Ipv4Header::new(
+                    our_ip,
+                    ip_hdr.source_addr,
+                    ip::IP_PROTO_TCP,
+                    tcp_bytes.len(),
+                );
+                let mut ip_packet = ip_reply.to_bytes();
+                ip_packet.extend_from_slice(&tcp_bytes);
+
+                // 封装为以太网帧
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,
+                    our_mac,
+                    crate::protocols::ETH_P_IP,
+                    &ip_packet,
+                );
+
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
+            tcp::TcpProcessResult::Delivered(_data) => {
+                if self.verbose {
+                    println!("TCP: 数据已交付给应用层");
+                }
+                Ok(None)
+            }
+            tcp::TcpProcessResult::ConnectionEstablished(id) => {
+                if self.verbose {
+                    println!("TCP: 连接已建立 {:?}", id);
+                }
+                Ok(None)
+            }
+            tcp::TcpProcessResult::ConnectionClosed(id) => {
+                if self.verbose {
+                    println!("TCP: 连接已关闭 {:?}", id);
                 }
                 Ok(None)
             }
