@@ -30,6 +30,27 @@ impl std::fmt::Display for ProcessError {
 
 impl std::error::Error for ProcessError {}
 
+/// 宏：为协议错误类型实现 From 转换
+///
+/// 用法：impl_from_protocol_error!(错误类型, 前缀消息)
+/// 示例：impl_from_protocol_error!(crate::protocols::ip::IpError, "IP")
+macro_rules! impl_from_protocol_error {
+    ($error_type:ty, $prefix:expr) => {
+        impl From<$error_type> for ProcessError {
+            fn from(err: $error_type) -> Self {
+                ProcessError::ParseError(format!("{}错误: {}", $prefix, err))
+            }
+        }
+    };
+    ($error_type:ty) => {
+        impl From<$error_type> for ProcessError {
+            fn from(err: $error_type) -> Self {
+                ProcessError::ParseError(err.to_string())
+            }
+        }
+    };
+}
+
 impl From<crate::common::CoreError> for ProcessError {
     fn from(err: crate::common::CoreError) -> Self {
         match err {
@@ -47,36 +68,14 @@ impl From<crate::common::CoreError> for ProcessError {
     }
 }
 
-impl From<crate::protocols::vlan::VlanError> for ProcessError {
-    fn from(err: crate::protocols::vlan::VlanError) -> Self {
-        ProcessError::ParseError(format!("VLAN错误: {}", err))
-    }
-}
+impl_from_protocol_error!(crate::protocols::vlan::VlanError, "VLAN");
+impl_from_protocol_error!(crate::protocols::ip::IpError);
+impl_from_protocol_error!(crate::protocols::ipv6::Ipv6Error);
+impl_from_protocol_error!(crate::protocols::tcp::TcpError, "TCP");
 
 impl From<String> for ProcessError {
     fn from(msg: String) -> Self {
         ProcessError::ParseError(msg)
-    }
-}
-
-// 添加 IP 错误类型转换
-impl From<crate::protocols::ip::IpError> for ProcessError {
-    fn from(err: crate::protocols::ip::IpError) -> Self {
-        ProcessError::ParseError(err.to_string())
-    }
-}
-
-// 添加 IPv6 错误类型转换
-impl From<crate::protocols::ipv6::Ipv6Error> for ProcessError {
-    fn from(err: crate::protocols::ipv6::Ipv6Error) -> Self {
-        ProcessError::ParseError(err.to_string())
-    }
-}
-
-// 添加 TCP 错误类型转换
-impl From<crate::protocols::tcp::TcpError> for ProcessError {
-    fn from(err: crate::protocols::tcp::TcpError) -> Self {
-        ProcessError::ParseError(format!("TCP错误: {}", err))
     }
 }
 

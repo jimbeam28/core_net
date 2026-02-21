@@ -73,18 +73,18 @@ impl TcpConnectionManager {
     }
 
     /// 移除连接
-    pub fn remove(&mut self, id: &TcpConnectionId) -> Option<Tcb> {
-        self.connections.remove(id).and_then(|arc| {
-            // 尝试获取锁，如果失败则返回 None
-            Arc::try_unwrap(arc).ok().and_then(|mutex| mutex.into_inner().ok())
-        })
+    ///
+    /// 返回被移除连接的 Arc<Mutex<Tcb>>，如果连接不存在则返回 None。
+    /// 注意：如果连接仍被其他线程引用，TCB 不会被立即销毁。
+    pub fn remove(&mut self, id: &TcpConnectionId) -> Option<Arc<Mutex<Tcb>>> {
+        self.connections.remove(id)
     }
 
     /// 移除监听端口
-    pub fn remove_listen(&mut self, port: u16) -> Option<Tcb> {
-        self.listen_sockets.remove(&port).and_then(|arc| {
-            Arc::try_unwrap(arc).ok().and_then(|mutex| mutex.into_inner().ok())
-        })
+    ///
+    /// 返回被移除监听端口的 Arc<Mutex<Tcb>>，如果端口不存在则返回 None。
+    pub fn remove_listen(&mut self, port: u16) -> Option<Arc<Mutex<Tcb>>> {
+        self.listen_sockets.remove(&port)
     }
 
     /// 分配临时端口
