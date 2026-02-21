@@ -452,8 +452,6 @@ mod tests {
     use crate::common::{MacAddr, Ipv4Addr, ETH_P_ARP};
     use crate::protocols::arp::{ArpPacket, ArpOperation};
     use crate::protocols::ethernet;
-    use std::cell::RefCell;
-    use std::rc::Rc;
 
     // --- 测试辅助函数 ---
 
@@ -531,29 +529,6 @@ mod tests {
         manager.add_interface(eth0).unwrap();
         manager.add_interface(lo).unwrap();
         manager
-    }
-
-    /// Mock 处理器，用于测试错误处理
-    #[allow(dead_code)]
-    struct MockProcessor {
-        call_count: Rc<RefCell<usize>>,
-        should_fail: bool,
-        return_response: bool,
-    }
-
-    impl MockProcessor {
-        #[allow(dead_code)]
-        fn new(should_fail: bool, return_response: bool) -> (Self, Rc<RefCell<usize>>) {
-            let count = Rc::new(RefCell::new(0));
-            (
-                Self {
-                    call_count: count.clone(),
-                    should_fail,
-                    return_response,
-                },
-                count,
-            )
-        }
     }
 
     #[test]

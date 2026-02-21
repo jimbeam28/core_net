@@ -76,16 +76,14 @@ impl TcpConnectionManager {
     pub fn remove(&mut self, id: &TcpConnectionId) -> Option<Tcb> {
         self.connections.remove(id).and_then(|arc| {
             // 尝试获取锁，如果失败则返回 None
-            Arc::try_unwrap(arc).ok().map(|mutex| mutex.into_inner().ok())
-                .flatten()
+            Arc::try_unwrap(arc).ok().and_then(|mutex| mutex.into_inner().ok())
         })
     }
 
     /// 移除监听端口
     pub fn remove_listen(&mut self, port: u16) -> Option<Tcb> {
         self.listen_sockets.remove(&port).and_then(|arc| {
-            Arc::try_unwrap(arc).ok().map(|mutex| mutex.into_inner().ok())
-                .flatten()
+            Arc::try_unwrap(arc).ok().and_then(|mutex| mutex.into_inner().ok())
         })
     }
 

@@ -4,6 +4,7 @@
 
 use crate::common::{CoreError, Result};
 use crate::protocols::Ipv4Addr;
+use crate::protocols::ip::{add_ipv4_pseudo_header, fold_carry};
 use super::header::TcpHeader;
 use super::constant::TCP_MIN_HEADER_LEN;
 
@@ -84,10 +85,7 @@ impl<'a> TcpSegment<'a> {
         let mut sum = 0u32;
 
         // 伪头部 (12 字节)
-        sum += u32::from(u16::from_be_bytes([source_ip.bytes[0], source_ip.bytes[1]]));
-        sum += u32::from(u16::from_be_bytes([source_ip.bytes[2], source_ip.bytes[3]]));
-        sum += u32::from(u16::from_be_bytes([dest_ip.bytes[0], dest_ip.bytes[1]]));
-        sum += u32::from(u16::from_be_bytes([dest_ip.bytes[2], dest_ip.bytes[3]]));
+        add_ipv4_pseudo_header(&mut sum, source_ip, dest_ip);
         sum += u32::from(6u16) << 8; // 协议号 TCP=6
 
         let tcp_len = (self.header.header_len() + self.payload.len() + self.options.len()) as u16;
@@ -97,10 +95,10 @@ impl<'a> TcpSegment<'a> {
         // TCP 头部（不含校验和字段）
         sum += u32::from(self.header.source_port);
         sum += u32::from(self.header.destination_port);
-        sum += u32::from(self.header.sequence_number >> 16);
-        sum += u32::from(self.header.sequence_number & 0xFFFF);
-        sum += u32::from(self.header.acknowledgment_number >> 16);
-        sum += u32::from(self.header.acknowledgment_number & 0xFFFF);
+        sum += self.header.sequence_number >> 16;
+        sum += self.header.sequence_number & 0xFFFF;
+        sum += self.header.acknowledgment_number >> 16;
+        sum += self.header.acknowledgment_number & 0xFFFF;
         // 跳过校验和字段，使用 flags 替代
         sum += u32::from(self.header.flags() as u16) << 8;
         sum += u32::from(self.header.window_size);
@@ -129,11 +127,7 @@ impl<'a> TcpSegment<'a> {
         }
 
         // 处理进位
-        while sum >> 16 != 0 {
-            sum = (sum & 0xFFFF) + (sum >> 16);
-        }
-
-        !sum as u16
+        !fold_carry(sum)
     }
 
     /// 验证校验和
@@ -146,6 +140,11 @@ impl<'a> TcpSegment<'a> {
         self.header.header_len() + self.payload.len()
     }
 
+    /// 检查报文段是否为空
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// 检查是否为纯 ACK（无数据，只有 ACK 标志）
     pub fn is_pure_ack(&self) -> bool {
         self.header.is_ack() && !self.header.is_syn() && !self.header.is_fin()
@@ -156,7 +155,6 @@ impl<'a> TcpSegment<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocols::tcp::flags;
 
     #[test]
     fn test_segment_parse_basic() {

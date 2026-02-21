@@ -12,23 +12,11 @@ pub const ICMP_TYPE_ECHO_REPLY: u8 = 0;
 /// ICMP 类型：Destination Unreachable
 pub const ICMP_TYPE_DEST_UNREACHABLE: u8 = 3;
 
-/// ICMP 类型：Source Quench（已废弃）
-#[allow(dead_code)]
-pub const ICMP_TYPE_SOURCE_QUENCH: u8 = 4;
-
-/// ICMP 类型：Redirect
-#[allow(dead_code)]
-pub const ICMP_TYPE_REDIRECT: u8 = 5;
-
 /// ICMP 类型：Echo Request
 pub const ICMP_TYPE_ECHO_REQUEST: u8 = 8;
 
 /// ICMP 类型：Time Exceeded
 pub const ICMP_TYPE_TIME_EXCEEDED: u8 = 11;
-
-/// ICMP 类型：Parameter Problem
-#[allow(dead_code)]
-pub const ICMP_TYPE_PARAMETER_PROBLEM: u8 = 12;
 
 // ========== ICMP 类型枚举 ==========
 
@@ -41,20 +29,11 @@ pub enum IcmpType {
     /// Destination Unreachable (目标不可达)
     DestinationUnreachable = 3,
 
-    /// Source Quench（已废弃）
-    SourceQuench = 4,
-
-    /// Redirect (重定向)
-    Redirect = 5,
-
     /// Echo Request (ping 请求)
     EchoRequest = 8,
 
     /// Time Exceeded (超时)
     TimeExceeded = 11,
-
-    /// Parameter Problem (参数问题)
-    ParameterProblem = 12,
 }
 
 impl IcmpType {
@@ -63,11 +42,8 @@ impl IcmpType {
         match value {
             0 => Some(IcmpType::EchoReply),
             3 => Some(IcmpType::DestinationUnreachable),
-            4 => Some(IcmpType::SourceQuench),
-            5 => Some(IcmpType::Redirect),
             8 => Some(IcmpType::EchoRequest),
             11 => Some(IcmpType::TimeExceeded),
-            12 => Some(IcmpType::ParameterProblem),
             _ => None,
         }
     }
@@ -83,11 +59,8 @@ impl fmt::Display for IcmpType {
         match self {
             IcmpType::EchoReply => write!(f, "Echo Reply"),
             IcmpType::DestinationUnreachable => write!(f, "Destination Unreachable"),
-            IcmpType::SourceQuench => write!(f, "Source Quench"),
-            IcmpType::Redirect => write!(f, "Redirect"),
             IcmpType::EchoRequest => write!(f, "Echo Request"),
             IcmpType::TimeExceeded => write!(f, "Time Exceeded"),
-            IcmpType::ParameterProblem => write!(f, "Parameter Problem"),
         }
     }
 }

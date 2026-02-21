@@ -4,6 +4,7 @@
 
 use crate::common::{CoreError, Packet, Result};
 use crate::protocols::Ipv4Addr;
+use crate::protocols::ip::{add_ipv4_pseudo_header, fold_carry};
 
 use super::header::UdpHeader;
 
@@ -78,12 +79,7 @@ impl<'a> UdpDatagram<'a> {
         let mut sum = 0u32;
 
         // 伪头部 (12 字节)
-        // 源 IP 地址（2 个 16 位字）
-        sum += u32::from(u16::from_be_bytes([source_ip.bytes[0], source_ip.bytes[1]]));
-        sum += u32::from(u16::from_be_bytes([source_ip.bytes[2], source_ip.bytes[3]]));
-        // 目标 IP 地址（2 个 16 位字）
-        sum += u32::from(u16::from_be_bytes([dest_ip.bytes[0], dest_ip.bytes[1]]));
-        sum += u32::from(u16::from_be_bytes([dest_ip.bytes[2], dest_ip.bytes[3]]));
+        add_ipv4_pseudo_header(&mut sum, source_ip, dest_ip);
         // 协议号和 UDP 长度
         sum += u32::from(17u16) << 8 | u32::from(self.header.length >> 8);
         sum += u32::from(self.header.length & 0xFF) << 8;
@@ -108,11 +104,7 @@ impl<'a> UdpDatagram<'a> {
         }
 
         // 处理进位
-        while sum >> 16 != 0 {
-            sum = (sum & 0xFFFF) + (sum >> 16);
-        }
-
-        !sum as u16
+        !fold_carry(sum)
     }
 
     /// 验证校验和

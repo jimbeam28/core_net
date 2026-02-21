@@ -345,8 +345,8 @@ fn test_udp_zero_checksum() {
 #[test]
 #[serial]
 fn test_udp_multiple_ports() {
-    let sender_ip = Ipv4Addr::new(192, 168, 1, 1);
-    let dest_ip = Ipv4Addr::new(192, 168, 1, 2);
+    let _sender_ip = Ipv4Addr::new(192, 168, 1, 1);
+    let _dest_ip = Ipv4Addr::new(192, 168, 1, 2);
 
     // 测试不同的端口号组合
     let test_cases = vec![

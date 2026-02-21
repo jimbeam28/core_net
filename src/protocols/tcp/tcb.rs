@@ -290,18 +290,14 @@ impl Tcb {
             self.rttvar = rtt_ms / 2;
         } else {
             // 后续测量
-            let delta = if self.srtt > rtt_ms {
-                self.srtt - rtt_ms
-            } else {
-                rtt_ms - self.srtt
-            };
+            let delta = self.srtt.abs_diff(rtt_ms);
             self.rttvar = (3 * self.rttvar + delta) / 4;
             self.srtt = (7 * self.srtt + rtt_ms) / 8;
         }
 
         // 计算 RTO
         self.rto = self.srtt + std::cmp::max(200u32, 4 * self.rttvar);
-        self.rto = std::cmp::max(200u32, std::cmp::min(self.rto, 120000u32));
+        self.rto = self.rto.clamp(200u32, 120000u32);
     }
 
     /// 重置拥塞控制（超时重传后）
@@ -461,7 +457,7 @@ mod tests {
         let isn2 = Tcb::generate_isn();
 
         // ISN 应该递增
-        assert!(isn2 > isn1 || isn2 < isn1); // 可能回绕
+        assert!(isn2 != isn1); // 可能回绕
     }
 
     #[test]

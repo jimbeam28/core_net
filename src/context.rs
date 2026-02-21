@@ -93,11 +93,6 @@ impl SystemContext {
     pub fn interface_count(&self) -> usize {
         self.interfaces.lock().map(|g| g.len()).unwrap_or(0)
     }
-
-    /// 检查上下文是否为空（无接口）
-    pub fn is_empty(&self) -> bool {
-        self.interface_count() == 0
-    }
 }
 
 impl Default for SystemContext {
@@ -141,7 +136,6 @@ mod tests {
     fn test_context_new() {
         let ctx = SystemContext::new();
         assert_eq!(ctx.interface_count(), 0);
-        assert!(ctx.is_empty());
     }
 
     #[test]
@@ -194,12 +188,12 @@ mod tests {
     #[test]
     fn test_context_is_empty() {
         let ctx = SystemContext::new();
-        assert!(ctx.is_empty());
+        assert_eq!(ctx.interface_count(), 0);
 
         ctx.interfaces.lock().unwrap()
             .add_from_config(create_eth0_config()).unwrap();
 
-        assert!(!ctx.is_empty());
+        assert_eq!(ctx.interface_count(), 1);
     }
 
     #[test]

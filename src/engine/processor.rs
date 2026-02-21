@@ -626,12 +626,6 @@ mod tests {
 
     // --- 测试辅助函数 ---
 
-    /// 构造以太网头部字节
-    #[allow(dead_code)]
-    fn create_eth_header_bytes(dst_mac: MacAddr, src_mac: MacAddr, ether_type: u16) -> Vec<u8> {
-        ethernet::build_ethernet_frame(dst_mac, src_mac, ether_type, &[])
-    }
-
     /// 构造 VLAN TCI (Tag Control Information)
     fn create_vlan_tci(pcp: u8, dei: bool, vid: u16) -> u16 {
         let pcp_value = ((pcp & 0x07) as u16) << 13;

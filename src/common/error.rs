@@ -27,18 +27,34 @@ pub enum CoreError {
 }
 
 impl CoreError {
+    /// 创建解析错误
+    ///
+    /// # 参数
+    /// - msg: 错误信息
     pub fn parse_error(msg: impl Into<String>) -> Self {
         CoreError::ParseError(msg.into())
     }
 
+    /// 创建无效协议错误
+    ///
+    /// # 参数
+    /// - protocol: 协议名称或标识符
     pub fn invalid_protocol(protocol: impl Into<String>) -> Self {
         CoreError::InvalidProtocol(protocol.into())
     }
 
+    /// 创建无效报文错误
+    ///
+    /// # 参数
+    /// - msg: 错误信息
     pub fn invalid_packet(msg: impl Into<String>) -> Self {
         CoreError::InvalidPacket(msg.into())
     }
 
+    /// 创建不支持的协议错误
+    ///
+    /// # 参数
+    /// - protocol: 协议名称或标识符
     pub fn unsupported_protocol(protocol: impl Into<String>) -> Self {
         CoreError::UnsupportedProtocol(protocol.into())
     }

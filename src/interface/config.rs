@@ -1,5 +1,3 @@
-#[allow(unused_imports)]
-use std::env;
 use std::fs;
 use crate::common::AddrError;
 use crate::interface::iface::InterfaceConfig;
@@ -240,6 +238,7 @@ fn parse_state(s: &str) -> Result<InterfaceState, InterfaceError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
 
     // ========== parse_key_value 测试 ==========
 

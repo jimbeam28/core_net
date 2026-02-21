@@ -4,14 +4,14 @@
 // 实现了 IP 数据报解析、封装、校验和验证
 // 当前版本不支持分片和重组，仅支持 ICMP 协议
 
-mod checksum;
+pub mod checksum;
 mod header;
 mod protocol;
 mod error;
 mod config;
 mod packet;
 
-pub use checksum::{calculate_checksum, verify_checksum};
+pub use checksum::{calculate_checksum, verify_checksum, add_ipv4_pseudo_header, fold_carry};
 pub use header::{
     Ipv4Header,
     IP_VERSION,

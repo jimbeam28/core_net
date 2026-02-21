@@ -336,6 +336,14 @@ pub enum ArpProcessResult {
 }
 
 /// 将 ARP 报文封装为以太网帧
+///
+/// # 参数
+/// - arp_packet: ARP 报文
+/// - dst_mac: 目标 MAC 地址
+/// - src_mac: 源 MAC 地址
+///
+/// # 返回
+/// - Vec<u8>: 封装后的以太网帧（包含以太网头部和 ARP 报文）
 pub fn encapsulate_ethernet(
     arp_packet: &ArpPacket,
     dst_mac: MacAddr,

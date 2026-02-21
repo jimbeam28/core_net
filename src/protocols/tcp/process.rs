@@ -4,6 +4,7 @@
 
 use crate::common::Packet;
 use crate::protocols::Ipv4Addr;
+use crate::protocols::ip::{add_ipv4_pseudo_header, fold_carry};
 use crate::context::SystemContext;
 
 use super::config::TcpConfig;
@@ -237,7 +238,7 @@ pub fn encapsulate_tcp_segment(
     // 添加选项（如果有）
     if !options.is_empty() {
         // 更新数据偏移
-        let data_offset = 5 + (options.len() + 3) / 4;
+        let data_offset = 5 + options.len().div_ceil(4);
         header_bytes[12] &= 0xF0;
         header_bytes[12] |= (data_offset as u8) & 0x0F;
 
@@ -261,6 +262,15 @@ pub fn encapsulate_tcp_segment(
 }
 
 /// 封装 TCP 头部（无选项）
+///
+/// # 参数
+/// - header: TCP 头部
+/// - _options: TCP 选项（当前未使用，保留供未来扩展）
+/// - source_addr: 源 IP 地址
+/// - dest_addr: 目的 IP 地址
+///
+/// # 返回
+/// - Vec<u8>: 包含 TCP 头部和校验和的字节数组
 pub fn encapsulate_tcp_header(
     header: &TcpHeader,
     _options: &[u8],
@@ -275,10 +285,7 @@ fn calculate_tcp_checksum(data: &[u8], source_ip: Ipv4Addr, dest_ip: Ipv4Addr) -
     let mut sum = 0u32;
 
     // 伪头部
-    sum += u32::from(u16::from_be_bytes([source_ip.bytes[0], source_ip.bytes[1]]));
-    sum += u32::from(u16::from_be_bytes([source_ip.bytes[2], source_ip.bytes[3]]));
-    sum += u32::from(u16::from_be_bytes([dest_ip.bytes[0], dest_ip.bytes[1]]));
-    sum += u32::from(u16::from_be_bytes([dest_ip.bytes[2], dest_ip.bytes[3]]));
+    add_ipv4_pseudo_header(&mut sum, source_ip, dest_ip);
     sum += u32::from(6u16) << 8; // Protocol
 
     let tcp_len = data.len() as u16;
@@ -297,14 +304,23 @@ fn calculate_tcp_checksum(data: &[u8], source_ip: Ipv4Addr, dest_ip: Ipv4Addr) -
     }
 
     // 处理进位
-    while sum >> 16 != 0 {
-        sum = (sum & 0xFFFF) + (sum >> 16);
-    }
-
-    !sum as u16
+    !fold_carry(sum)
 }
 
 /// 创建 SYN 报文
+///
+/// 用于 TCP 连接建立的三次握手，发送 SYN 报文。
+///
+/// # 参数
+/// - source_port: 源端口
+/// - destination_port: 目的端口
+/// - source_addr: 源 IP 地址
+/// - dest_addr: 目的 IP 地址
+/// - seq: 初始序列号
+/// - window_size: 窗口大小
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 TCP SYN 报文
 pub fn create_syn(
     source_port: u16,
     destination_port: u16,
@@ -318,6 +334,20 @@ pub fn create_syn(
 }
 
 /// 创建 ACK 报文
+///
+/// 用于 TCP 连接中确认已接收数据。
+///
+/// # 参数
+/// - source_port: 源端口
+/// - destination_port: 目的端口
+/// - source_addr: 源 IP 地址
+/// - dest_addr: 目的 IP 地址
+/// - seq: 发送序列号
+/// - ack: 确认号
+/// - window_size: 窗口大小
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 TCP ACK 报文
 pub fn create_ack(
     source_port: u16,
     destination_port: u16,
@@ -332,6 +362,20 @@ pub fn create_ack(
 }
 
 /// 创建 FIN 报文
+///
+/// 用于 TCP 连接关闭，发送方不再发送数据。
+///
+/// # 参数
+/// - source_port: 源端口
+/// - destination_port: 目的端口
+/// - source_addr: 源 IP 地址
+/// - dest_addr: 目的 IP 地址
+/// - seq: 发送序列号
+/// - ack: 确认号
+/// - window_size: 窗口大小
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 TCP FIN 报文
 pub fn create_fin(
     source_port: u16,
     destination_port: u16,
@@ -346,6 +390,19 @@ pub fn create_fin(
 }
 
 /// 创建 RST 报文
+///
+/// 用于 TCP 连接复位，异常关闭连接。
+///
+/// # 参数
+/// - source_port: 源端口
+/// - destination_port: 目的端口
+/// - source_addr: 源 IP 地址
+/// - dest_addr: 目的 IP 地址
+/// - seq: 发送序列号
+/// - ack: 确认号
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 TCP RST 报文
 pub fn create_rst(
     source_port: u16,
     destination_port: u16,
@@ -361,7 +418,6 @@ pub fn create_rst(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::SystemContext;
     use super::super::flags;
 
     #[test]

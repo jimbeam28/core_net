@@ -159,6 +159,13 @@ pub fn create_echo_reply(identifier: u16, sequence: u16, data: Vec<u8>) -> Vec<u
 }
 
 /// 创建 Destination Unreachable 报文
+///
+/// # 参数
+/// - code: 错误代码（0=网络不可达, 1=主机不可达, 2=协议不可达, 3=端口不可达等）
+/// - original_datagram: 触发错误的原始 IP 数据报（至少包含 IP 头部和前 8 字节）
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 ICMP Destination Unreachable 报文
 pub fn create_dest_unreachable(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
     use super::packet::IcmpDestUnreachable;
 
@@ -173,6 +180,13 @@ pub fn create_dest_unreachable(code: u8, original_datagram: Vec<u8>) -> Vec<u8> 
 }
 
 /// 创建 Time Exceeded 报文
+///
+/// # 参数
+/// - code: 错误代码（0=TTL 超时, 1=分片重组超时）
+/// - original_datagram: 触发错误的原始 IP 数据报（至少包含 IP 头部和前 8 字节）
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 ICMP Time Exceeded 报文
 pub fn create_time_exceeded(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
     use super::packet::IcmpTimeExceeded;
 

@@ -2,6 +2,38 @@
 //
 // IP 校验和计算
 
+use crate::common::Ipv4Addr;
+
+/// 将 IPv4 伪头部添加到校验和计算中
+///
+/// TCP/UDP 校验和需要包含伪头部（源IP、目标IP、协议号、长度）
+///
+/// # 参数
+/// - sum: 当前的校验和累加值
+/// - source_ip: 源 IPv4 地址
+/// - dest_ip: 目的 IPv4 地址
+pub fn add_ipv4_pseudo_header(sum: &mut u32, source_ip: Ipv4Addr, dest_ip: Ipv4Addr) {
+    *sum += u32::from(u16::from_be_bytes([source_ip.bytes[0], source_ip.bytes[1]]));
+    *sum += u32::from(u16::from_be_bytes([source_ip.bytes[2], source_ip.bytes[3]]));
+    *sum += u32::from(u16::from_be_bytes([dest_ip.bytes[0], dest_ip.bytes[1]]));
+    *sum += u32::from(u16::from_be_bytes([dest_ip.bytes[2], dest_ip.bytes[3]]));
+}
+
+/// 处理校验和进位，返回最终的 16 位校验和
+///
+/// # 参数
+/// - sum: 包含进位的 32 位累加和
+///
+/// # 返回
+/// - 折叠进位后的 16 位校验和
+pub fn fold_carry(sum: u32) -> u16 {
+    let mut s = sum;
+    while s >> 16 != 0 {
+        s = (s & 0xFFFF) + (s >> 16);
+    }
+    s as u16
+}
+
 /// 计算 IP 校验和
 ///
 /// # 算法说明
