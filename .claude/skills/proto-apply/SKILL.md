@@ -59,6 +59,18 @@ allowed-tools: Read, Write, Edit, AskUserQuestion, Glob, Grep, Bash, TodoWrite
 
 使用 test_framework：`TestHarness`、`GlobalStateManager`、`#[serial]`
 
+**集成测试实现规则**：
+1. **使用 test_framework 框架**：通过 `GlobalStateManager::create_context()` 创建 `SystemContext`，使用 `TestHarness::with_context(ctx)` 创建测试线束，使用 `PacketInjector::with_context(ctx)` 注入报文
+2. **报文创建和校验接口实现位置**：
+   - 报文构建接口（如 `create_xxx_packet`）可在 `tests/common/mod.rs` 中实现或调用协议模块的 `encapsulate` 函数
+   - 校验接口（如验证 ARP 缓存、队列状态等）通过 `SystemContext` 直接访问对应组件进行校验
+   - 集成测试文件负责调用这些接口创建测试场景和验证结果
+3. **全局资源管理**：
+   - 在每个用例开始时通过 `GlobalStateManager::create_context()` 创建独立的 `SystemContext`
+   - 作用域结束时 context 自动释放，无需手动清理
+   - 如需在测试间清空资源，可使用 `GlobalStateManager::clear_context_queues()`、`clear_context_arp_cache()` 等方法
+4. **序列化执行**：使用 `#[serial]` 注解确保测试用例序列化执行，无需加锁
+
 ### 第八步：在 engine 模块中集成协议
 
 在 `src/engine/processor.rs` 中：
