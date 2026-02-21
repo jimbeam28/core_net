@@ -7,7 +7,7 @@ use core_net::testframework::{
     TestHarness,
 };
 use core_net::interface::{MacAddr, Ipv4Addr};
-use core_net::protocols::arp::ArpState;
+use core_net::protocols::arp::{ArpState, tables::AgeResult};
 use core_net::common::{Packet, Table};
 use core_net::context::SystemContext;
 
@@ -607,10 +607,11 @@ fn test_retrans_timer_incomplete_state() {
     // 调用老化处理
     {
         let mut arp_cache = ctx.arp_cache.lock().unwrap();
-        let should_send = arp_cache.age_entry(&(0, ip_addr));
+        let result = arp_cache.age_entry(&(0, ip_addr));
 
         // 验证：应该触发重传
-        assert!(should_send, "应该触发ARP请求重传");
+        assert!(matches!(result, AgeResult::SendRequest { .. }),
+            "应该触发ARP请求重传");
 
         let entry = arp_cache.lookup_arp(0, ip_addr);
         assert!(entry.is_some(), "条目应该仍然存在");
@@ -782,10 +783,11 @@ fn test_delay_timer_expires_to_probe() {
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     // 3. 调用老化处理
-    let should_send = local_cache.age_entry(&(0, ip_addr));
+    let result = local_cache.age_entry(&(0, ip_addr));
 
     // 4. 验证：应该转为Probe状态并需要发送探测请求
-    assert!(should_send, "延迟超时后应该发送探测请求");
+    assert!(matches!(result, AgeResult::ToProbe),
+        "延迟超时后应该转为Probe状态");
     let entry = local_cache.lookup_arp(0, ip_addr).unwrap();
     assert_eq!(entry.state, ArpState::Probe, "状态应该变为Probe");
     assert_eq!(entry.retry_count, 0, "重试计数应该被重置");
@@ -818,10 +820,11 @@ fn test_probe_timer_retransmit() {
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     // 3. 调用老化处理
-    let should_send = local_cache.age_entry(&(0, ip_addr));
+    let result = local_cache.age_entry(&(0, ip_addr));
 
     // 4. 验证：应该继续探测
-    assert!(should_send, "应该重发探测请求");
+    assert!(matches!(result, AgeResult::SendRequest { .. }),
+        "应该重发探测请求");
     let entry = local_cache.lookup_arp(0, ip_addr).unwrap();
     assert_eq!(entry.retry_count, 1, "重试计数应该为1");
 }

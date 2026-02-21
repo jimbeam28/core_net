@@ -29,6 +29,21 @@ pub enum ArpState {
     Probe,
 }
 
+/// ARP 条目老化结果
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgeResult {
+    /// 无变化
+    NoChange,
+    /// 需要发送ARP请求（Incomplete或Probe超时）
+    SendRequest { was_incomplete: bool },
+    /// 条目被删除（超过最大重试次数）
+    EntryDeleted,
+    /// 状态变化到Stale（仅通知，无需发送请求）
+    ToStale,
+    /// 状态变化到Probe（Delay超时）
+    ToProbe,
+}
+
 // ========== ARP 配置 ==========
 
 /// ARP 配置参数
@@ -48,6 +63,8 @@ pub struct ArpConfig {
     pub max_entries: usize,
     /// 是否启用 gratuitous ARP
     pub enable_gratuitous: bool,
+    /// 每个条目等待队列的最大数据包数量
+    pub max_pending_packets: usize,
 }
 
 impl Default for ArpConfig {
@@ -60,6 +77,7 @@ impl Default for ArpConfig {
             max_retries: 3,
             max_entries: 512,
             enable_gratuitous: true,
+            max_pending_packets: 100,
         }
     }
 }
@@ -138,8 +156,16 @@ impl ArpEntry {
     }
 
     /// 添加等待的数据包
-    pub fn add_pending(&mut self, packet: Packet) {
+    ///
+    /// 如果等待队列已满，返回错误
+    pub fn add_pending(&mut self, packet: Packet, max_pending: usize) -> crate::common::Result<()> {
+        if self.pending_packets.len() >= max_pending {
+            return Err(crate::common::CoreError::invalid_packet(
+                format!("等待队列已满: {} >= {}", self.pending_packets.len(), max_pending)
+            ));
+        }
         self.pending_packets.push_back(packet);
+        Ok(())
     }
 
     /// 获取并清空等待队列
@@ -218,10 +244,17 @@ impl ArpCache {
 
     /// 查找最旧的ARP条目（用于LRU淘汰）
     ///
-    /// 返回最旧条目的key，如果没有条目则返回None
+    /// 跳过正在等待响应的重要状态条目（Incomplete、Delay、Probe）
+    /// 返回最旧条目的key，如果没有可淘汰的条目则返回None
     fn find_oldest_entry(&self) -> Option<ArpKey> {
         self.entries
             .iter()
+            .filter(|(_, entry)| {
+                // 跳过重要状态：这些条目正在等待响应或有待发送的数据包
+                !matches!(entry.state,
+                    ArpState::Incomplete | ArpState::Delay | ArpState::Probe
+                )
+            })
             .min_by(|a, b| a.1.updated_at.cmp(&b.1.updated_at))
             .map(|(key, _)| *key)
     }
@@ -251,9 +284,8 @@ impl ArpCache {
     /// - key: ARP条目键
     ///
     /// # 返回
-    /// - true: 条目需要发送ARP请求（Incomplete/Probe状态超时）
-    /// - false: 条目不需要发送请求
-    pub fn age_entry(&mut self, key: &ArpKey) -> bool {
+    /// - AgeResult: 老化处理结果
+    pub fn age_entry(&mut self, key: &ArpKey) -> AgeResult {
         let now = Instant::now();
         let config = &self.config;
 
@@ -263,66 +295,67 @@ impl ArpCache {
                     // 检查是否超时转为Stale
                     if now.duration_since(entry.confirmed_at).as_secs() >= config.aging_timeout {
                         entry.state = ArpState::Stale;
+                        AgeResult::ToStale
+                    } else {
+                        AgeResult::NoChange
                     }
-                    false
                 }
                 ArpState::Stale => {
                     // Stale状态在需要使用时转为Delay，这里不主动转换
-                    false
+                    AgeResult::NoChange
                 }
                 ArpState::Delay => {
                     // 检查延迟定时器是否到期
                     if now.duration_since(entry.updated_at).as_secs() >= config.delay_timeout {
                         entry.state = ArpState::Probe;
                         entry.retry_count = 0;
-                        true // 需要发送探测请求
+                        entry.updated_at = now;
+                        AgeResult::ToProbe
                     } else {
-                        false
+                        AgeResult::NoChange
                     }
                 }
                 ArpState::Probe => {
                     // 检查探测定时器是否到期
                     if now.duration_since(entry.updated_at).as_secs() >= config.probe_timeout {
-                        entry.retry_count += 1;
-                        entry.updated_at = now;
-
-                        if entry.retry_count > config.max_retries {
+                        if entry.retry_count >= config.max_retries {
                             // 超过最大重试次数，删除条目
                             self.entries.remove(key);
-                            false
+                            AgeResult::EntryDeleted
                         } else {
-                            // 继续探测
-                            true // 需要发送探测请求
+                            // 增加重试计数，由调用方在发送请求后更新
+                            entry.retry_count += 1;
+                            entry.updated_at = now;
+                            AgeResult::SendRequest { was_incomplete: false }
                         }
                     } else {
-                        false
+                        AgeResult::NoChange
                     }
                 }
                 ArpState::Incomplete => {
                     // 检查重传定时器是否到期
                     if now.duration_since(entry.updated_at).as_secs() >= config.retrans_timeout {
-                        entry.retry_count += 1;
-                        entry.updated_at = now;
-
-                        if entry.retry_count > config.max_retries {
+                        if entry.retry_count >= config.max_retries {
                             // 超过最大重试次数，删除条目
                             self.entries.remove(key);
-                            false
+                            AgeResult::EntryDeleted
                         } else {
-                            // 需要重传ARP请求
-                            true
+                            // 增加重试计数，由调用方在发送请求后更新
+                            entry.retry_count += 1;
+                            entry.updated_at = now;
+                            AgeResult::SendRequest { was_incomplete: true }
                         }
                     } else {
-                        false
+                        AgeResult::NoChange
                     }
                 }
                 ArpState::None => {
                     // None状态不处理
-                    false
+                    AgeResult::NoChange
                 }
             }
         } else {
-            false
+            AgeResult::NoChange
         }
     }
 
@@ -354,21 +387,27 @@ impl ArpCache {
     ///
     /// # 返回
     /// 需要发送请求的条目列表：(ifindex, ip_addr, state)
-    pub fn get_pending_requests(&mut self) -> Vec<(u32, Ipv4Addr, ArpState)> {
+    pub fn get_pending_requests(&mut self) -> Vec<(u32, Ipv4Addr, bool)> {
         let mut pending = Vec::new();
         let keys: Vec<ArpKey> = self.entries.keys().copied().collect();
 
         for key in keys {
-            if self.age_entry(&key)
-                && let Some(entry) = self.entries.get(&key) {
-                    pending.push((key.0, key.1, entry.state));
+            match self.age_entry(&key) {
+                AgeResult::SendRequest { was_incomplete } => {
+                    pending.push((key.0, key.1, !was_incomplete)); // true = probe, false = initial resolve
                 }
+                AgeResult::EntryDeleted | AgeResult::ToStale | AgeResult::ToProbe | AgeResult::NoChange => {
+                    // 其他结果不需要发送请求
+                }
+            }
         }
 
         pending
     }
 
-    /// 添加等待的数据包到Incomplete条目
+    /// 添加等待的数据包到条目
+    ///
+    /// 支持以下状态的条目添加等待队列：Incomplete, Delay, Probe
     ///
     /// # 参数
     /// - ifindex: 接口索引
@@ -377,16 +416,19 @@ impl ArpCache {
     ///
     /// # 返回
     /// - Ok(()): 添加成功
-    /// - Err(CoreError): 条目不存在或状态不是Incomplete
+    /// - Err(CoreError): 条目不存在或状态不支持等待队列
     pub fn add_pending_packet(&mut self, ifindex: u32, ip_addr: Ipv4Addr, packet: Packet) -> crate::common::Result<()> {
         let key = (ifindex, ip_addr);
         if let Some(entry) = self.entries.get_mut(&key) {
-            if entry.state == ArpState::Incomplete {
-                entry.add_pending(packet);
-                Ok(())
+            // 支持 Incomplete、Delay、Probe 状态的等待队列
+            let can_queue = matches!(entry.state,
+                ArpState::Incomplete | ArpState::Delay | ArpState::Probe
+            );
+            if can_queue {
+                entry.add_pending(packet, self.config.max_pending_packets)
             } else {
                 Err(crate::common::CoreError::invalid_packet(
-                    format!("ARP条目状态不是Incomplete: {:?}", entry.state)
+                    format!("ARP条目状态不支持等待队列: {:?}", entry.state)
                 ))
             }
         } else {

@@ -6,7 +6,6 @@
 use crate::common::{CoreError, Result};
 use crate::protocols::{Packet, MacAddr, Ipv4Addr};
 use crate::protocols::ethernet;
-use std::collections::VecDeque;
 
 // ARP 表模块
 pub mod tables;
@@ -136,6 +135,34 @@ impl ArpPacket {
 
         let operation = ArpOperation::from_u16(operation)
             .ok_or_else(|| CoreError::invalid_packet(format!("无效的ARP操作码：{}", operation)))?;
+
+        // 验证硬件类型（必须是以太网）
+        if hardware_type != Self::ARPHRD_ETHER {
+            return Err(CoreError::invalid_packet(
+                format!("不支持的硬件类型：{}（仅支持以太网类型1）", hardware_type)
+            ));
+        }
+
+        // 验证协议类型（必须是IPv4）
+        if protocol_type != Self::ETH_P_IP {
+            return Err(CoreError::invalid_packet(
+                format!("不支持的协议类型：0x{:04x}（仅支持IPv4协议0x0800）", protocol_type)
+            ));
+        }
+
+        // 验证硬件地址长度（必须是6）
+        if hardware_addr_len != 6 {
+            return Err(CoreError::invalid_packet(
+                format!("无效的硬件地址长度：{}（以太网MAC地址应为6字节）", hardware_addr_len)
+            ));
+        }
+
+        // 验证协议地址长度（必须是4）
+        if protocol_addr_len != 4 {
+            return Err(CoreError::invalid_packet(
+                format!("无效的协议地址长度：{}（IPv4地址应为4字节）", protocol_addr_len)
+            ));
+        }
 
         // 读取发送方硬件地址
         let mut sender_hardware_bytes = [0u8; 6];
@@ -330,7 +357,17 @@ pub fn handle_arp_packet(
             );
 
             // 第二步：检查目标 IP 是否是本机
-            if local_ips.contains(&packet.target_protocol_addr) {
+            // 对于普通ARP请求：TPA是本机IP时响应
+            // 对于GARP请求：SPA=TPA且是本机IP时也需要响应
+            let should_reply = if is_garp {
+                // GARP: SPA == TPA，如果TPA是本机IP则需要响应
+                local_ips.contains(&packet.target_protocol_addr)
+            } else {
+                // 普通ARP请求：TPA是本机IP时响应
+                local_ips.contains(&packet.target_protocol_addr)
+            };
+
+            if should_reply {
                 // 需要响应
                 let reply = ArpPacket::new(
                     ArpOperation::Reply,
@@ -363,16 +400,21 @@ pub fn handle_arp_packet(
             // 对于ARP响应，需要处理不同的状态转换场景
             if let Some(entry) = cache.lookup_mut_arp(ifindex, packet.sender_protocol_addr) {
                 // 场景1：有条目存在
-                if entry.state == ArpState::Incomplete {
-                    // Incomplete -> Reachable：收到匹配的响应
+                if matches!(entry.state, ArpState::Incomplete | ArpState::Delay | ArpState::Probe) {
+                    // Incomplete/Delay/Probe -> Reachable：收到匹配的响应
+                    let _old_state = entry.state;
                     entry.state = ArpState::Reachable;
                     entry.hardware_addr = packet.sender_hardware_addr;
                     entry.updated_at = std::time::Instant::now();
                     entry.confirmed_at = std::time::Instant::now();
                     entry.retry_count = 0;
 
-                    // 取出等待队列中的数据包
+                    // 取出等待队列中的数据包（如果有）
                     pending_packets = entry.take_pending().into_iter().collect();
+
+                    if !pending_packets.is_empty() {
+                        // 记录：从 {old_state:?} 状态恢复，有 {count} 个数据包待发送
+                    }
                 } else {
                     // 其他状态：自动学习，更新MAC地址和时间戳
                     entry.hardware_addr = packet.sender_hardware_addr;
@@ -399,30 +441,6 @@ pub fn handle_arp_packet(
     }
 }
 
-/// 处理等待队列中的数据包
-///
-/// 当 ARP 响应到达后，处理所有等待发送的数据包
-///
-/// # 参数
-/// - pending: 等待队列
-///
-/// # 返回
-/// - 处理的数据包数量
-pub fn process_pending_packets(pending: &mut VecDeque<Packet>) -> usize {
-    let count = pending.len();
-    pending.clear();
-    count
-}
-
-/// ARP 处理结果
-#[derive(Debug)]
-pub enum ArpProcessResult {
-    /// 不需要响应
-    NoReply,
-    /// 需要响应（封装好的以太网帧）
-    Reply(Vec<u8>),
-}
-
 /// 将 ARP 报文封装为以太网帧
 ///
 /// # 参数
@@ -438,6 +456,15 @@ pub fn encapsulate_ethernet(
     src_mac: MacAddr,
 ) -> Vec<u8> {
     ethernet::build_ethernet_frame(dst_mac, src_mac, 0x0806, &arp_packet.to_bytes())
+}
+
+/// ARP 处理结果（用于 process_arp_packet_with_context）
+#[derive(Debug)]
+pub enum ArpProcessResult {
+    /// 不需要响应
+    NoReply,
+    /// 需要响应（封装好的以太网帧）
+    Reply(Vec<u8>),
 }
 
 /// 处理ARP报文（使用 SystemContext）
@@ -579,6 +606,13 @@ pub fn resolve_ip(
     packet: Packet,
     verbose: bool,
 ) -> ArpResolveResult {
+    // 第一步：检查特殊IP地址（拒绝解析）
+    if target_ip.is_unspecified() || target_ip.is_broadcast() || target_ip.is_multicast() {
+        return ArpResolveResult::Failed(CoreError::invalid_packet(
+            format!("拒绝解析特殊IP地址: {}", target_ip)
+        ));
+    }
+
     // 获取ARP缓存
     let mut cache = match context.arp_cache.lock() {
         Ok(guard) => guard,
@@ -592,51 +626,55 @@ pub fn resolve_ip(
                 // 已解析，直接返回MAC地址
                 return ArpResolveResult::Resolved(entry.hardware_addr);
             }
-            ArpState::Incomplete => {
-                // 正在解析中，将数据包加入等待队列
+            ArpState::Incomplete | ArpState::Delay | ArpState::Probe => {
+                // 正在解析中/延迟探测/探测中：将数据包加入等待队列
                 if let Err(e) = cache.add_pending_packet(ifindex, target_ip, packet) {
                     return ArpResolveResult::Failed(e);
                 }
                 return ArpResolveResult::Pending;
             }
             ArpState::Stale => {
-                // 陈旧状态：返回当前MAC让调用者尝试发送，同时触发Delay状态进行探测
-                let current_mac = entry.hardware_addr;
-
-                // 触发Stale -> Delay转换
+                // 陈旧状态：按照设计文档，需要将数据包加入等待队列
+                // 1. 触发Stale -> Delay转换
                 cache.mark_used(ifindex, target_ip);
 
-                // 在后台发送ARP探测请求（不等待响应）
-                drop(cache); // 释放锁
-                if verbose {
-                    println!("ARP条目陈旧，使用现有MAC {} 发送，同时启动探测", current_mac);
-                }
-
-                // 尝试发送ARP探测（忽略错误，因为这不是阻塞操作）
-                let _ = send_arp_request(context, ifindex, target_ip, verbose);
-
-                // 返回当前MAC地址让调用者尝试发送
-                return ArpResolveResult::Resolved(current_mac);
-            }
-            ArpState::Delay | ArpState::Probe => {
-                // Delay或Probe状态，数据包加入等待队列
-                // 这些状态的探测请求由定时器驱动
+                // 2. 将数据包加入等待队列（Delay状态支持等待队列）
                 if let Err(e) = cache.add_pending_packet(ifindex, target_ip, packet) {
                     return ArpResolveResult::Failed(e);
                 }
+
+                if verbose {
+                    println!("ARP条目陈旧，转为Delay状态，数据包加入等待队列");
+                }
+
                 return ArpResolveResult::Pending;
             }
-            _ => {
-                // 其他状态（Delay, Probe等），加入等待队列
+            ArpState::None => {
+                // None状态：转为Incomplete并开始解析
+                cache.update_arp(ifindex, target_ip, MacAddr::zero(), ArpState::Incomplete);
+
+                // 将数据包加入等待队列
                 if let Err(e) = cache.add_pending_packet(ifindex, target_ip, packet) {
                     return ArpResolveResult::Failed(e);
                 }
+
+                // 释放缓存锁
+                drop(cache);
+
+                // 发送ARP请求
+                if let Err(e) = send_arp_request(context, ifindex, target_ip, verbose) {
+                    return ArpResolveResult::Failed(e);
+                }
+
                 return ArpResolveResult::Pending;
             }
         }
     }
 
-    // 没有条目，创建Incomplete条目
+    // 没有条目，创建None状态条目（初始状态）
+    cache.update_arp(ifindex, target_ip, MacAddr::zero(), ArpState::None);
+
+    // 立即转为Incomplete状态
     cache.update_arp(ifindex, target_ip, MacAddr::zero(), ArpState::Incomplete);
 
     // 将数据包加入等待队列
@@ -673,53 +711,33 @@ pub fn process_arp_timers(
     context: &crate::context::SystemContext,
     verbose: bool,
 ) -> usize {
-    // 获取所有需要处理的条目
-    let pending_requests: Vec<(u32, Ipv4Addr, ArpState)> = {
+    // 获取所有需要处理的条目（在一次锁操作中完成）
+    let pending_requests: Vec<(u32, Ipv4Addr, bool)> = {
         let mut cache = match context.arp_cache.lock() {
             Ok(guard) => guard,
             Err(_) => return 0,
         };
 
-        // 获取需要发送请求的条目列表
+        // 获取需要发送请求的条目列表：(ifindex, ip, is_probe)
         cache.get_pending_requests()
     };
 
     let mut processed_count = 0;
 
     // 处理每个需要发送ARP请求的条目
-    for (ifindex, target_ip, state) in pending_requests {
-        // 根据状态决定发送请求还是删除条目
-        let should_send_request = {
-            let cache = match context.arp_cache.lock() {
-                Ok(guard) => guard,
-                Err(_) => continue,
-            };
-
-            // 重新检查条目状态（可能已经改变）
-            if let Some(entry) = cache.lookup_arp(ifindex, target_ip) {
-                entry.state == state
-            } else {
-                false
+    for (ifindex, target_ip, is_probe) in pending_requests {
+        if let Err(e) = send_arp_request(context, ifindex, target_ip, verbose) {
+            if verbose {
+                println!("ARP定时器: 发送{}请求失败 {}: {}",
+                    if is_probe { "探测" } else { "解析" },
+                    target_ip, e);
             }
-        };
-
-        if should_send_request {
-            if let Err(e) = send_arp_request(context, ifindex, target_ip, verbose) {
-                if verbose {
-                    println!("ARP定时器: 发送请求失败 {}: {}", target_ip, e);
-                }
-            } else {
-                processed_count += 1;
-                if verbose {
-                    println!("ARP定时器: 发送{}请求到 {}",
-                        match state {
-                            ArpState::Incomplete => "解析",
-                            ArpState::Probe => "探测",
-                            _ => "",
-                        },
-                        target_ip
-                    );
-                }
+        } else {
+            processed_count += 1;
+            if verbose {
+                println!("ARP定时器: 发送{}请求到 {}",
+                    if is_probe { "探测" } else { "解析" },
+                    target_ip);
             }
         }
     }
