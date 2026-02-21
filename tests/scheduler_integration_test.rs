@@ -6,6 +6,7 @@ use core_net::interface::InterfaceManager;
 use core_net::poweron::{boot_default, shutdown};
 use core_net::scheduler::Scheduler;
 use core_net::context::SystemContext;
+use serial_test::serial;
 
 mod common;
 use common::{
@@ -48,6 +49,7 @@ fn inject_arp_to_rxq(
 // 场景一：完整的报文处理流程
 
 #[test]
+#[serial]
 fn test_full_packet_processing_flow() {
     let mut manager = create_multi_interface_manager();
 
@@ -68,6 +70,7 @@ fn test_full_packet_processing_flow() {
 }
 
 #[test]
+#[serial]
 fn test_single_interface_full_flow() {
     let mut manager = InterfaceManager::new(256, 256);
     manager.add_from_config(create_test_eth0_config()).unwrap();
@@ -83,6 +86,7 @@ fn test_single_interface_full_flow() {
 }
 
 #[test]
+#[serial]
 fn test_arp_response_flow() {
     let mut manager = create_multi_interface_manager();
 
@@ -108,6 +112,7 @@ fn test_arp_response_flow() {
 // 场景二：多接口负载均衡
 
 #[test]
+#[serial]
 fn test_multi_interface_load_balancing() {
     let mut manager = create_multi_interface_manager();
 
@@ -129,6 +134,7 @@ fn test_multi_interface_load_balancing() {
 }
 
 #[test]
+#[serial]
 fn test_multi_interface_asymmetric_load() {
     let mut manager = create_multi_interface_manager();
 
@@ -145,6 +151,7 @@ fn test_multi_interface_asymmetric_load() {
 }
 
 #[test]
+#[serial]
 fn test_multi_interface_empty_interfaces() {
     let mut manager = create_multi_interface_manager();
 
@@ -160,6 +167,7 @@ fn test_multi_interface_empty_interfaces() {
 }
 
 #[test]
+#[serial]
 fn test_multi_interface_all_empty() {
     let mut manager = create_multi_interface_manager();
 
@@ -174,6 +182,7 @@ fn test_multi_interface_all_empty() {
 // 场景三：系统上电后的调度
 
 #[test]
+#[serial]
 fn test_boot_schedule_shutdown_cycle() {
     let context = boot_default();
 
@@ -204,7 +213,8 @@ fn test_boot_schedule_shutdown_cycle() {
         }
     }
 
-    let result = scheduler.run_all_interfaces(&mut context.interfaces.lock().unwrap());
+    // 使用 run_all_interfaces_context 避免死锁
+    let result = scheduler.run_all_interfaces_context(&context);
     assert!(result.is_ok(), "调度应成功");
 
     {
@@ -226,6 +236,7 @@ fn test_boot_schedule_shutdown_cycle() {
 }
 
 #[test]
+#[serial]
 fn test_boot_with_arp_schedule_shutdown() {
     let context = boot_default();
 
@@ -243,13 +254,15 @@ fn test_boot_with_arp_schedule_shutdown() {
         }
     }
 
-    let result = scheduler.run_all_interfaces(&mut context.interfaces.lock().unwrap());
+    // 使用 run_all_interfaces_context 避免死锁
+    let result = scheduler.run_all_interfaces_context(&context);
     assert!(result.is_ok());
 
     shutdown(&context);
 }
 
 #[test]
+#[serial]
 fn test_multiple_boot_schedule_cycles() {
     for i in 0..3 {
         let context = boot_default();
@@ -266,7 +279,8 @@ fn test_multiple_boot_schedule_cycles() {
             }
         }
 
-        let result = scheduler.run_all_interfaces(&mut context.interfaces.lock().unwrap());
+        // 使用 run_all_interfaces_context 避免死锁
+        let result = scheduler.run_all_interfaces_context(&context);
         assert!(result.is_ok());
 
         shutdown(&context);
@@ -276,6 +290,7 @@ fn test_multiple_boot_schedule_cycles() {
 // 额外集成测试
 
 #[test]
+#[serial]
 fn test_scheduler_verbose_mode_integration() {
     let mut manager = create_multi_interface_manager();
 
@@ -302,6 +317,7 @@ fn test_scheduler_verbose_mode_integration() {
 }
 
 #[test]
+#[serial]
 fn test_scheduler_error_tolerance_integration() {
     let mut manager = create_multi_interface_manager();
 
@@ -326,6 +342,7 @@ fn test_scheduler_error_tolerance_integration() {
 }
 
 #[test]
+#[serial]
 fn test_single_queue_mode_integration() {
     let manager = create_multi_interface_manager();
 

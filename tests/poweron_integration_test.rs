@@ -2,6 +2,7 @@
 
 use core_net::poweron::{boot_default, shutdown, SystemContext};
 use core_net::interface::{InterfaceState, Ipv4Addr, MacAddr};
+use serial_test::serial;
 
 mod common;
 use common::create_test_packet;
@@ -39,6 +40,7 @@ fn count_all_packets(context: &SystemContext) -> usize {
 // 场景一：完整的系统生命周期
 
 #[test]
+#[serial]
 fn test_complete_lifecycle() {
     let context = boot_default();
 
@@ -69,12 +71,14 @@ fn test_complete_lifecycle() {
 }
 
 #[test]
+#[serial]
 fn test_boot_default_creates_context() {
     let context = boot_default();
     assert!(context.interface_count() > 0);
 }
 
 #[test]
+#[serial]
 fn test_shutdown_clears_queues() {
     let context = boot_default();
     inject_packets(&context, "eth0", 5);
@@ -84,6 +88,7 @@ fn test_shutdown_clears_queues() {
 }
 
 #[test]
+#[serial]
 fn test_multiple_boot_shutdown_cycles() {
     for i in 0..3 {
         let context = boot_default();
@@ -96,6 +101,7 @@ fn test_multiple_boot_shutdown_cycles() {
 // 场景二：SystemContext 接口操作
 
 #[test]
+#[serial]
 fn test_context_get_interface() {
     let context = boot_default();
 
@@ -113,6 +119,7 @@ fn test_context_get_interface() {
 }
 
 #[test]
+#[serial]
 fn test_context_get_interface_mut() {
     let context = boot_default();
 
@@ -130,6 +137,7 @@ fn test_context_get_interface_mut() {
 }
 
 #[test]
+#[serial]
 fn test_context_interface_up_down() {
     let context = boot_default();
 
@@ -144,6 +152,7 @@ fn test_context_interface_up_down() {
 }
 
 #[test]
+#[serial]
 fn test_context_multiple_modifications() {
     let context = boot_default();
 
@@ -197,6 +206,7 @@ fn test_context_multiple_modifications() {
 }
 
 #[test]
+#[serial]
 fn test_context_interface_properties() {
     let context = boot_default();
 
@@ -219,6 +229,7 @@ fn test_context_interface_properties() {
 }
 
 #[test]
+#[serial]
 fn test_context_get_interface_by_index() {
     let context = boot_default();
 
@@ -235,6 +246,7 @@ fn test_context_get_interface_by_index() {
 }
 
 #[test]
+#[serial]
 fn test_context_queue_operations() {
     let context = boot_default();
 

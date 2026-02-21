@@ -270,7 +270,7 @@ impl Scheduler {
                 };
 
                 // 第二阶段：处理报文（不持有接口锁，避免死锁）
-                let response_packet = match packet_opt {
+                let (response_packet, had_packet) = match packet_opt {
                     Some(pkt) => {
                         iface_count += 1;
                         let result = match &self.processor {
@@ -279,16 +279,16 @@ impl Scheduler {
                         };
 
                         match result {
-                            Ok(response) => response,
+                            Ok(response) => (response, true),
                             Err(e) => {
                                 if self.verbose {
                                     println!("  报文处理失败: {}", e);
                                 }
-                                None
+                                (None, true)
                             }
                         }
                     }
-                    None => None,
+                    None => (None, false),
                 };
 
                 // 第三阶段：将响应放入TxQ（重新获取锁）
@@ -305,7 +305,7 @@ impl Scheduler {
                             println!("  响应报文已放入接口 [{}] TxQ", iface.name);
                         }
                     }
-                } else if response_packet.is_none() {
+                } else if !had_packet {
                     // 没有更多报文，退出循环
                     break;
                 }
