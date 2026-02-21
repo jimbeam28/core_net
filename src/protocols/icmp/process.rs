@@ -5,6 +5,7 @@
 use crate::common::{CoreError, Packet, Result};
 use crate::protocols::Ipv4Addr;
 use crate::protocols::ip::verify_checksum;
+use crate::context::SystemContext;
 
 use super::packet::{IcmpPacket, IcmpEcho};
 use super::types::*;
@@ -29,6 +30,7 @@ pub enum IcmpProcessResult {
 /// - packet: ICMP 报文（不包含 IP 头部）
 /// - source_addr: 发送方 IP 地址
 /// - dest_addr: 接收方 IP 地址（本接口 IP）
+/// - context: 系统上下文（包含 Echo 管理器）
 /// - verbose: 是否打印详细信息
 ///
 /// # 返回
@@ -38,6 +40,7 @@ pub fn process_icmp_packet(
     mut packet: Packet,
     source_addr: Ipv4Addr,
     dest_addr: Ipv4Addr,
+    context: &SystemContext,
     verbose: bool,
 ) -> Result<IcmpProcessResult> {
     // 读取数据用于校验和验证
@@ -59,7 +62,7 @@ pub fn process_icmp_packet(
     // 根据类型处理
     match icmp_packet {
         IcmpPacket::Echo(echo) => {
-            handle_echo_packet(echo, source_addr, dest_addr, verbose)
+            handle_echo_packet(echo, source_addr, dest_addr, context, verbose)
         }
         IcmpPacket::DestUnreachable(_) => {
             // Destination Unreachable 是错误消息，不需要响应
@@ -83,6 +86,7 @@ fn handle_echo_packet(
     echo: IcmpEcho,
     source_addr: Ipv4Addr,
     dest_addr: Ipv4Addr,
+    context: &SystemContext,
     verbose: bool,
 ) -> Result<IcmpProcessResult> {
     if echo.is_request() {
@@ -110,7 +114,7 @@ fn handle_echo_packet(
                 echo.identifier, echo.sequence, source_addr);
         }
 
-        match handle_echo_reply(&echo)? {
+        match handle_echo_reply(&echo, &context.icmp_echo)? {
             EchoProcessResult::Matched { identifier, sequence, rtt_ms } => {
                 if verbose {
                     println!("ICMP: Echo Reply 匹配成功 ID={} Seq={} RTT={}ms",
@@ -185,6 +189,7 @@ pub fn create_time_exceeded(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::SystemContext;
 
     #[test]
     fn test_create_echo_request() {
@@ -220,8 +225,9 @@ mod tests {
         let packet = Packet::from_bytes(echo_bytes);
         let source = Ipv4Addr::new(192, 168, 1, 1);
         let dest = Ipv4Addr::new(192, 168, 1, 100);
+        let ctx = SystemContext::new();
 
-        let result = process_icmp_packet(packet, source, dest, false).unwrap();
+        let result = process_icmp_packet(packet, source, dest, &ctx, false).unwrap();
 
         match result {
             IcmpProcessResult::Reply(reply_bytes) => {

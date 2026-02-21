@@ -175,83 +175,101 @@ fn test_multi_interface_all_empty() {
 
 #[test]
 fn test_boot_schedule_shutdown_cycle() {
-    let mut context = boot_default();
+    let context = boot_default();
 
     assert!(context.interface_count() > 0, "系统应启动并加载接口");
 
     let scheduler = Scheduler::new("BootCycleTestScheduler".to_string())
-        .with_processor(PacketProcessor::with_context(SystemContext::new()));
+        .with_processor(PacketProcessor::with_context(context.clone()));
 
-    if context.get_interface("eth0").is_some()
-        && let Some(iface) = context.get_interface_mut("eth0") {
-        for i in 0..5 {
-            let packet = create_test_packet(vec![0x01, 0x02, 0x03, 0x04, i as u8]);
-            let _ = iface.rxq.enqueue(packet);
+    // 注入报文到 eth0
+    {
+        let mut guard = context.interfaces.lock().unwrap();
+        if let Ok(iface) = guard.get_by_name_mut("eth0") {
+            for i in 0..5 {
+                let packet = create_test_packet(vec![0x01, 0x02, 0x03, 0x04, i as u8]);
+                let _ = iface.rxq.enqueue(packet);
+            }
         }
     }
 
-    if context.get_interface("lo").is_some()
-        && let Some(iface) = context.get_interface_mut("lo") {
-        for i in 0..3 {
-            let packet = create_test_packet(vec![0x05, 0x06, 0x07, 0x08, i as u8]);
-            let _ = iface.rxq.enqueue(packet);
+    // 注入报文到 lo
+    {
+        let mut guard = context.interfaces.lock().unwrap();
+        if let Ok(iface) = guard.get_by_name_mut("lo") {
+            for i in 0..3 {
+                let packet = create_test_packet(vec![0x05, 0x06, 0x07, 0x08, i as u8]);
+                let _ = iface.rxq.enqueue(packet);
+            }
         }
     }
 
-    let result = scheduler.run_all_interfaces(&mut context.interfaces);
+    let result = scheduler.run_all_interfaces(&mut context.interfaces.lock().unwrap());
     assert!(result.is_ok(), "调度应成功");
 
-    for iface in context.interfaces.interfaces() {
-        assert!(iface.rxq.is_empty(), "所有接口的 RxQ 应被清空");
+    {
+        let guard = context.interfaces.lock().unwrap();
+        for iface in guard.interfaces() {
+            assert!(iface.rxq.is_empty(), "所有接口的 RxQ 应被清空");
+        }
     }
 
-    shutdown(&mut context);
+    shutdown(&context);
 
-    for iface in context.interfaces.interfaces() {
-        assert!(iface.rxq.is_empty(), "shutdown 后 RxQ 应为空");
-        assert!(iface.txq.is_empty(), "shutdown 后 TxQ 应为空");
+    {
+        let guard = context.interfaces.lock().unwrap();
+        for iface in guard.interfaces() {
+            assert!(iface.rxq.is_empty(), "shutdown 后 RxQ 应为空");
+            assert!(iface.txq.is_empty(), "shutdown 后 TxQ 应为空");
+        }
     }
 }
 
 #[test]
 fn test_boot_with_arp_schedule_shutdown() {
-    let mut context = boot_default();
+    let context = boot_default();
 
     let scheduler = Scheduler::new("BootArpTestScheduler".to_string())
-        .with_processor(PacketProcessor::with_context(SystemContext::new()));
+        .with_processor(PacketProcessor::with_context(context.clone()));
 
-    if let Some(iface) = context.get_interface_mut("eth0") {
-        let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
-        let src_ip = Ipv4Addr::new(192, 168, 1, 1);
-        let dst_ip = Ipv4Addr::new(192, 168, 1, 100);
-        let arp_packet = create_arp_request_packet(src_mac, src_ip, dst_ip);
-        let _ = iface.rxq.enqueue(arp_packet);
+    {
+        let mut guard = context.interfaces.lock().unwrap();
+        if let Ok(iface) = guard.get_by_name_mut("eth0") {
+            let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+            let src_ip = Ipv4Addr::new(192, 168, 1, 1);
+            let dst_ip = Ipv4Addr::new(192, 168, 1, 100);
+            let arp_packet = create_arp_request_packet(src_mac, src_ip, dst_ip);
+            let _ = iface.rxq.enqueue(arp_packet);
+        }
     }
 
-    let result = scheduler.run_all_interfaces(&mut context.interfaces);
+    let result = scheduler.run_all_interfaces(&mut context.interfaces.lock().unwrap());
     assert!(result.is_ok());
 
-    shutdown(&mut context);
+    shutdown(&context);
 }
 
 #[test]
 fn test_multiple_boot_schedule_cycles() {
     for i in 0..3 {
-        let mut context = boot_default();
+        let context = boot_default();
         let scheduler = Scheduler::new(format!("Cycle{}Scheduler", i))
-            .with_processor(PacketProcessor::with_context(SystemContext::new()));
+            .with_processor(PacketProcessor::with_context(context.clone()));
 
-        if let Some(iface) = context.get_interface_mut("eth0") {
-            for j in 0..(i + 1) {
-                let packet = create_test_packet(vec![0x01, 0x02, 0x03, j as u8]);
-                let _ = iface.rxq.enqueue(packet);
+        {
+            let mut guard = context.interfaces.lock().unwrap();
+            if let Ok(iface) = guard.get_by_name_mut("eth0") {
+                for j in 0..(i + 1) {
+                    let packet = create_test_packet(vec![0x01, 0x02, 0x03, j as u8]);
+                    let _ = iface.rxq.enqueue(packet);
+                }
             }
         }
 
-        let result = scheduler.run_all_interfaces(&mut context.interfaces);
+        let result = scheduler.run_all_interfaces(&mut context.interfaces.lock().unwrap());
         assert!(result.is_ok());
 
-        shutdown(&mut context);
+        shutdown(&context);
     }
 }
 

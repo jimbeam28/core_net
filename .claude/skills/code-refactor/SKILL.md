@@ -20,8 +20,7 @@ allowed-tools: Read, Write, Edit, AskUserQuestion, Glob, Grep, Bash, TodoWrite
    - 参数说明（所有入参）
    - 返回值说明
    - 函数内部关键流程添加必要的简短注释
-7. **消除编译警告**：确保代码编译无任何 warning，执行 `cargo clippy` 修复所有警告
-8. **去除未使用代码**：强制执行 `cargo clippy` 检测并删除所有 unused code，包括未使用的函数、变量、导入、结构体、枚举、trait 等
+7. **消除编译错误和警告**：执行 `cargo build`/`cargo test`/`cargo clippy`，消除所有 error 和 warning。对于 unused 系列或 deprecated 等无用代码，直接删除，而不是加 `#[allow(...)]` 或 `#[deprecated]` 属性
 
 ## 执行流程
 
@@ -131,9 +130,8 @@ allowed-tools: Read, Write, Edit, AskUserQuestion, Glob, Grep, Bash, TodoWrite
 
 获得用户确认后，按以下顺序执行重构：
 
-1. **消除编译警告**：运行 `cargo clippy` 修复所有 warning
-2. **移除冗余代码**：删除 dead code、未使用的变量/导入
-3. **合并函数**：将串行的短函数合并
+1. **消除编译错误和警告**：运行 `cargo build`/`cargo test`/`cargo clippy`，删除所有 unused/deprecated 等无用代码（不加属性）
+2. **合并函数**：将串行的短函数合并
 4. **移除过度封装**：删除仅转发调用的包装函数，更新调用点
 5. **消除重复代码**：提取公共函数，统一相似逻辑的实现
 6. **调整封装性**：将不需要对外提供的函数/字段改为 private
@@ -187,8 +185,9 @@ cargo clippy
 1. 不改变原有功能逻辑
 2. 所有测试必须通过
 3. 保持代码风格一致性
-4. 编译零警告（`cargo check` 和 `cargo clippy` 都无警告）
+4. 编译零错误零警告（`cargo build`/`cargo test`/`cargo clippy` 均无 error 和 warning）
 5. 公共函数必须有完整注释（功能、参数、返回值）
+6. 无用代码直接删除，不加 `#[allow(...)]` 或 `#[deprecated]` 属性
 
 **禁止操作**：
 - 修改公共接口签名（除非确认无外部使用）
@@ -199,13 +198,12 @@ cargo clippy
 ## 完成标准
 
 重构完成时应该满足：
-- 代码编译通过（`cargo check`），零警告
+- 代码编译通过（`cargo build`/`cargo test`），零错误零警告
 - Clippy 检查通过（`cargo clippy`），零警告
-- 所有测试通过（`cargo test`）
+- 无 unused/deprecated 等无用代码（直接删除，不加属性）
 - 代码行数减少或可读性提升
 - 公共函数包含完整注释（功能、参数、返回值）
 - 复杂内部流程有必要的简短注释
-- 无 dead code 和未使用变量
 
 ## 与用户交互的场景
 

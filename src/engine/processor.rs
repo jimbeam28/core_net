@@ -335,6 +335,7 @@ impl PacketProcessor {
             packet,
             ip_hdr.source_addr,
             our_ip,
+            &self.context,
             self.verbose,
         ).map_err(|e| ProcessError::ParseError(format!("ICMP处理失败: {}", e)))?;
 

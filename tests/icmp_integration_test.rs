@@ -317,7 +317,7 @@ fn test_icmp_echo_reply_matching() {
     let target_ip = Ipv4Addr::new(192, 168, 1, 100);
 
     // 注册一个 Echo 请求
-    let result = register_echo_request(9999, 100, target_ip);
+    let result = register_echo_request(9999, 100, target_ip, &ctx.icmp_echo);
     assert!(result.is_ok(), "注册 Echo 请求应该成功");
 
     // 发送对应的 Echo Reply（模拟）

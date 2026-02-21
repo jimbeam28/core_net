@@ -4,9 +4,11 @@
 
 use crate::common::{CoreError, Result};
 use crate::protocols::Ipv4Addr;
+use std::sync::{Arc, Mutex};
 
 use super::packet::IcmpEcho;
-use super::global::{get_or_init_global_echo_manager, PendingEcho};
+use super::global::PendingEcho;
+use super::global::EchoManager;
 
 /// Echo 处理结果
 #[derive(Debug, Clone, PartialEq)]
@@ -50,18 +52,21 @@ pub fn handle_echo_request(echo: &IcmpEcho, _our_ip: Ipv4Addr) -> Result<EchoPro
 ///
 /// # 参数
 /// - echo: 接收到的 Echo Reply
+/// - echo_manager: Echo 管理器（从 SystemContext 获取）
 ///
 /// # 返回
 /// - Ok(EchoProcessResult): 处理结果
 /// - Err(CoreError): 处理失败
-pub fn handle_echo_reply(echo: &IcmpEcho) -> Result<EchoProcessResult> {
+pub fn handle_echo_reply(
+    echo: &IcmpEcho,
+    echo_manager: &Arc<Mutex<EchoManager>>,
+) -> Result<EchoProcessResult> {
     if !echo.is_reply() {
         return Ok(EchoProcessResult::NoReply);
     }
 
     // 查找对应的待处理请求
-    let manager = get_or_init_global_echo_manager();
-    let mut guard = manager.lock()
+    let mut guard = echo_manager.lock()
         .map_err(|e| CoreError::parse_error(format!("锁定Echo管理器失败: {}", e)))?;
 
     if let Some(pending) = guard.remove_pending(echo.identifier, echo.sequence) {
@@ -85,6 +90,7 @@ pub fn handle_echo_reply(echo: &IcmpEcho) -> Result<EchoProcessResult> {
 /// - identifier: Echo 标识符
 /// - sequence: Echo 序列号
 /// - destination: 目标 IP 地址
+/// - echo_manager: Echo 管理器（从 SystemContext 获取）
 ///
 /// # 返回
 /// - Ok(()): 注册成功
@@ -93,11 +99,11 @@ pub fn register_echo_request(
     identifier: u16,
     sequence: u16,
     destination: Ipv4Addr,
+    echo_manager: &Arc<Mutex<EchoManager>>,
 ) -> Result<()> {
     let pending = PendingEcho::new(identifier, sequence, destination);
 
-    let manager = get_or_init_global_echo_manager();
-    let mut guard = manager.lock()
+    let mut guard = echo_manager.lock()
         .map_err(|e| CoreError::parse_error(format!("锁定Echo管理器失败: {}", e)))?;
 
     guard.add_pending(pending)
@@ -107,9 +113,11 @@ pub fn register_echo_request(
 }
 
 /// 清理超时的 Echo 请求
-pub fn cleanup_echo_timeouts() {
-    let manager = get_or_init_global_echo_manager();
-    if let Ok(mut guard) = manager.lock() {
+///
+/// # 参数
+/// - echo_manager: Echo 管理器（从 SystemContext 获取）
+pub fn cleanup_echo_timeouts(echo_manager: &Arc<Mutex<EchoManager>>) {
+    if let Ok(mut guard) = echo_manager.lock() {
         guard.cleanup_timeouts();
     }
 }
@@ -117,6 +125,7 @@ pub fn cleanup_echo_timeouts() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_handle_echo_request() {
@@ -138,8 +147,9 @@ mod tests {
     #[test]
     fn test_handle_echo_reply_no_match() {
         let reply = IcmpEcho::new_reply(1234, 1, vec![0x42; 32]);
+        let echo_mgr = Arc::new(Mutex::new(EchoManager::default()));
 
-        let result = handle_echo_reply(&reply).unwrap();
+        let result = handle_echo_reply(&reply, &echo_mgr).unwrap();
 
         // 没有注册对应的请求，应该返回 NoReply
         assert_eq!(result, EchoProcessResult::NoReply);
@@ -148,13 +158,14 @@ mod tests {
     #[test]
     fn test_register_and_match() {
         let dest = Ipv4Addr::new(192, 168, 1, 1);
+        let echo_mgr = Arc::new(Mutex::new(EchoManager::default()));
 
         // 注册请求
-        register_echo_request(1234, 1, dest).unwrap();
+        register_echo_request(1234, 1, dest, &echo_mgr).unwrap();
 
         // 处理响应
         let reply = IcmpEcho::new_reply(1234, 1, vec![0x42; 32]);
-        let result = handle_echo_reply(&reply).unwrap();
+        let result = handle_echo_reply(&reply, &echo_mgr).unwrap();
 
         match result {
             EchoProcessResult::Matched { identifier, sequence, rtt_ms } => {
@@ -164,5 +175,22 @@ mod tests {
             }
             _ => panic!("Expected Matched"),
         }
+    }
+
+    #[test]
+    fn test_cleanup_timeouts() {
+        let echo_mgr = Arc::new(Mutex::new(EchoManager::default()));
+
+        // 添加一个待处理请求
+        let pending = PendingEcho::new(1234, 1, Ipv4Addr::new(192, 168, 1, 1));
+        echo_mgr.lock().unwrap().add_pending(pending).unwrap();
+
+        assert_eq!(echo_mgr.lock().unwrap().pending_count(), 1);
+
+        // 清理超时
+        cleanup_echo_timeouts(&echo_mgr);
+
+        // 没有超时，应该仍然存在
+        assert_eq!(echo_mgr.lock().unwrap().pending_count(), 1);
     }
 }
