@@ -22,6 +22,13 @@ pub enum CoreError {
     UnsupportedProtocol(String),
     InvalidOffset { offset: usize, max: usize },
 
+    // ARP相关错误
+    IpConflict {
+        ip: String,
+        new_mac: String,
+        existing_mac: String,
+    },
+
     // 通用错误
     Other(String),
 }
@@ -58,6 +65,24 @@ impl CoreError {
     pub fn unsupported_protocol(protocol: impl Into<String>) -> Self {
         CoreError::UnsupportedProtocol(protocol.into())
     }
+
+    /// 创建IP地址冲突错误
+    ///
+    /// # 参数
+    /// - ip: 冲突的IP地址
+    /// - new_mac: 新宣告的MAC地址
+    /// - existing_mac: 已存在的MAC地址
+    pub fn ip_conflict(
+        ip: impl Into<String>,
+        new_mac: impl Into<String>,
+        existing_mac: impl Into<String>,
+    ) -> Self {
+        CoreError::IpConflict {
+            ip: ip.into(),
+            new_mac: new_mac.into(),
+            existing_mac: existing_mac.into(),
+        }
+    }
 }
 
 impl fmt::Display for CoreError {
@@ -73,6 +98,9 @@ impl fmt::Display for CoreError {
             CoreError::InvalidPacket(msg) => write!(f, "无效报文：{}", msg),
             CoreError::UnsupportedProtocol(proto) => write!(f, "不支持的协议：{}", proto),
             CoreError::InvalidOffset { offset, max } => write!(f, "位置越界：offset={}，max={}", offset, max),
+            CoreError::IpConflict { ip, new_mac, existing_mac } => {
+                write!(f, "IP地址冲突：{} 已被 {} 使用，但 {} 也宣告拥有该地址", ip, existing_mac, new_mac)
+            }
             CoreError::Other(msg) => write!(f, "其他错误：{}", msg),
         }
     }

@@ -461,11 +461,12 @@ fn test_arp_cache_capacity_limit() {
 fn test_arp_special_ip_addresses() {
     let ctx = create_test_context();
 
-    // 测试特殊IP地址的处理
+    // 测试特殊IP地址被拒绝加入ARP缓存
+    // 根据ARP规范，以下地址不应该被缓存：
     let test_cases = vec![
-        Ipv4Addr::new(0, 0, 0, 0),           // 0.0.0.0
+        Ipv4Addr::new(0, 0, 0, 0),           // 0.0.0.0（未指定地址）
         Ipv4Addr::new(255, 255, 255, 255),   // 广播地址
-        Ipv4Addr::new(224, 0, 0, 1),         // 组播地址
+        Ipv4Addr::new(224, 0, 0, 1),         // 组播地址（224.0.0.0/4）
     ];
 
     {
@@ -474,9 +475,10 @@ fn test_arp_special_ip_addresses() {
         for ip_addr in test_cases {
             let mac_addr = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
             arp_cache.update_arp(0, ip_addr, mac_addr, ArpState::Reachable);
+            // 特殊IP地址应该被拒绝，缓存中不应该存在
             assert!(
-                arp_cache.lookup_arp(0, ip_addr).is_some(),
-                "应该支持特殊IP地址: {}",
+                arp_cache.lookup_arp(0, ip_addr).is_none(),
+                "特殊IP地址应该被拒绝: {}",
                 ip_addr
             );
         }

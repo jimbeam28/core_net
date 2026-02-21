@@ -189,11 +189,51 @@ impl ArpCache {
     }
 
     /// 更新 ARP 条目
+    ///
+    /// 如果缓存已满，将淘汰最旧的条目（LRU策略）
+    /// 拒绝特殊IP地址（0.0.0.0、255.255.255.255、组播地址等）
     pub fn update_arp(&mut self, ifindex: u32, ip_addr: Ipv4Addr, mac_addr: MacAddr, state: ArpState) {
+        // 拒绝特殊IP地址
+        if Self::is_special_ip(&ip_addr) {
+            return;
+        }
+
+        // 检查是否需要淘汰旧条目
+        if self.entries.len() >= self.config.max_entries {
+            // 查找最旧的条目（根据updated_at）
+            if let Some(oldest_key) = self.find_oldest_entry() {
+                // 如果新条目的key与最旧的不同，则淘汰最旧的
+                let new_key = (ifindex, ip_addr);
+                if oldest_key != new_key && !self.entries.contains_key(&new_key) {
+                    self.entries.remove(&oldest_key);
+                }
+            }
+        }
+
         let entry = self.entries.entry((ifindex, ip_addr)).or_insert_with(|| {
             ArpEntry::new(ifindex, ip_addr, mac_addr)
         });
         entry.update(mac_addr, state);
+    }
+
+    /// 查找最旧的ARP条目（用于LRU淘汰）
+    ///
+    /// 返回最旧条目的key，如果没有条目则返回None
+    fn find_oldest_entry(&self) -> Option<ArpKey> {
+        self.entries
+            .iter()
+            .min_by(|a, b| a.1.updated_at.cmp(&b.1.updated_at))
+            .map(|(key, _)| *key)
+    }
+
+    /// 检查IP地址是否为特殊地址（不应加入ARP缓存）
+    ///
+    /// 包括：
+    /// - 0.0.0.0（未指定地址）
+    /// - 255.255.255.255（广播地址）
+    /// - 224.0.0.0/4（组播地址）
+    fn is_special_ip(ip: &Ipv4Addr) -> bool {
+        ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast()
     }
 
     /// 删除 ARP 条目

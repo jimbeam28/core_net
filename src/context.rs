@@ -8,6 +8,7 @@ use crate::interface::InterfaceManager;
 use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
 use crate::protocols::tcp::TcpConnectionManager;
+use crate::common::timer::TimerHandle;
 
 /// 系统上下文，持有所有全局状态的所有权
 ///
@@ -26,6 +27,9 @@ pub struct SystemContext {
 
     /// TCP 连接管理器
     pub tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+
+    /// 定时器管理器（用于驱动协议状态机）
+    pub timers: Arc<Mutex<TimerHandle>>,
 }
 
 impl SystemContext {
@@ -38,6 +42,7 @@ impl SystemContext {
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
+            timers: Arc::new(Mutex::new(TimerHandle::new())),
         }
     }
 
@@ -62,6 +67,7 @@ impl SystemContext {
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
+            timers: Arc::new(Mutex::new(TimerHandle::new())),
         }
     }
 
@@ -75,17 +81,20 @@ impl SystemContext {
     /// - `arp_cache`: ARP 缓存
     /// - `icmp_echo`: ICMP Echo 管理器
     /// - `tcp_connections`: TCP 连接管理器
+    /// - `timers`: 定时器管理器（可选，默认为空）
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
         arp_cache: Arc<Mutex<ArpCache>>,
         icmp_echo: Arc<Mutex<EchoManager>>,
         tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+        timers: Option<Arc<Mutex<TimerHandle>>>,
     ) -> Self {
         Self {
             interfaces,
             arp_cache,
             icmp_echo,
             tcp_connections,
+            timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
         }
     }
 
@@ -154,6 +163,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.arp_cache, &ctx2.arp_cache));
         assert!(Arc::ptr_eq(&ctx1.icmp_echo, &ctx2.icmp_echo));
         assert!(Arc::ptr_eq(&ctx1.tcp_connections, &ctx2.tcp_connections));
+        assert!(Arc::ptr_eq(&ctx1.timers, &ctx2.timers));
     }
 
     #[test]
@@ -168,6 +178,7 @@ mod tests {
             Arc::new(Mutex::new(arp_cache)),
             Arc::new(Mutex::new(echo_mgr)),
             Arc::new(Mutex::new(tcp_mgr)),
+            None,
         );
 
         assert_eq!(ctx.interface_count(), 1);

@@ -839,7 +839,55 @@ fn assert_cache_state(cache: &ArpCache, ip: Ipv4Addr, expected_state: ArpState) 
 
 ---
 
-## 7. 参考资料
+## 7. 实现状态
+
+### 7.1 已实现功能
+
+| 功能模块 | 状态 | 说明 |
+|---------|------|------|
+| ARP报文解析 | ✅ | `ArpPacket::from_packet()` |
+| ARP报文编码 | ✅ | `ArpPacket::to_bytes()` |
+| 以太网封装 | ✅ | `encapsulate_ethernet()` |
+| 报文处理 | ✅ | `handle_arp_packet()` |
+| 缓存管理 | ✅ | `ArpCache` 完整实现 |
+| 状态转换 | ✅ | 所有6种状态转换 |
+| 等待队列 | ✅ | `pending_packets` 处理 |
+| IP冲突检测 | ✅ | Gratuitous ARP 冲突检测 |
+| LRU淘汰 | ✅ | 缓存满时自动淘汰 |
+| 特殊IP过滤 | ✅ | 拒绝0.0.0.0/广播/组播 |
+| 主动解析 | ✅ | `resolve_ip()` 函数 |
+| ARP请求发送 | ✅ | `send_arp_request()` 函数 |
+| 定时器处理 | ✅ | `process_arp_timers()` 函数 |
+
+### 7.2 依赖组件
+
+| 组件 | 位置 | 状态 |
+|------|------|------|
+| 定时器系统 | `src/common/timer.rs` | ✅ 已实现 |
+| 错误类型 | `src/common/error.rs` | ✅ 已添加`IpConflict` |
+| SystemContext | `src/context.rs` | ✅ 已集成定时器 |
+
+### 7.3 待集成功能
+
+以下功能已实现但需要上层模块集成：
+
+1. **定时器驱动调度**：`process_arp_timers()` 需要在主循环或调度器中定期调用
+2. **IPv4模块集成**：`resolve_ip()` 需要在IPv4发送数据包时调用
+3. **Stale状态使用**：`mark_used()` 需要在发送数据包前查询时调用
+
+### 7.4 测试覆盖
+
+| 测试类型 | 文件 | 状态 |
+|---------|------|------|
+| 报文接收场景 | `arp_integration_test.rs` | ✅ |
+| 状态转换 | `arp_integration_test.rs` | ✅ |
+| 定时器 | `arp_integration_test.rs` | ✅ |
+| 边界条件 | `arp_integration_test.rs` | ✅ |
+| 多接口 | `arp_integration_test.rs` | ✅ |
+
+---
+
+## 8. 参考资料
 
 - RFC 826 - An Ethernet Address Resolution Protocol
 - RFC 1122 - Requirements for Internet Hosts
