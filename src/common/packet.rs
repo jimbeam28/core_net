@@ -128,42 +128,66 @@ impl Packet {
 
     // ========== 查询相关 ==========
 
-    /// 判断是否为空
+    /// 判断报文数据是否为空
+    ///
+    /// # 返回
+    /// - `true`: 数据缓冲区为空
+    /// - `false`: 数据缓冲区非空
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
-    /// 获取总长度
+    /// 获取报文数据总长度
+    ///
+    /// # 返回
+    /// 数据缓冲区的字节长度
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
-    /// 重置offset到0
+    /// 重置读取偏移量到0
+    ///
+    /// 将偏移量重置到数据起始位置，可以重新读取数据。
     pub fn reset(&mut self) {
         self.offset = 0;
     }
 
-    /// 获取当前offset位置
+    /// 获取当前读取偏移量
+    ///
+    /// # 返回
+    /// 当前读取位置的字节偏移量
     pub fn get_offset(&self) -> usize {
         self.offset
     }
 
-    /// 设置VLAN ID
+    /// 设置 VLAN ID
+    ///
+    /// # 参数
+    /// - `vlan_id`: VLAN 标识符（0 表示无 VLAN）
     pub fn set_vlan_id(&mut self, vlan_id: u16) {
         self.vlan_id = vlan_id;
     }
 
-    /// 获取VLAN ID
+    /// 获取 VLAN ID
+    ///
+    /// # 返回
+    /// VLAN 标识符（0 表示无 VLAN）
     pub fn get_vlan_id(&self) -> u16 {
         self.vlan_id
     }
 
     /// 设置接口索引
+    ///
+    /// # 参数
+    /// - `ifindex`: 接口索引（0 表示未知）
     pub fn set_ifindex(&mut self, ifindex: u32) {
         self.ifindex = ifindex;
     }
 
     /// 获取接口索引
+    ///
+    /// # 返回
+    /// 接口索引（0 表示未知）
     pub fn get_ifindex(&self) -> u32 {
         self.ifindex
     }

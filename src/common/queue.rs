@@ -82,6 +82,12 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RingQueue<T> {
 
 impl<T> RingQueue<T> {
     /// 创建指定容量的环形队列
+    ///
+    /// # 参数
+    /// - `capacity`: 期望的队列容量，会自动限制在 [MIN_QUEUE_CAPACITY, MAX_QUEUE_CAPACITY] 范围内
+    ///
+    /// # 返回
+    /// 新的 RingQueue 实例
     pub fn new(capacity: usize) -> Self {
         let capacity = capacity.clamp(MIN_QUEUE_CAPACITY, MAX_QUEUE_CAPACITY);
         RingQueue {
@@ -93,7 +99,14 @@ impl<T> RingQueue<T> {
         }
     }
 
-    /// 入队元素，队列满时返回 QueueError::Full
+    /// 入队元素
+    ///
+    /// # 参数
+    /// - `item`: 要入队的元素
+    ///
+    /// # 返回
+    /// - `Ok(())`: 入队成功
+    /// - `Err(QueueError::Full)`: 队列已满
     pub fn enqueue(&mut self, item: T) -> std::result::Result<(), QueueError> {
         if self.count >= self.capacity {
             return Err(QueueError::Full);
@@ -106,7 +119,11 @@ impl<T> RingQueue<T> {
         Ok(())
     }
 
-    /// 出队元素，队列为空时返回 None
+    /// 出队元素
+    ///
+    /// # 返回
+    /// - `Some(item)`: 成功取出队首元素
+    /// - `None`: 队列为空
     pub fn dequeue(&mut self) -> Option<T> {
         if self.count == 0 {
             return None;
@@ -119,27 +136,43 @@ impl<T> RingQueue<T> {
         item
     }
 
-    /// 队列是否为空
+    /// 检查队列是否为空
+    ///
+    /// # 返回
+    /// - `true`: 队列为空
+    /// - `false`: 队列非空
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
 
-    /// 队列是否已满
+    /// 检查队列是否已满
+    ///
+    /// # 返回
+    /// - `true`: 队列已满
+    /// - `false`: 队列未满
     pub fn is_full(&self) -> bool {
         self.count >= self.capacity
     }
 
-    /// 当前元素数量
+    /// 获取当前元素数量
+    ///
+    /// # 返回
+    /// 队列中当前存储的元素数量
     pub fn len(&self) -> usize {
         self.count
     }
 
-    /// 队列容量
+    /// 获取队列容量
+    ///
+    /// # 返回
+    /// 队列的最大容量
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
     /// 清空队列
+    ///
+    /// 移除所有元素并释放内存，重置读写指针。
     pub fn clear(&mut self) {
         self.head = 0;
         self.tail = 0;

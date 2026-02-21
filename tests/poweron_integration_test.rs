@@ -1,6 +1,7 @@
 // Poweron 模块集成测试
 
-use core_net::poweron::{boot_default, shutdown, SystemContext};
+use core_net::poweron::{boot_default, shutdown};
+use core_net::context::SystemContext;
 use core_net::interface::{InterfaceState, Ipv4Addr, MacAddr};
 use serial_test::serial;
 

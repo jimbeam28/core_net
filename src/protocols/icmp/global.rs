@@ -4,7 +4,6 @@
 // 用于跟踪待处理的 Echo 请求（匹配请求和响应）
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::protocols::Ipv4Addr;
@@ -123,36 +122,6 @@ impl EchoManager {
 impl Default for EchoManager {
     fn default() -> Self {
         Self::new(Duration::from_secs(1), 100)
-    }
-}
-
-// ========== 全局 Echo 管理器 ==========
-
-use std::sync::OnceLock;
-
-/// 全局 Echo 管理器
-static GLOBAL_ECHO_MANAGER: OnceLock<Mutex<EchoManager>> = OnceLock::new();
-
-/// 获取或初始化全局 Echo 管理器
-pub fn get_or_init_global_echo_manager() -> &'static Mutex<EchoManager> {
-    GLOBAL_ECHO_MANAGER.get_or_init(|| {
-        Mutex::new(EchoManager::default())
-    })
-}
-
-/// 初始化全局 Echo 管理器（自定义配置）
-pub fn init_global_echo_manager(timeout: Duration, max_pending: usize) {
-    let manager = EchoManager::new(timeout, max_pending);
-    let _ = GLOBAL_ECHO_MANAGER.set(Mutex::new(manager));
-}
-
-/// 重置全局 Echo 管理器（仅用于测试）
-#[cfg(test)]
-#[allow(dead_code)]
-pub fn reset_global_echo_manager() {
-    if let Some(manager) = GLOBAL_ECHO_MANAGER.get() {
-        let mut guard = manager.lock().unwrap();
-        guard.clear();
     }
 }
 

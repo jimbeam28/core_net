@@ -3,9 +3,7 @@
 /// 负责系统资源的初始化和释放
 ///
 /// 注意：接口配置文件路径由 interface 模块自己管理
-
-// 使用新的 SystemContext（依赖注入架构）
-pub use crate::context::SystemContext;
+use crate::context::SystemContext;
 
 /// 下电释放 - 清空所有接口的队列并释放内存
 pub fn shutdown(context: &SystemContext) {

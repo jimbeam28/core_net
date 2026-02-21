@@ -43,21 +43,3 @@ pub use global::{
     PendingEcho,
     EchoManager,
 };
-
-// ====== 全局状态 API（已弃用，请使用 SystemContext）======
-
-/// 获取全局 Echo 管理器
-///
-/// # 已弃用
-///
-/// 请使用 `SystemContext.icmp_echo` 替代。全局状态模式已被依赖注入架构取代。
-#[deprecated(note = "使用 SystemContext.icmp_echo 替代")]
-pub use global::get_or_init_global_echo_manager;
-
-/// 初始化全局 Echo 管理器
-///
-/// # 已弃用
-///
-/// 请使用 `SystemContext::with_components()` 创建自定义上下文。
-#[deprecated(note = "使用 SystemContext::with_components() 替代")]
-pub use global::init_global_echo_manager;

@@ -110,16 +110,6 @@ impl PacketProcessor {
         }
     }
 
-    #[deprecated(note = "使用 with_context 方法替代")]
-    pub fn new() -> Self {
-        panic!("PacketProcessor::new() 已弃用，请使用 PacketProcessor::with_context(SystemContext) 创建处理器");
-    }
-
-    #[deprecated(note = "使用 with_name_and_context 方法替代")]
-    pub fn with_name(_name: String) -> Self {
-        panic!("PacketProcessor::with_name() 已弃用，请使用 PacketProcessor::with_name_and_context(String, SystemContext) 创建处理器");
-    }
-
     /// 设置系统上下文
     ///
     /// # 参数
