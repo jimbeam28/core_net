@@ -511,6 +511,92 @@ fn test_double_vlan_detection() {
 - 测试Packet长度不足的情况
 - 测试不支持的TPID处理
 
+### 8.4 异常情况测试
+
+**恶意构造输入测试**：
+```rust
+#[test]
+fn test_invalid_pcp_values() {
+    // 测试PCP = 8, 15, 255 等无效值
+    // 验证返回InvalidPcp错误
+}
+
+#[test]
+fn test_malformed_vlan_tag() {
+    // 测试格式错误的VLAN标签字节序列
+    // 测试部分损坏的标签数据
+}
+
+#[test]
+fn test_oversized_packet() {
+    // 测试超长报文处理
+    // 验证不会导致缓冲区溢出
+}
+```
+
+**Packet操作异常测试**：
+```rust
+#[test]
+fn test_empty_packet_handling() {
+    // 测试空Packet的VLAN解析
+    // 验证返回InsufficientPacketLength错误
+}
+
+#[test]
+fn test_offset_out_of_bounds() {
+    // 测试offset超出Packet边界的情况
+    // 验证不会发生越界访问
+}
+
+#[test]
+fn test_write_to_full_buffer() {
+    // 测试写入已满的Packet缓冲区
+    // 验证返回适当的错误
+}
+```
+
+**错误恢复测试**：
+```rust
+#[test]
+fn test_error_recovery_after_invalid_vlan() {
+    // 1. 尝试解析无效VLAN标签（应失败）
+    // 2. 验证Packet状态未损坏
+    // 3. 验证后续正常解析仍可进行
+}
+```
+
+### 8.5 性能和压力测试
+
+```rust
+#[test]
+fn test_bulk_vlan_parsing() {
+    // 连续解析1000个VLAN标签
+    // 验证性能和内存使用合理
+}
+
+#[test]
+fn test_multiple_tpid_types() {
+    // 测试混合处理不同TPID的报文
+    // 0x8100, 0x9100, 0x88A8
+}
+```
+
+### 8.6 测试框架使用
+
+所有集成测试使用 `testframework` 模块：
+```rust
+#[test]
+#[serial]
+fn test_vlan_with_test_framework() {
+    // 1. GlobalStateManager::create_context()
+    // 2. TestHarness::with_context(ctx)
+    // 3. PacketInjector::with_context(ctx)
+    // 4. 注入带VLAN的测试报文
+    // 5. harness.run() 处理
+    // 6. 验证输出结果
+}
+```
+
 ---
 
 ## 九、实现路线图

@@ -83,7 +83,15 @@ pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, Vla
     }
     let _tpid = tpid_opt.unwrap();
 
-    // 解析外层 VLAN 标签
+    // 跳过 TPID (2字节)，然后读取 TCI
+    if !packet.skip(2) {
+        return Err(VlanError::InsufficientPacketLength {
+            expected: 2,
+            actual: packet.remaining(),
+        });
+    }
+
+    // 解析外层 VLAN 标签 (TCI)
     let outer_vlan = VlanTag::parse_from_packet(packet)?;
 
     // 设置外层 VLAN ID 到 packet（对于 QinQ，后续会被内层覆盖）
@@ -91,6 +99,13 @@ pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, Vla
 
     // 检测是否有内层 VLAN 标签（QinQ）
     let inner_vlan_opt = if has_vlan_tag(packet).is_some() {
+        // 跳过内层 TPID
+        if !packet.skip(2) {
+            return Err(VlanError::InsufficientPacketLength {
+                expected: 2,
+                actual: packet.remaining(),
+            });
+        }
         Some(VlanTag::parse_from_packet(packet)?)
     } else {
         None
