@@ -4,9 +4,10 @@ use core_net::testframework::{HarnessError, HarnessResult, GlobalStateManager};
 use core_net::interface::{InterfaceConfig, InterfaceState, MacAddr, Ipv4Addr, NetworkInterface};
 use core_net::protocols::Ipv6Addr;
 use core_net::protocols::arp::{ArpPacket, ArpOperation, encapsulate_ethernet};
-use core_net::protocols::IP_PROTO_ICMP;
+use core_net::protocols::{IP_PROTO_ICMP, IP_PROTO_UDP};
 use core_net::protocols::ip::Ipv4Header;
 use core_net::protocols::ipv6::{IpProtocol, encapsulate_ipv6_packet};
+use core_net::protocols::udp::encapsulate_udp_datagram;
 use core_net::protocols::ETH_P_IPV6;
 use core_net::common::Packet;
 use core_net::context::SystemContext;
@@ -319,4 +320,48 @@ pub fn create_ipv6_packet(
     frame.extend_from_slice(&ipv6_packet);
 
     Packet::from_bytes(frame)
+}
+
+// ========== UDP 辅助函数 ==========
+
+/// 创建 UDP 数据报（带 IP 和以太网封装）
+pub fn create_udp_packet(
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+    src_port: u16,
+    dst_port: u16,
+    payload: &[u8],
+    calculate_checksum: bool,
+) -> Packet {
+    use core_net::protocols::ETH_P_IP;
+
+    // 封装 UDP 数据报
+    let udp_data = encapsulate_udp_datagram(
+        src_port,
+        dst_port,
+        src_ip,
+        dst_ip,
+        payload,
+        calculate_checksum,
+    );
+
+    // 创建 IP 头部
+    let mut ip_data = create_ip_header_udp(src_ip, dst_ip, udp_data.len());
+    ip_data.extend_from_slice(&udp_data);
+
+    // 封装以太网帧
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
+    frame.extend_from_slice(&ip_data);
+
+    Packet::from_bytes(frame)
+}
+
+/// 创建 IP 头部（用于 UDP）
+pub fn create_ip_header_udp(src_ip: Ipv4Addr, dst_ip: Ipv4Addr, payload_len: usize) -> Vec<u8> {
+    let ip_header = Ipv4Header::new(src_ip, dst_ip, IP_PROTO_UDP, payload_len);
+    ip_header.to_bytes()
 }

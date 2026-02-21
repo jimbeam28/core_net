@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::{arp, ip, icmp, ipv6, Ipv4Addr};
+use crate::protocols::{arp, ip, icmp, ipv6, udp, Ipv4Addr};
 use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
@@ -293,14 +293,12 @@ impl PacketProcessor {
             ip::IP_PROTO_ICMP => {
                 self.handle_icmp(eth_hdr, ip_hdr, packet)
             }
+            ip::IP_PROTO_UDP => {
+                self.handle_udp(eth_hdr, ip_hdr, packet)
+            }
             ip::IP_PROTO_TCP => {
                 Err(ProcessError::UnsupportedProtocol(
                     String::from("TCP protocol not implemented")
-                ))
-            }
-            ip::IP_PROTO_UDP => {
-                Err(ProcessError::UnsupportedProtocol(
-                    String::from("UDP protocol not implemented")
                 ))
             }
             _ => {
@@ -404,6 +402,71 @@ impl PacketProcessor {
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
             icmp::IcmpProcessResult::Processed => Ok(None),
+        }
+    }
+
+    /// 处理 UDP 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ip_hdr: IP 头部
+    /// - packet: Packet（已去除 IP 头部）
+    fn handle_udp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
+        // 获取接口索引
+        let ifindex = packet.get_ifindex();
+
+        // 获取本接口的 IP 地址（用作响应的源地址）
+        let our_ip = self.get_interface_ip(ifindex)?;
+
+        if self.verbose {
+            println!("UDP: 处理 UDP 报文 源={} 目的={}",
+                ip_hdr.source_addr, ip_hdr.dest_addr);
+        }
+
+        // 处理 UDP 报文
+        let result = udp::process_udp_packet(
+            packet,
+            ip_hdr.source_addr,
+            our_ip,
+            &self.context,
+            &udp::UDP_CONFIG_DEFAULT,
+        ).map_err(|e| ProcessError::ParseError(format!("UDP处理失败: {}", e)))?;
+
+        // 根据处理结果返回
+        match result {
+            udp::UdpProcessResult::NoReply => Ok(None),
+            udp::UdpProcessResult::PortUnreachable(icmp_bytes) => {
+                // 获取本接口的 MAC 地址
+                let our_mac = self.get_interface_mac(ifindex)?;
+
+                // 封装为 IP 数据报
+                let ip_reply = ip::Ipv4Header::new(
+                    our_ip,
+                    ip_hdr.source_addr,
+                    ip::IP_PROTO_ICMP,
+                    icmp_bytes.len(),
+                );
+                let mut ip_packet = ip_reply.to_bytes();
+                ip_packet.extend_from_slice(&icmp_bytes);
+
+                // 封装为以太网帧
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,
+                    our_mac,
+                    crate::protocols::ETH_P_IP,
+                    &ip_packet,
+                );
+
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
+            udp::UdpProcessResult::Delivered(_data) => {
+                // 当前版本：数据已交付给应用层，不发送响应
+                // 在实际实现中，这里应该根据应用层的处理决定是否响应
+                if self.verbose {
+                    println!("UDP: 数据已交付给应用层");
+                }
+                Ok(None)
+            }
         }
     }
 

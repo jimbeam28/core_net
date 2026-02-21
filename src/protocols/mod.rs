@@ -20,6 +20,9 @@ pub mod ipv6;
 // ICMP 协议
 pub mod icmp;
 
+// UDP 协议
+pub mod udp;
+
 // 从 common 模块重新导出类型
 pub use crate::common::{
     Packet,
@@ -75,4 +78,18 @@ pub use icmp::{
     process_icmp_packet,
     create_echo_request,
     create_echo_reply,
+};
+
+// UDP 模块导出
+pub use udp::{
+    UdpHeader,
+    UdpDatagram,
+    UdpConfig,
+    UdpProcessResult,
+    process_udp_packet,
+    encapsulate_udp_datagram,
+    create_port_unreachable,
+    UDP_HEADER_SIZE,
+    UDP_MIN_LENGTH,
+    UDP_CONFIG_DEFAULT,
 };
