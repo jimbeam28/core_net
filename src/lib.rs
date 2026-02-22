@@ -11,6 +11,7 @@ pub mod engine;
 pub mod scheduler;
 pub mod protocols;
 pub mod interface;
+pub mod route;
 pub mod testframework;
 
 // 重新导出常用类型
@@ -22,7 +23,7 @@ pub use common::{
     Packet,
 
     // 地址类型
-    MacAddr, Ipv4Addr, AddrError,
+    MacAddr, Ipv4Addr, Ipv6Addr, IpAddr, AddrError,
 
     // 队列相关
     RingQueue,
@@ -80,4 +81,13 @@ pub use testframework::{
     TestHarness, PacketInjector,
     HarnessError, HarnessResult,
     GlobalStateManager,
+};
+
+// 导出路由模块
+pub use route::{
+    RouteTable,
+    Ipv4Route,
+    Ipv6Route,
+    RouteLookup,
+    RouteError,
 };

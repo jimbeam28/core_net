@@ -64,6 +64,7 @@ impl GlobalStateManager {
             None, // tcp_sockets: 使用默认值
             None, // udp_ports: 使用默认值
             None, // timers: 使用默认值
+            None, // route_table: 使用默认值
         )
     }
 

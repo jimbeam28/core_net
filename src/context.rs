@@ -10,6 +10,7 @@ use crate::protocols::icmp::EchoManager;
 use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager};
 use crate::protocols::udp::UdpPortManager;
 use crate::common::timer::TimerHandle;
+use crate::route::RouteTable;
 
 /// 系统上下文，持有所有全局状态的所有权
 ///
@@ -37,6 +38,9 @@ pub struct SystemContext {
 
     /// 定时器管理器（用于驱动协议状态机）
     pub timers: Arc<Mutex<TimerHandle>>,
+
+    /// 路由表
+    pub route_table: Arc<Mutex<RouteTable>>,
 }
 
 impl SystemContext {
@@ -52,6 +56,7 @@ impl SystemContext {
             tcp_sockets: Arc::new(Mutex::new(TcpSocketManager::new())),
             udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
+            route_table: Arc::new(Mutex::new(RouteTable::new())),
         }
     }
 
@@ -79,6 +84,7 @@ impl SystemContext {
             tcp_sockets: Arc::new(Mutex::new(TcpSocketManager::new())),
             udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
+            route_table: Arc::new(Mutex::new(RouteTable::new())),
         }
     }
 
@@ -103,6 +109,7 @@ impl SystemContext {
         tcp_sockets: Option<Arc<Mutex<TcpSocketManager>>>,
         udp_ports: Option<Arc<Mutex<UdpPortManager>>>,
         timers: Option<Arc<Mutex<TimerHandle>>>,
+        route_table: Option<Arc<Mutex<RouteTable>>>,
     ) -> Self {
         Self {
             interfaces,
@@ -112,6 +119,7 @@ impl SystemContext {
             tcp_sockets: tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new()))),
             udp_ports: udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new()))),
             timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
+            route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
         }
     }
 
@@ -203,6 +211,7 @@ mod tests {
             Arc::new(Mutex::new(tcp_mgr)),
             Some(Arc::new(Mutex::new(tcp_sockets))),
             Some(Arc::new(Mutex::new(udp_mgr))),
+            None,
             None,
         );
 

@@ -469,3 +469,63 @@ impl fmt::Display for AddrError {
 }
 
 impl std::error::Error for AddrError {}
+
+// ========== IP 地址枚举 ==========
+
+/// IP 地址枚举（IPv4 或 IPv6）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum IpAddr {
+    /// IPv4 地址
+    V4(Ipv4Addr),
+    /// IPv6 地址
+    V6(Ipv6Addr),
+}
+
+impl IpAddr {
+    /// 判断是否为 IPv4 地址
+    pub fn is_ipv4(&self) -> bool {
+        matches!(self, IpAddr::V4(_))
+    }
+
+    /// 判断是否为 IPv6 地址
+    pub fn is_ipv6(&self) -> bool {
+        matches!(self, IpAddr::V6(_))
+    }
+
+    /// 判断是否为未指定地址
+    pub fn is_unspecified(&self) -> bool {
+        match self {
+            IpAddr::V4(addr) => addr.is_unspecified(),
+            IpAddr::V6(addr) => addr.is_unspecified(),
+        }
+    }
+
+    /// 判断是否为环回地址
+    pub fn is_loopback(&self) -> bool {
+        match self {
+            IpAddr::V4(addr) => addr.is_loopback(),
+            IpAddr::V6(addr) => addr.is_loopback(),
+        }
+    }
+}
+
+impl fmt::Display for IpAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IpAddr::V4(addr) => write!(f, "{}", addr),
+            IpAddr::V6(addr) => write!(f, "{}", addr),
+        }
+    }
+}
+
+impl From<Ipv4Addr> for IpAddr {
+    fn from(addr: Ipv4Addr) -> Self {
+        IpAddr::V4(addr)
+    }
+}
+
+impl From<Ipv6Addr> for IpAddr {
+    fn from(addr: Ipv6Addr) -> Self {
+        IpAddr::V6(addr)
+    }
+}
