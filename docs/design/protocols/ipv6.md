@@ -4,12 +4,17 @@
 
 **当前版本实现范围：**
 
-本设计文档描述 IPv6 协议的完整规范，但当前 CoreNet 项目的 IPv6 实现**暂不支持以下功能**：
+本设计文档描述 IPv6 协议的完整规范。当前 CoreNet 项目的 IPv6 实现**暂不支持以下功能**：
 
-- ❌ **分片与重组**：不支持数据包分片发送和分片重组
-- ❌ **扩展头部处理**：暂不支持逐跳选项、路由头、目的选项等扩展头部
 - ❌ **IPSec 支持**：不支持 AH 和 ESP 扩展头
 - ❌ **路由转发**：不支持中间路由器转发功能
+
+**计划支持的功能（扩展头部）：**
+
+- 🚧 **逐跳选项头 (Hop-by-Hop Options Header)**：必须由每个路由器处理
+- 🚧 **分片头 (Fragment Header)**：用于数据包分片和重组
+- 🚧 **路由头 (Routing Header)**：指定源路由（Type 2 及之后）
+- 🚧 **目的选项头 (Destination Options Header)**：仅由目的节点处理
 
 **当前支持的功能：**
 
@@ -141,9 +146,7 @@ IPv6 基本头部固定为 40 字节：
 - **MTU：** IPv6 要求链路最小 MTU 为 1280 字节
 - **当前限制：** 不支持分片，数据包必须小于等于路径 MTU
 
-### 2.3 扩展头部格式（未来支持）
-
-> **注意：** 当前版本不支持扩展头部处理。以下内容供未来实现参考。
+### 2.3 扩展头部格式
 
 扩展头部采用链式结构，每个扩展头都有一个 `Next Header` 字段指向下一个头部：
 
@@ -163,13 +166,270 @@ IPv6 基本头部固定为 40 字节：
 
 | Next Header 值 | 扩展头类型 | 当前支持 | 说明 |
 |----------------|-----------|---------|------|
-| 0 | 逐跳选项 (Hop-by-Hop Options) | ❌ | 必须由每个路由器处理 |
-| 43 | 路由 (Routing) | ❌ | 指定数据包经过的中间路由 |
-| 44 | 分片 (Fragment) | ❌ | 用于分片重组 |
-| 50 | 认证头 (AH) | ❌ | IPSec 认证 |
-| 51 | 封装安全载荷 (ESP) | ❌ | IPSec 加密 |
-| 60 | 目的选项 (Destination Options) | ❌ | 仅由目的节点处理 |
+| 0 | 逐跳选项 (Hop-by-Hop Options) | 🚧 | 必须由每个路由器处理 |
+| 43 | 路由 (Routing) | 🚧 | 指定数据包经过的中间路由 |
+| 44 | 分片 (Fragment) | 🚧 | 用于分片重组 |
+| 50 | 认证头 (AH) | ❌ | IPSec 认证（暂不支持） |
+| 51 | 封装安全载荷 (ESP) | ❌ | IPSec 加密（暂不支持） |
+| 60 | 目的选项 (Destination Options) | 🚧 | 仅由目的节点处理 |
 | 59 | 无下一头部 | ✅ | 表示链的末尾 |
+
+**扩展头部出现顺序（RFC 8200 规定）：**
+
+```
+1. IPv6 基本头部
+2. 逐跳选项头 (Hop-by-Hop Options) - 如存在，必须紧跟基本头部
+3. 目的选项头 (Destination Options) - 第一次出现（用于中间节点）
+4. 路由头 (Routing)
+5. 分片头 (Fragment)
+6. 认证头 (AH) - 暂不支持
+7. 封装安全载荷 (ESP) - 暂不支持
+8. 目的选项头 (Destination Options) - 第二次出现（用于最终目的节点）
+9. 上层协议头部
+```
+
+**通用扩展头部格式：**
+
+所有扩展头部都有以下通用格式：
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Next Header  |   Hdr Ext Len  |                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                           ...                                |
++                                                               +
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+| 字段 | 大小 | 说明 |
+|------|------|------|
+| Next Header | 1 字节 | 下一头部类型 |
+| Hdr Ext Len | 1 字节 | 扩展头长度，以 8 字节为单位（不包括前 8 字节） |
+| Data | 可变 | 扩展头特定数据 |
+
+**长度计算：**
+- 扩展头总长度 = (Hdr Ext Len + 1) × 8 字节
+- 例如：Hdr Ext Len = 0 → 总长度 = 8 字节
+
+### 2.3.1 逐跳选项头 (Hop-by-Hop Options Header)
+
+**报文格式：**
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Next Header  |   Hdr Ext Len  |                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+.                            选项                              .
+.                                                               .
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**关键特性：**
+- Next Header = 0
+- 必须由路径上每个节点处理
+- 必须紧跟在 IPv6 基本头部之后
+
+**选项格式：**
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Opt Type     |  Opt Data Len |                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          ...                                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**选项类型字段编码：**
+
+```
+ 0   1   2   3   4   5   6   7
++---+---+---+---+---+---+---+---+
+|Action|C|      选项类型值       |
++---+---+---+---+---+---+---+---+
+
+Action 字段（2 位）：
+- 00: 跳过此选项，继续处理
+- 01: 丢弃数据包，不发送 ICMPv6
+- 10: 丢弃数据包，发送 ICMPv6 Parameter Problem
+- 11: 丢弃数据包，发送 ICMPv6 Parameter Problem（指向选项类型字段）
+
+C 位（1 位）：
+- 0: 选项数据不能改变
+- 1: 选项数据可以改变
+```
+
+**常见选项类型：**
+
+| 选项类型 | Action | C | 说明 |
+|---------|--------|---|------|
+| 1 (Pad1) | 00 | 0 | 1 字节填充 |
+| 2 (PadN) | 00 | 0 | N 字节填充 |
+| 5 (Router Alert) | 00 | 0 | 路由器警报 |
+| 19 (Jumbo Payload) | 10 | 0 | Jumbo 帧选项 |
+
+**Router Alert 选项格式：**
+
+```
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|       5       |       2       |          Alert Value           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+| Alert Value | 说明 |
+|-------------|------|
+| 0 | 路由器应检查数据包 |
+| 1 | 数据包包含 MLDv1 消息 |
+| 2 | 数据包包含 RSVP 消息 |
+
+### 2.3.2 分片头 (Fragment Header)
+
+**报文格式：**
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Next Header  |   Reserved    |      Fragment Offset    |Res|M|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Identification                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+| 字段 | 大小 | 说明 |
+|------|------|------|
+| Next Header | 1 字节 | 分片后部分的第一个头部类型 |
+| Reserved | 1 字节 | 保留，发送时置 0 |
+| Fragment Offset | 13 位 | 片偏移，以 8 字节为单位 |
+| Reserved | 2 位 | 保留，发送时置 0 |
+| M Flag | 1 位 | 更多分片标志 |
+| Identification | 32 位 | 分片标识符 |
+
+**关键特性：**
+- Next Header = 44
+- 固定 8 字节长度
+- 仅由源节点和目的节点处理
+- 路由器不进行分片或重组
+
+**分片规则：**
+
+1. **不可分片部分 vs 可分片部分：**
+   - **不可分片部分**：IPv6 基本头部 + 逐跳选项头 + 目的选项头（第一次） + 路由头
+   - **可分片部分**：剩余扩展头 + 上层协议头部 + 上层协议数据
+
+2. **片偏移计算：**
+   - 片偏移 = (已发送字节数) / 8
+   - 除最后一片外，每片数据长度必须是 8 字节的倍数
+
+3. **分片标识符：**
+   - 同一数据包的所有分片使用相同的 Identification
+   - 由 <源地址, 目的地址, Identification> 唯一标识分片组
+
+**重组超时：**
+- 超时时间：60 秒（RFC 8200 规定）
+- 超时动作：丢弃所有已收到的分片，发送 ICMPv6 Time Exceeded (Code 1)
+
+### 2.3.3 路由头 (Routing Header)
+
+**通用格式：**
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Next Header  |  Hdr Ext Len  |  Routing Type | Segments Left |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                            ...                                |
++                                                               +
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**路由类型：**
+
+| Routing Type | 说明 | 状态 |
+|--------------|------|------|
+| 0 | Type 0 路由头（已废弃，RFC 5095） | ❌ 禁止 |
+| 2 | Mobile IPv6 家乡地址 | 🚧 计划支持 |
+| 3 | RPL 源路由 | 🚧 计划支持 |
+
+**Type 2 路由头（Mobile IPv6 家乡地址）：**
+
+```
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Next Header  |  Hdr Ext Len  |  Routing Type | Segments Left |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Reserved                            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
++                       Home Address                            +
++                                                               +
++                                                               +
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+| 字段 | 大小 | 说明 |
+|------|------|------|
+| Next Header | 1 字节 | 下一头部 |
+| Hdr Ext Len | 1 字节 | 扩展头长度（应为 2，即 24 字节） |
+| Routing Type | 1 字节 | 路由类型（应为 2） |
+| Segments Left | 1 字节 | 剩余段数（通常为 0 或 1） |
+| Reserved | 4 字节 | 保留 |
+| Home Address | 16 字节 | 移动节点的家乡地址 |
+
+### 2.3.4 目的选项头 (Destination Options Header)
+
+**报文格式：**
+
+目的选项头的格式与逐跳选项头相同：
+
+```
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Next Header  |   Hdr Ext Len  |                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+.                            选项                              .
+.                                                               .
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**与逐跳选项头的区别：**
+- Next Header = 60
+- 仅由目的节点处理
+- 可以出现两次（用于移动 IPv6）
+
+**常见选项类型：**
+
+| 选项类型 | Action | C | 说明 |
+|---------|--------|---|------|
+| 1 (Pad1) | 00 | 0 | 1 字节填充 |
+| 2 (PadN) | 00 | 0 | N 字节填充 |
+
+**移动 IPv6 相关选项：**
+- 绑定更新选项 (Binding Update)：类型 0xC
+- 绑定确认选项 (Binding Acknowledgment)：类型 0xD
+- 绑定请求选项 (Binding Request)：类型 0xB
+- 家乡地址选项 (Home Address)：类型 0xC9
 
 ### 2.4 封装格式
 
@@ -452,7 +712,293 @@ impl Ipv6Addr {
 }
 ```
 
-### 4.3 协议枚举
+### 4.3 扩展头部数据结构
+
+#### 4.3.1 逐跳选项头
+
+```rust
+/// 逐跳选项头
+#[repr(C, packed)]
+pub struct HopByHopHeader {
+    /// 下一头部类型
+    pub next_header: u8,
+    /// 扩展头长度（以 8 字节为单位，不包括前 8 字节）
+    pub header_length: u8,
+}
+
+impl HopByHopHeader {
+    /// 获取扩展头总长度
+    pub fn total_length(&self) -> usize {
+        ((self.header_length as usize) + 1) * 8
+    }
+}
+
+/// 选项类型
+#[derive(Debug, Clone, Copy)]
+pub struct OptionType(pub u8);
+
+impl OptionType {
+    /// 获取 Action 字段
+    pub fn action(&self) -> u8 {
+        (self.0 >> 6) & 0x03
+    }
+
+    /// 获取 Change 位
+    pub fn change_flag(&self) -> bool {
+        (self.0 & 0x20) != 0
+    }
+
+    /// Pad1 选项
+    pub const PAD1: Self = Self(1);
+
+    /// PadN 选项
+    pub const PADN: Self = Self(2);
+
+    /// Router Alert 选项
+    pub const ROUTER_ALERT: Self = Self(5);
+}
+
+/// Router Alert 选项数据
+#[repr(C, packed)]
+pub struct RouterAlertOption {
+    /// 选项类型 = 5
+    pub option_type: u8,
+    /// 选项长度 = 2
+    pub option_length: u8,
+    /// Alert 值
+    pub alert_value: u16,
+}
+```
+
+#### 4.3.2 分片头
+
+```rust
+/// 分片头（固定 8 字节）
+#[repr(C, packed)]
+pub struct FragmentHeader {
+    /// 下一头部
+    pub next_header: u8,
+    /// 保留字段
+    pub reserved: u8,
+    /// 片偏移 (高 13 位) + 保留 (高 2 位) + M 标志 (低 1 位)
+    pub offset_res_m: u16,
+    /// 分片标识符
+    pub identification: u32,
+}
+
+impl FragmentHeader {
+    /// 获取片偏移（以 8 字节为单位）
+    pub fn fragment_offset(&self) -> u16 {
+        (self.offset_res_m & 0xFFF8) >> 3
+    }
+
+    /// 获取 M 标志（更多分片）
+    pub fn more_fragments(&self) -> bool {
+        (self.offset_res_m & 0x01) != 0
+    }
+
+    /// 设置片偏移
+    pub fn set_fragment_offset(&mut self, offset: u16) {
+        let m_flag = self.offset_res_m & 0x01;
+        self.offset_res_m = (offset << 3) | m_flag;
+    }
+
+    /// 设置 M 标志
+    pub fn set_more_fragments(&mut self, m: bool) {
+        if m {
+            self.offset_res_m |= 0x01;
+        } else {
+            self.offset_res_m &= 0xFFFE;
+        }
+    }
+}
+
+/// 重组键
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ReassemblyKey {
+    pub source_addr: Ipv6Addr,
+    pub dest_addr: Ipv6Addr,
+    pub identification: u32,
+}
+
+/// 分片信息
+#[derive(Debug, Clone)]
+pub struct FragmentInfo {
+    /// 分片偏移（以 8 字节为单位）
+    pub offset: u16,
+    /// 更多分片标志
+    pub more_fragments: bool,
+    /// 分片数据
+    pub data: Vec<u8>,
+}
+
+/// 重组条目
+#[derive(Debug, Clone)]
+pub struct ReassemblyEntry {
+    /// 重组键
+    pub key: ReassemblyKey,
+    /// 已收到的分片
+    pub fragments: Vec<FragmentInfo>,
+    /// 总数据长度（当收到 M=0 的分片后确定）
+    pub total_length: Option<usize>,
+    /// 首个分片到达时间
+    pub first_arrival: Instant,
+}
+
+impl ReassemblyEntry {
+    /// 创建新的重组条目
+    pub fn new(key: ReassemblyKey) -> Self {
+        let now = Instant::now();
+        Self {
+            key,
+            fragments: Vec::new(),
+            total_length: None,
+            first_arrival: now,
+        }
+    }
+
+    /// 添加分片
+    pub fn add_fragment(&mut self, fragment: FragmentInfo) -> Result<(), ReassemblyError> {
+        // 如果是最后一片，设置总长度
+        if !fragment.more_fragments {
+            let offset_bytes = fragment.offset as usize * 8;
+            self.total_length = Some(offset_bytes + fragment.data.len());
+        }
+        self.fragments.push(fragment);
+        Ok(())
+    }
+
+    /// 检查是否所有分片已到齐
+    pub fn is_complete(&self) -> bool {
+        let total_length = match self.total_length {
+            Some(len) => len,
+            None => return false,
+        };
+
+        let mut received_bytes = 0;
+        for frag in &self.fragments {
+            received_bytes += frag.data.len();
+        }
+
+        received_bytes >= total_length
+    }
+
+    /// 检查是否超时（60 秒）
+    pub fn is_expired(&self) -> bool {
+        self.first_arrival.elapsed() > Duration::from_secs(60)
+    }
+}
+
+/// 分片缓存
+pub struct FragmentCache {
+    entries: HashMap<ReassemblyKey, ReassemblyEntry>,
+    max_entries: usize,
+}
+
+impl FragmentCache {
+    /// 创建新的分片缓存
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            max_entries,
+        }
+    }
+
+    /// 添加分片
+    pub fn add_fragment(
+        &mut self,
+        key: ReassemblyKey,
+        fragment: FragmentInfo,
+    ) -> Result<Option<Vec<u8>>, ReassemblyError> {
+        self.cleanup_expired();
+        let entry = self.entries.entry(key).or_insert_with(|| {
+            ReassemblyEntry::new(key)
+        });
+        entry.add_fragment(fragment)?;
+        if entry.is_complete() {
+            let key = entry.key;
+            self.entries.remove(&key);
+            // TODO: 实现重组逻辑
+            Ok(None)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 清理超时条目
+    fn cleanup_expired(&mut self) {
+        self.entries.retain(|_, entry| !entry.is_expired());
+    }
+}
+```
+
+#### 4.3.3 路由头
+
+```rust
+/// 路由头
+#[repr(C, packed)]
+pub struct RoutingHeader {
+    /// 下一头部
+    pub next_header: u8,
+    /// 扩展头长度
+    pub header_length: u8,
+    /// 路由类型
+    pub routing_type: u8,
+    /// 剩余段数
+    pub segments_left: u8,
+}
+
+impl RoutingHeader {
+    /// 获取扩展头总长度
+    pub fn total_length(&self) -> usize {
+        ((self.header_length as usize) + 1) * 8
+    }
+}
+
+/// Type 2 路由头（Mobile IPv6 家乡地址）
+#[repr(C, packed)]
+pub struct RoutingHeaderType2 {
+    pub next_header: u8,
+    pub header_length: u8,
+    pub routing_type: u8,
+    pub segments_left: u8,
+    pub reserved: [u8; 4],
+    pub home_address: Ipv6Addr,
+}
+
+impl RoutingHeaderType2 {
+    /// 创建新的 Type 2 路由头
+    pub fn new(next_header: u8, home_address: Ipv6Addr) -> Self {
+        Self {
+            next_header,
+            header_length: 2,
+            routing_type: 2,
+            segments_left: 0,
+            reserved: [0; 4],
+            home_address,
+        }
+    }
+}
+```
+
+#### 4.3.4 目的选项头
+
+```rust
+/// 目的选项头
+#[repr(C, packed)]
+pub struct DestinationOptionsHeader {
+    pub next_header: u8,
+    pub header_length: u8,
+}
+
+impl DestinationOptionsHeader {
+    pub fn total_length(&self) -> usize {
+        ((self.header_length as usize) + 1) * 8
+    }
+}
+```
+
+### 4.4 协议枚举
 
 ```rust
 /// IP 协议号 (Next Header 字段值)
@@ -662,6 +1208,49 @@ Ethernet 模块解析
 1. **Hop Limit 检查：** 丢弃 Hop Limit = 0 的数据包
 2. **最小值限制：** 建议 Hop Limit 至少为 1
 
+#### 6.1.4 扩展头部攻击
+
+**逐跳选项头攻击：**
+
+1. **Router Alert 泛洪**
+   - 攻击方式：大量发送包含 Router Alert 选项的数据包
+   - 影响：路由器资源消耗
+   - 防御：对 Router Alert 数据包限速
+
+2. **Jumbo Payload 攻击**
+   - 攻击方式：发送超大的 Jumbo Payload 选项
+   - 影响：内存耗尽
+   - 防御：限制 Jumbo Payload 最大值
+
+**分片头攻击：**
+
+1. **分片重组攻击**
+   - 攻击方式：发送大量不完整的分片
+   - 影响：重组表资源耗尽
+   - 防御：限制重组表条目数和超时时间
+
+2. **重叠分片攻击**
+   - 攻击方式：发送重叠且不一致的分片
+   - 影响：重组失败、资源浪费
+   - 防御：按照 RFC 5722 处理重叠分片
+
+3. **原子分片攻击**
+   - 攻击方式：发送 Fragment Offset=0, M=0 的分片（实际未分片）
+   - 影响：绕过防火墙
+   - 防御：丢弃仅包含一个分片的分片数据包
+
+**路由头攻击：**
+
+1. **Type 0 路由头攻击**
+   - 攻击方式：使用 Type 0 路由头进行反射攻击
+   - 影响：流量劫持、DoS
+   - 防御：完全禁止 Type 0 路由头（RFC 5095）
+
+2. **未授权路由**
+   - 攻击方式：使用路由头绕过安全设备
+   - 影响：网络安全被破坏
+   - 防御：严格验证路由头的使用权限
+
 ### 6.2 实现建议
 
 1. **严格的输入验证：** 对所有输入字段进行严格验证，拒绝格式错误的头部
@@ -670,6 +1259,10 @@ Ethernet 模块解析
 4. **错误处理：** 遇到错误数据包时优雅地丢弃，记录日志
 5. **MTU 遵守：** 严格遵守 1280 字节最小 MTU 要求
 6. **地址验证：** 验证源地址和目的地址的合法性
+7. **扩展头长度验证：** 严格验证所有扩展头的长度字段
+8. **选项处理：** 对未知选项严格按照 Action 字段处理
+9. **分片限制：** 限制分片缓存的最大条目数和超时时间
+10. **路由头过滤：** 拒绝 Type 0 路由头，对 Type 2/3 路由头进行严格验证
 
 ---
 
@@ -685,17 +1278,65 @@ pub struct Ipv6Config {
     /// 最小链路 MTU (默认: 1280, RFC 8200 要求)
     pub min_mtu: u16,
 
-    /// 允许的最大扩展头数量 (默认: 0, 暂不支持)
-    pub max_extension_headers: usize,
-
-    /// 是否启用分片 (默认: false, 暂不支持)
-    pub enable_fragmentation: bool,
-
-    /// 是否启用 Path MTU Discovery (默认: false, 暂不支持)
-    pub enable_pmtud: bool,
-
     /// 最大数据包大小 (默认: 65575)
     pub max_packet_size: u16,
+
+    // ========== 扩展头部配置 ==========
+    /// 是否允许扩展头部
+    pub allow_extension_headers: bool,
+
+    /// 最大扩展头数量
+    pub max_extension_headers: usize,
+
+    /// 最大扩展头总长度
+    pub max_extension_headers_length: usize,
+
+    // ========== 逐跳选项配置 ==========
+    /// 是否处理逐跳选项头
+    pub process_hop_by_hop: bool,
+
+    /// 是否支持 Jumbo Payload
+    pub allow_jumbo_payload: bool,
+
+    /// Router Alert 速率限制（每秒）
+    pub router_alert_rate_limit: u32,
+
+    // ========== 分片配置 ==========
+    /// 是否支持分片
+    pub enable_fragmentation: bool,
+
+    /// 是否支持重组
+    pub enable_reassembly: bool,
+
+    /// 最大分片缓存条目数
+    pub max_reassembly_entries: usize,
+
+    /// 重组超时时间（秒）
+    pub reassembly_timeout: u64,
+
+    /// 每个数据包的最大分片数
+    pub max_fragments_per_packet: usize,
+
+    /// 是否拒绝原子分片（单个分片）
+    pub reject_atomic_fragments: bool,
+
+    // ========== 路由头配置 ==========
+    /// 是否接受路由头
+    pub accept_routing_header: bool,
+
+    /// 允许的路由类型
+    pub allowed_routing_types: Vec<u8>,
+
+    // ========== 目的选项配置 ==========
+    /// 是否处理目的选项头
+    pub process_destination_options: bool,
+
+    // ========== 安全配置 ==========
+    /// 是否验证所有扩展头长度
+    pub verify_all_lengths: bool,
+
+    /// 扩展头处理速率限制（每秒）
+    pub extension_header_rate_limit: u32,
 }
 
 impl Default for Ipv6Config {
@@ -703,10 +1344,30 @@ impl Default for Ipv6Config {
         Self {
             default_hop_limit: 64,
             min_mtu: 1280,
-            max_extension_headers: 0,
-            enable_fragmentation: false,
-            enable_pmtud: false,
             max_packet_size: 65575,
+
+            allow_extension_headers: true,
+            max_extension_headers: 8,
+            max_extension_headers_length: 2048,
+
+            process_hop_by_hop: true,
+            allow_jumbo_payload: false,
+            router_alert_rate_limit: 100,
+
+            enable_fragmentation: true,
+            enable_reassembly: true,
+            max_reassembly_entries: 256,
+            reassembly_timeout: 60,
+            max_fragments_per_packet: 64,
+            reject_atomic_fragments: true,
+
+            accept_routing_header: false,
+            allowed_routing_types: vec![2, 3], // Type 2 和 Type 3
+
+            process_destination_options: true,
+
+            verify_all_lengths: true,
+            extension_header_rate_limit: 1000,
         }
     }
 }
@@ -817,15 +1478,19 @@ impl Default for Ipv6Config {
 ### 9.2 中期计划
 
 1. **扩展头支持**
-   - 逐跳选项 (Hop-by-Hop Options)
-   - 目的选项 (Destination Options)
-   - 扩展头链处理
+   - ✅ 逐跳选项 (Hop-by-Hop Options) - 设计已完成
+   - ✅ 分片头 (Fragment Header) - 设计已完成
+   - ✅ 路由头 (Routing Header Type 2/3) - 设计已完成
+   - ✅ 目的选项 (Destination Options) - 设计已完成
+   - 🚧 扩展头链处理
+   - 🚧 扩展头解析和封装实现
 
 2. **分片与重组**
-   - 源端分片
-   - 目的端重组
-   - 分片超时处理
-   - 分片攻击防护
+   - ✅ 分片头数据结构设计
+   - 🚧 源端分片逻辑实现
+   - 🚧 目的端重组逻辑实现
+   - 🚧 分片超时处理
+   - 🚧 分片攻击防护
 
 3. **路由转发**
    - 基本路由表
@@ -859,3 +1524,8 @@ impl Default for Ipv6Config {
 8. **RFC 5095** - Deprecation of Type 0 Routing Headers in IPv6
 9. **RFC 5722** - Handling of Overlapping IPv6 Fragments
 10. **RFC 8201** - Path MTU Discovery for IP version 6
+11. **RFC 2675** - IPv6 Jumbo Payload Option
+12. **RFC 2711** - IPv6 Router Alert Option
+13. **RFC 6980** - Security Implications of IPv6 Fragmentation with Respect to Attacks
+14. **RFC 6275** - Mobility Support in IPv6 (Type 2 Routing Header)
+15. **RFC 6554** - An IPv6 Routing Header for Source Routes with RPL (Type 3)
