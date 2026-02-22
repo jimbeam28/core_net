@@ -7,6 +7,8 @@ mod header;
 mod packet;
 mod process;
 mod config;
+mod port;
+mod socket;
 
 pub use header::UdpHeader;
 pub use packet::UdpDatagram;
@@ -17,6 +19,20 @@ pub use process::{
     encapsulate_udp_datagram,
     create_port_unreachable,
 };
+pub use port::{
+    PortEntry,
+    UdpPortManager,
+    UdpReceiveCallback,
+    WELL_KNOWN_PORT_MIN,
+    WELL_KNOWN_PORT_MAX,
+    REGISTERED_PORT_MIN,
+    REGISTERED_PORT_MAX,
+    EPHEMERAL_PORT_MIN,
+    EPHEMERAL_PORT_MAX,
+    PORT_MIN,
+    PORT_MAX,
+};
+pub use socket::UdpSocket;
 
 // UDP 协议常量
 

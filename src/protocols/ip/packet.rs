@@ -94,6 +94,16 @@ pub fn process_ip_packet(
             let data = extract_payload(packet, ip_hdr.header_len())?;
             Ok(IpProcessResult::DeliverToProtocol { ip_hdr, data })
         }
+        Ipv4Protocol::Udp => {
+            // 提取数据部分（不含 IP 头部）
+            let data = extract_payload(packet, ip_hdr.header_len())?;
+            Ok(IpProcessResult::DeliverToProtocol { ip_hdr, data })
+        }
+        Ipv4Protocol::Tcp => {
+            // 提取数据部分（不含 IP 头部）
+            let data = extract_payload(packet, ip_hdr.header_len())?;
+            Ok(IpProcessResult::DeliverToProtocol { ip_hdr, data })
+        }
         _ => {
             // 协议不支持，需要返回 ICMP 协议不可达
             Err(IpError::unsupported_protocol(ip_hdr.protocol))
@@ -217,7 +227,7 @@ mod tests {
     #[test]
     fn test_ipv4_protocol_is_supported() {
         assert!(Ipv4Protocol::Icmp.is_supported());
-        assert!(!Ipv4Protocol::Tcp.is_supported());
-        assert!(!Ipv4Protocol::Udp.is_supported());
+        assert!(Ipv4Protocol::Tcp.is_supported());
+        assert!(Ipv4Protocol::Udp.is_supported());
     }
 }

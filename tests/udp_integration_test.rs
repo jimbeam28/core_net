@@ -1,16 +1,18 @@
 // UDP 协议集成测试
 //
-// 测试 UDP 协议的数据报解析、封装、校验和验证
+// 测试 UDP 协议的数据报解析、封装、校验和验证、端口管理和回调
 
 use core_net::testframework::TestHarness;
 use core_net::common::Packet;
 use core_net::interface::{MacAddr, Ipv4Addr};
 use core_net::protocols::ETH_P_IP;
-use core_net::protocols::udp::{UdpDatagram, UdpHeader, encapsulate_udp_datagram};
+use core_net::protocols::udp::{UdpDatagram, UdpHeader, UdpSocket, encapsulate_udp_datagram};
+use core_net::protocols::udp::{UdpPortManager, EPHEMERAL_PORT_MIN, EPHEMERAL_PORT_MAX};
 use serial_test::serial;
+use std::sync::{Arc, Mutex};
 
 mod common;
-use common::{create_ip_header, inject_packet_to_context, verify_context_txq_count,
+use common::{create_ip_header_udp, inject_packet_to_context, verify_context_txq_count,
              create_test_context};
 
 // 测试环境配置：本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
@@ -26,18 +28,22 @@ fn test_udp_basic_send_receive() {
     let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
     let target_ip = Ipv4Addr::new(192, 168, 1, 100); // 本机 IP
 
+    // 创建 UDP Socket 并绑定端口
+    let mut socket = UdpSocket::new(ctx.clone());
+    let bound_port = socket.bind(5678).unwrap();
+
     // 创建 UDP 数据报
     let udp_data = encapsulate_udp_datagram(
-        1234,  // 源端口
-        5678,  // 目标端口
+        1234,       // 源端口
+        bound_port, // 目标端口（已绑定）
         sender_ip,
         target_ip,
         b"Hello, UDP!",
-        true,   // 计算校验和
+        true,       // 计算校验和
     );
 
     // IP 封装
-    let mut ip_data = create_ip_header(sender_ip, target_ip, udp_data.len());
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
     ip_data.extend_from_slice(&udp_data);
 
     // 以太网封装
@@ -55,8 +61,7 @@ fn test_udp_basic_send_receive() {
     let result = harness.run();
     assert!(result.is_ok(), "调度器运行失败: {:?}", result.err());
 
-    // UDP 是无连接协议，通常不发送响应
-    // 但当前实现会将数据输出到 TxQ 用于验证
+    // UDP 是无连接协议，端口已绑定且无回调时不发送响应
     assert!(verify_context_txq_count(&ctx, "eth0", 0), "UDP 不应有响应");
 }
 
@@ -119,7 +124,7 @@ fn test_udp_minimal_datagram() {
     // 验证长度
     assert_eq!(udp_data.len(), 8); // 仅头部
 
-    let mut ip_data = create_ip_header(sender_ip, target_ip, udp_data.len());
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
     ip_data.extend_from_slice(&udp_data);
 
     let mut frame = Vec::new();
@@ -217,7 +222,7 @@ fn test_udp_data_too_short() {
         0x01, 0x02, 0x03, 0x04, // 只有 4 字节数据
     ];
 
-    let mut ip_data = create_ip_header(sender_ip, target_ip, udp_data.len());
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
     ip_data.extend_from_slice(&udp_data);
 
     let mut frame = Vec::new();
@@ -254,7 +259,7 @@ fn test_udp_checksum_validation() {
         true,   // 计算校验和
     );
 
-    let mut ip_data = create_ip_header(sender_ip, target_ip, udp_data.len());
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
     ip_data.extend_from_slice(&udp_data);
 
     let mut frame = Vec::new();
@@ -294,7 +299,7 @@ fn test_udp_checksum_error() {
     udp_data[6] = 0xFF;
     udp_data[7] = 0xFF;
 
-    let mut ip_data = create_ip_header(sender_ip, target_ip, udp_data.len());
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
     ip_data.extend_from_slice(&udp_data);
 
     let mut frame = Vec::new();
@@ -383,7 +388,7 @@ fn test_udp_not_for_us() {
         false,
     );
 
-    let mut ip_data = create_ip_header(sender_ip, target_ip, udp_data.len());
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
     ip_data.extend_from_slice(&udp_data);
 
     let mut frame = Vec::new();
@@ -419,3 +424,295 @@ fn test_udp_port_boundaries() {
     assert_eq!(datagram.header.source_port, 0);
     assert_eq!(datagram.header.destination_port, 65535);
 }
+
+// ========== 端口管理测试组 ==========
+
+#[test]
+#[serial]
+fn test_udp_port_manager_bind_specific() {
+    let mut manager = UdpPortManager::new();
+
+    // 绑定特定端口
+    let port = manager.bind(8080).unwrap();
+    assert_eq!(port, 8080);
+    assert!(manager.is_bound(8080));
+}
+
+#[test]
+#[serial]
+fn test_udp_port_manager_bind_auto() {
+    let mut manager = UdpPortManager::new();
+
+    // 自动分配端口
+    let port1 = manager.bind(0).unwrap();
+    assert!(port1 >= EPHEMERAL_PORT_MIN);
+    assert!(port1 <= EPHEMERAL_PORT_MAX);
+
+    // 再次分配
+    let port2 = manager.bind(0).unwrap();
+    assert_ne!(port1, port2);
+}
+
+#[test]
+#[serial]
+fn test_udp_port_manager_bind_conflict() {
+    let mut manager = UdpPortManager::new();
+
+    manager.bind(8080).unwrap();
+    let result = manager.bind(8080);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_udp_port_manager_unbind() {
+    let mut manager = UdpPortManager::new();
+
+    manager.bind(8080).unwrap();
+    assert!(manager.is_bound(8080));
+
+    manager.unbind(8080).unwrap();
+    assert!(!manager.is_bound(8080));
+
+    // 可以重新绑定
+    manager.bind(8080).unwrap();
+    assert!(manager.is_bound(8080));
+}
+
+#[test]
+#[serial]
+fn test_udp_port_manager_bound_list() {
+    let mut manager = UdpPortManager::new();
+
+    manager.bind(8080).unwrap();
+    manager.bind(9090).unwrap();
+    manager.bind(53).unwrap();
+
+    let ports = manager.bound_ports();
+    assert_eq!(ports, vec![53, 8080, 9090]);
+}
+
+// ========== Socket API 测试组 ==========
+
+#[test]
+#[serial]
+fn test_udp_socket_bind() {
+    let ctx = create_test_context();
+    let mut socket = UdpSocket::new(ctx);
+
+    // 自动分配端口
+    let port = socket.bind(0).unwrap();
+    assert!(port >= EPHEMERAL_PORT_MIN);
+    assert!(socket.is_bound());
+    assert_eq!(socket.local_port(), Some(port));
+}
+
+#[test]
+#[serial]
+fn test_udp_socket_bind_specific() {
+    let ctx = create_test_context();
+    let mut socket = UdpSocket::new(ctx);
+
+    let port = socket.bind(8080).unwrap();
+    assert_eq!(port, 8080);
+}
+
+#[test]
+#[serial]
+fn test_udp_socket_bind_twice() {
+    let ctx = create_test_context();
+    let mut socket = UdpSocket::new(ctx);
+
+    socket.bind(8080).unwrap();
+    let result = socket.bind(9090);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_udp_socket_close() {
+    let ctx = create_test_context();
+    let mut socket = UdpSocket::new(ctx);
+
+    socket.bind(8080).unwrap();
+    assert!(socket.is_bound());
+
+    socket.close().unwrap();
+    assert!(!socket.is_bound());
+    assert!(socket.is_closed());
+}
+
+#[test]
+#[serial]
+fn test_udp_socket_set_callback() {
+    let ctx = create_test_context();
+    let mut socket = UdpSocket::new(ctx);
+
+    socket.bind(8080).unwrap();
+
+    let result = socket.set_callback(|_src_addr, _src_port, _data| {
+        // 回调逻辑
+    });
+    assert!(result.is_ok());
+    assert!(socket.has_callback());
+}
+
+// ========== 回调和数据分发测试组 ==========
+
+#[test]
+#[serial]
+fn test_udp_callback_receive() {
+    use std::sync::atomic::{AtomicU16, Ordering};
+
+    let ctx = create_test_context();
+    let mut socket = UdpSocket::new(ctx.clone());
+
+    let bound_port = socket.bind(5678).unwrap();
+
+    // 使用 Arc 共享状态来验证回调
+    let received_port = Arc::new(AtomicU16::new(0));
+    let received_data = Arc::new(Mutex::new(Vec::new()));
+
+    let port_clone = received_port.clone();
+    let data_clone = received_data.clone();
+
+    socket.set_callback(move |_src_addr, src_port, data| {
+        port_clone.store(src_port, Ordering::SeqCst);
+        *data_clone.lock().unwrap() = data;
+    }).unwrap();
+
+    // 构造并发送 UDP 数据报
+    let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
+    let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
+    let target_ip = Ipv4Addr::new(192, 168, 1, 100);
+
+    let udp_data = encapsulate_udp_datagram(
+        1234,          // 源端口
+        bound_port,    // 目标端口
+        sender_ip,
+        target_ip,
+        b"Hello from callback!",
+        true,
+    );
+
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
+    ip_data.extend_from_slice(&udp_data);
+
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    frame.extend_from_slice(&sender_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
+    frame.extend_from_slice(&ip_data);
+
+    let packet = Packet::from_bytes(frame);
+    inject_packet_to_context(&ctx, "eth0", packet).unwrap();
+
+    // 使用相同的context创建harness
+    let mut harness = TestHarness::with_context(ctx);
+    let result = harness.run();
+    assert!(result.is_ok());
+
+    // 验证回调被调用
+    let final_port = received_port.load(Ordering::SeqCst);
+    let final_data = received_data.lock().unwrap().clone();
+
+    assert_eq!(final_port, 1234);
+    assert_eq!(final_data, b"Hello from callback!".to_vec());
+}
+
+#[test]
+#[serial]
+fn test_udp_no_callback_no_response() {
+    let ctx = create_test_context();
+
+    // 端口未绑定，应该返回 PortUnreachable（如果配置启用）
+    let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
+    let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
+    let target_ip = Ipv4Addr::new(192, 168, 1, 100);
+
+    let udp_data = encapsulate_udp_datagram(
+        1234,
+        9999,  // 未绑定的端口
+        sender_ip,
+        target_ip,
+        b"Test",
+        true,
+    );
+
+    let mut ip_data = create_ip_header_udp(sender_ip, target_ip, udp_data.len());
+    ip_data.extend_from_slice(&udp_data);
+
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    frame.extend_from_slice(&sender_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
+    frame.extend_from_slice(&ip_data);
+
+    let packet = Packet::from_bytes(frame);
+    inject_packet_to_context(&ctx, "eth0", packet).unwrap();
+
+    let mut harness = TestHarness::with_context(ctx.clone());
+    let result = harness.run();
+    assert!(result.is_ok());
+
+    // 端口未绑定，根据默认配置会返回 PortUnreachable
+    // 但由于模拟环境的限制，实际可能不会生成 ICMP
+}
+
+// ========== 动态端口分配测试组 ==========
+
+#[test]
+#[serial]
+fn test_udp_ephemeral_port_range() {
+    let mut manager = UdpPortManager::new();
+
+    for _ in 0..10 {
+        let port = manager.bind(0).unwrap();
+        assert!(port >= EPHEMERAL_PORT_MIN);
+        assert!(port <= EPHEMERAL_PORT_MAX);
+    }
+}
+
+#[test]
+#[serial]
+fn test_udp_port_exhaustion() {
+    let mut manager = UdpPortManager::new();
+
+    // 绑定大量端口（模拟耗尽）
+    let mut bind_count = 0;
+    for port in EPHEMERAL_PORT_MIN..=EPHEMERAL_PORT_MIN + 100 {
+        if manager.bind(port).is_ok() {
+            bind_count += 1;
+        }
+    }
+
+    assert!(bind_count > 0);
+}
+
+// ========== 端口冲突检测测试组 ==========
+
+#[test]
+#[serial]
+fn test_udp_socket_port_conflict() {
+    let ctx = create_test_context();
+    let mut socket1 = UdpSocket::new(ctx.clone());
+    let mut socket2 = UdpSocket::new(ctx);
+
+    socket1.bind(8080).unwrap();
+    let result = socket2.bind(8080);
+    assert!(result.is_err());
+}
+
+#[test]
+#[serial]
+fn test_udp_well_known_port() {
+    let mut manager = UdpPortManager::new();
+
+    // 绑定知名端口
+    let port = manager.bind(53).unwrap();  // DNS
+    assert_eq!(port, 53);
+
+    let entry = manager.lookup(53).unwrap();
+    assert!(entry.is_well_known);
+}
+

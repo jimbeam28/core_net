@@ -8,6 +8,7 @@ use crate::context::SystemContext;
 
 use super::packet::UdpDatagram;
 use super::config::UdpConfig;
+use super::UdpSocket;
 
 /// UDP 处理结果
 ///
@@ -41,12 +42,14 @@ pub enum UdpProcessResult {
 /// 1. 解析 UDP 头部
 /// 2. 验证数据报长度
 /// 3. 验证校验和（如果配置要求）
-/// 4. 处理数据（当前版本输出到 TxQ 用于验证）
+/// 4. 查找端口入口
+/// 5. 如果端口已绑定且有回调，调用回调
+/// 6. 如果端口未绑定且配置要求，返回 PortUnreachable
 pub fn process_udp_packet(
     packet: Packet,
     source_addr: Ipv4Addr,
     dest_addr: Ipv4Addr,
-    _context: &SystemContext,
+    context: &SystemContext,
     config: &UdpConfig,
 ) -> Result<UdpProcessResult> {
     // 读取数据用于解析
@@ -70,13 +73,41 @@ pub fn process_udp_packet(
         return Err(CoreError::invalid_packet("UDP 校验和错误"));
     }
 
-    // 当前版本：将数据交付给应用层（输出到 TxQ 用于验证）
-    // 在实际实现中，这里应该根据端口号分发给对应的应用层处理器
+    let dest_port = datagram.header.destination_port;
+
+    // 查找目标端口
+    let port_entry = {
+        let port_manager = context.udp_ports.lock().unwrap();
+        port_manager.lookup(dest_port).cloned()
+    };
+
+    // 复制数据载荷
     let payload = datagram.payload.to_vec();
 
-    // TODO: 实现端口绑定表和分发逻辑
-    // 当前简单地将所有数据标记为已交付
-    Ok(UdpProcessResult::Delivered(payload))
+    match port_entry {
+        Some(entry) => {
+            // 端口已绑定
+            if entry.has_callback() {
+                // 调用应用层回调
+                entry.invoke_callback(source_addr, datagram.header.source_port, payload.clone());
+                Ok(UdpProcessResult::Delivered(payload))
+            } else {
+                // 端口已绑定但没有回调（端口预留状态）
+                Ok(UdpProcessResult::NoReply)
+            }
+        }
+        None => {
+            // 端口未绑定
+            if config.send_icmp_unreachable {
+                // 构造原始 IP 数据报用于 ICMP 响应
+                // 注意：这里需要完整的 IP 数据报，但当前只有 UDP 部分
+                // 实际实现中，IP 层应该传递原始数据报
+                Ok(UdpProcessResult::PortUnreachable(payload))
+            } else {
+                Ok(UdpProcessResult::NoReply)
+            }
+        }
+    }
 }
 
 /// 封装 UDP 数据报
@@ -140,6 +171,11 @@ mod tests {
         let packet = Packet::from_bytes(udp_bytes);
         let ctx = SystemContext::new();
         let config = UdpConfig::new().with_enforce_checksum(false); // 不强制验证校验和
+
+        // 绑定端口并设置回调
+        let mut socket = UdpSocket::new(ctx.clone());
+        socket.bind(5678).unwrap();
+        socket.set_callback(|_src_addr, _src_port, _data| {}).unwrap();
 
         let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config).unwrap();
 
@@ -263,6 +299,11 @@ mod tests {
         let packet = Packet::from_bytes(udp_bytes);
         let ctx = SystemContext::new();
         let config = UdpConfig::new().with_enforce_checksum(false); // 不强制验证校验和
+
+        // 绑定端口并设置回调
+        let mut socket = UdpSocket::new(ctx.clone());
+        socket.bind(5678).unwrap();
+        socket.set_callback(|_src_addr, _src_port, _data| {}).unwrap();
 
         let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config).unwrap();
 

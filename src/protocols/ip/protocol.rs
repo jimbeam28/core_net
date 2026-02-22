@@ -5,17 +5,17 @@
 /// IPv4 协议号（上层协议类型）
 ///
 /// 定义了 IP 头部中 Protocol 字段的所有已知值。
-/// 当前版本仅支持 ICMP，其他协议返回 UnsupportedProtocol 错误。
+/// 当前版本支持 ICMP、UDP 和 TCP。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Ipv4Protocol {
     /// ICMP (Internet Control Message Protocol)
     Icmp = 1,
 
-    /// TCP (Transmission Control Protocol) - 未实现
+    /// TCP (Transmission Control Protocol)
     Tcp = 6,
 
-    /// UDP (User Datagram Protocol) - 未实现
+    /// UDP (User Datagram Protocol)
     Udp = 17,
 
     /// IPv6 隧道 - 未实现
@@ -32,9 +32,9 @@ pub enum Ipv4Protocol {
 }
 
 impl Ipv4Protocol {
-    /// 判断协议是否被支持（当前仅支持 ICMP）
+    /// 判断协议是否被支持（当前支持 ICMP、UDP、TCP）
     pub const fn is_supported(&self) -> bool {
-        matches!(self, Ipv4Protocol::Icmp)
+        matches!(self, Ipv4Protocol::Icmp | Ipv4Protocol::Udp | Ipv4Protocol::Tcp)
     }
 
     /// 获取协议名称（用于调试）
@@ -111,8 +111,8 @@ mod tests {
     #[test]
     fn test_is_supported() {
         assert!(Ipv4Protocol::Icmp.is_supported());
-        assert!(!Ipv4Protocol::Tcp.is_supported());
-        assert!(!Ipv4Protocol::Udp.is_supported());
+        assert!(Ipv4Protocol::Tcp.is_supported());
+        assert!(Ipv4Protocol::Udp.is_supported());
         assert!(!Ipv4Protocol::Unknown(99).is_supported());
     }
 

@@ -8,6 +8,7 @@ use crate::interface::InterfaceManager;
 use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
 use crate::protocols::tcp::TcpConnectionManager;
+use crate::protocols::udp::UdpPortManager;
 use crate::common::timer::TimerHandle;
 
 /// 系统上下文，持有所有全局状态的所有权
@@ -28,6 +29,9 @@ pub struct SystemContext {
     /// TCP 连接管理器
     pub tcp_connections: Arc<Mutex<TcpConnectionManager>>,
 
+    /// UDP 端口管理器
+    pub udp_ports: Arc<Mutex<UdpPortManager>>,
+
     /// 定时器管理器（用于驱动协议状态机）
     pub timers: Arc<Mutex<TimerHandle>>,
 }
@@ -42,6 +46,7 @@ impl SystemContext {
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
+            udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
         }
     }
@@ -67,6 +72,7 @@ impl SystemContext {
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
+            udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
         }
     }
@@ -81,12 +87,14 @@ impl SystemContext {
     /// - `arp_cache`: ARP 缓存
     /// - `icmp_echo`: ICMP Echo 管理器
     /// - `tcp_connections`: TCP 连接管理器
+    /// - `udp_ports`: UDP 端口管理器（可选，默认为空）
     /// - `timers`: 定时器管理器（可选，默认为空）
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
         arp_cache: Arc<Mutex<ArpCache>>,
         icmp_echo: Arc<Mutex<EchoManager>>,
         tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+        udp_ports: Option<Arc<Mutex<UdpPortManager>>>,
         timers: Option<Arc<Mutex<TimerHandle>>>,
     ) -> Self {
         Self {
@@ -94,6 +102,7 @@ impl SystemContext {
             arp_cache,
             icmp_echo,
             tcp_connections,
+            udp_ports: udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new()))),
             timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
         }
     }
@@ -165,6 +174,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.arp_cache, &ctx2.arp_cache));
         assert!(Arc::ptr_eq(&ctx1.icmp_echo, &ctx2.icmp_echo));
         assert!(Arc::ptr_eq(&ctx1.tcp_connections, &ctx2.tcp_connections));
+        assert!(Arc::ptr_eq(&ctx1.udp_ports, &ctx2.udp_ports));
         assert!(Arc::ptr_eq(&ctx1.timers, &ctx2.timers));
     }
 
@@ -174,12 +184,14 @@ mod tests {
         let arp_cache = ArpCache::default();
         let echo_mgr = EchoManager::default();
         let tcp_mgr = TcpConnectionManager::default();
+        let udp_mgr = UdpPortManager::new();
 
         let ctx = SystemContext::with_components(
             Arc::new(Mutex::new(manager)),
             Arc::new(Mutex::new(arp_cache)),
             Arc::new(Mutex::new(echo_mgr)),
             Arc::new(Mutex::new(tcp_mgr)),
+            Some(Arc::new(Mutex::new(udp_mgr))),
             None,
         );
 
@@ -241,6 +253,10 @@ mod tests {
 
         let tcp_guard = ctx.tcp_connections.lock();
         assert!(tcp_guard.is_ok());
+        drop(tcp_guard);
+
+        let udp_guard = ctx.udp_ports.lock();
+        assert!(udp_guard.is_ok());
     }
 
     #[test]
