@@ -10,6 +10,13 @@
 - **可扩展性**: 模块化设计，便于添加新协议支持
 - **正确性**: 遵循RFC标准，实现正确的协议行为
 
+### 1.3 项目状态
+- ✅ 链路层完整实现（Ethernet、VLAN、ARP）
+- ✅ 网络层完整实现（IPv4、IPv6、ICMP、ICMPv6）
+- ✅ 传输层完整实现（TCP、UDP）
+- ✅ 路由模块实现（IPv4/IPv6路由表、最长前缀匹配）
+- ⏳ 应用层Socket API（部分实现）
+
 ---
 
 ## 2. 整体架构
@@ -27,6 +34,11 @@
 │  │  │  Arc<Mutex<InterfaceManager>>  (网络接口)                    │  │   │
 │  │  │  Arc<Mutex<ArpCache>>         (ARP 缓存)                    │  │   │
 │  │  │  Arc<Mutex<EchoManager>>      (ICMP Echo)                   │  │   │
+│  │  │  Arc<Mutex<TcpConnectionMgr>>(TCP 连接)                     │  │   │
+│  │  │  Arc<Mutex<TcpSocketManager>> (TCP Socket)                  │  │   │
+│  │  │  Arc<Mutex<UdpPortManager>>   (UDP 端口)                    │  │   │
+│  │  │  Arc<Mutex<RouteTable>>       (路由表)                      │  │   │
+│  │  │  Arc<Mutex<TimerHandle>>      (定时器)                      │  │   │
 │  │  │                   (依赖注入模式，支持 Clone)                  │  │   │
 │  │  └──────────────────────────────────────────────────────────────┘  │   │
 │  │       from_config() ──► 加载 interface.toml ──► 初始化所有组件      │   │
@@ -72,9 +84,10 @@
 │  │      │  IPv4   │           │  IPv6   │         │  ICMP   │             │   │
 │  │      └─────────┘           └─────────┘         └─────────┘             │   │
 │  │                                                                        │   │
-│  │      ┌─────────┐           ┌─────────┐                                     │   │
-│  │      │  TCP    │           │   UDP   │                                     │   │
-│  │      └─────────┘           └─────────┘                                     │   │
+│  │      ┌─────────┐           ┌─────────┐         ┌─────────┐             │   │
+│  │      │  TCP    │           │   UDP   │         │  Route  │             │   │
+│  │      └─────────┘           └─────────┘         │  模块   │             │   │
+│  │                                              └─────────┘             │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                        │                                     │
 │                                        ▼                                     │
@@ -84,6 +97,9 @@
 │  │  │   Packet    │  │  RingQueue  │  │   Error     │  │ Mac/IPv4    │  │   │
 │  │  │  报文描述符  │  │   环形队列   │  │   错误处理   │  │  地址类型    │  │   │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  │   │
+│  │  ┌─────────────┐                                                      │   │
+│  │  │    Timer    │  定时器管理（驱动协议状态机）                          │   │
+│  │  └─────────────┘                                                      │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -370,7 +386,119 @@ protocols/icmp/
 
 ---
 
-### 3.6 通用模块 (Common)
+### 3.5.6 IPv6 模块
+
+```
+protocols/ipv6/
+├── mod.rs       # 模块入口
+├── header.rs    # Ipv6Header 结构
+├── protocol.rs  # IpProtocol 枚举
+├── error.rs     # Ipv6Error 枚举
+├── config.rs    # Ipv6Config
+└── packet.rs    # IPv6 报文处理逻辑
+```
+
+**核心功能**：
+- IPv6 头部解析（40 字节固定头部）
+- 协议字段分发（ICMPv6、TCP、UDP）
+- 地址验证
+- 128位地址支持
+
+**已实现**：
+- ✅ 头部解析
+- ✅ 协议分发
+- ❌ 分片和重组（暂不支持）
+- ❌ 扩展头（暂不支持）
+
+#### 3.5.7 TCP 模块
+
+```
+protocols/tcp/
+├── mod.rs           # 模块入口
+├── constant.rs      # TCP 常量定义
+├── config.rs        # TcpConfig 配置
+├── error.rs         # TcpError 错误类型
+├── header.rs        # TcpHeader 头部结构
+├── segment.rs       # TcpSegment 报文段
+├── tcb.rs           # TCB (传输控制块)
+├── connection.rs    # TcpConnection 连接状态管理
+├── process.rs       # TCP 报文处理
+├── socket.rs        # TcpSocket Socket实现
+└── socket_manager.rs # TcpSocketManager Socket管理
+```
+
+**核心功能**：
+- 三次握手（SYN、SYN-ACK、ACK）
+- 四次挥手（FIN、ACK）
+- 滑动窗口和流量控制
+- 重传机制
+- 连接状态管理（LISTEN、SYN_SENT、ESTABLISHED等）
+- Socket API（bind、connect、send、recv、close）
+- 端口复用和TIME_WAIT状态
+
+**已实现**：
+- ✅ 三次握手
+- ✅ 四次挥手
+- ✅ 滑动窗口
+- ✅ 重传机制
+- ✅ Socket API
+- ✅ 连接管理
+
+#### 3.5.8 UDP 模块
+
+```
+protocols/udp/
+├── mod.rs       # 模块入口
+├── header.rs    # UdpHeader 头部结构
+├── packet.rs    # UdpDatagram 数据报
+├── process.rs   # UDP 报文处理
+├── config.rs    # UdpConfig 配置
+├── port.rs      # 端口管理器和端口表
+└── socket.rs    # UdpSocket Socket实现
+```
+
+**核心功能**：
+- UDP 数据报解析和封装
+- 端口绑定机制（知名端口、注册端口、临时端口）
+- 端口表管理（端口到回调的映射）
+- Socket API（bind、sendto、recvfrom、close）
+- 端口不可达ICMP响应
+
+**已实现**：
+- ✅ 数据报解析/封装
+- ✅ 端口绑定
+- ✅ Socket API
+- ✅ 回调机制
+- ✅ 端口不可达响应
+
+---
+
+### 3.6 路由模块 (Route)
+
+```
+route/
+├── mod.rs       # 模块入口
+├── ipv4.rs      # Ipv4Route IPv4路由
+├── ipv6.rs      # Ipv6Route IPv6路由
+├── table.rs     # RouteTable 路由表
+└── error.rs     # RouteError 错误类型
+```
+
+**核心功能**：
+- IPv4/IPv6 路由表管理
+- 最长前缀匹配（LPM）算法
+- 默认路由支持
+- 路由优先级管理
+
+**已实现**：
+- ✅ IPv4 路由表
+- ✅ IPv6 路由表
+- ✅ 最长前缀匹配
+- ✅ 默认路由
+
+---
+
+### 3.7 通用模块 (Common)
 
 ```
 common/
@@ -378,10 +506,12 @@ common/
 ├── packet.rs    # Packet 报文描述符
 ├── queue.rs     # RingQueue 环形队列
 ├── error.rs     # CoreError 错误类型
-└── addr.rs      # MacAddr, Ipv4Addr 等地址类型
+├── addr.rs      # MacAddr, Ipv4Addr 等地址类型
+├── tables.rs    # 通用表结构
+└── timer.rs     # Timer 定时器
 ```
 
-#### 3.6.1 Packet（报文描述符）
+#### 3.7.1 Packet（报文描述符）
 
 **核心结构**：
 ```rust
@@ -396,7 +526,7 @@ pub struct Packet {
 - `enqueue()` 转移所有权
 - `dequeue()` 获取所有权
 
-#### 3.6.2 RingQueue（环形队列）
+#### 3.7.2 RingQueue（环形队列）
 
 **核心结构**：
 ```rust
@@ -411,7 +541,7 @@ pub struct RingQueue<T> {
 
 **队列模型**：SPSC（单生产者单消费者）
 
-#### 3.6.3 Error（错误处理）
+#### 3.7.3 Error（错误处理）
 
 **三种错误类型**：
 - `CoreError`: 通用错误（在 common 模块）
@@ -419,6 +549,13 @@ pub struct RingQueue<T> {
 - `ScheduleError`: 调度错误（在 scheduler 模块）
 
 **错误转换**：各模块实现 `From<T>` trait 进行转换
+
+#### 3.7.4 Timer（定时器）
+
+**核心功能**：
+- 驱动协议状态机（如TCP重传、ARP超时）
+- 支持定时回调注册
+- 支持定时器取消
 
 ---
 
@@ -433,17 +570,22 @@ pub struct RingQueue<T> {
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                        应用层                               │   │
-│  │                      Socket API                             │   │
+│  │                   Socket API (部分实现)                      │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              ▲                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                        传输层                               │   │
-│  │                       TCP/UDP                               │   │
+│  │            TCP / UDP / Socket Manager                       │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                              ▲                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                   路由层 (可选)                              │   │
+│  │          RouteTable (IPv4/IPv6 LPM)                         │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              ▲                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                        网络层                               │   │
-│  │                   IPv4/IPv6/ICMP                            │   │
+│  │          IPv4 / IPv6 / ICMP / ICMPv6                        │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              ▲                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
@@ -458,7 +600,7 @@ pub struct RingQueue<T> {
 │                              ▲                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                   通用层 (Common)                            │   │
-│  │              Packet / Queue / Error                         │   │
+│  │       Packet / Queue / Error / Timer / Tables               │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -502,6 +644,15 @@ pub struct RingQueue<T> {
 │                                      ├──> ARP:                      │
 │                                      │      └──> arp::process_arp() │
 │                                      │                              │
+│                                      ├──> IPv4:                    │
+│                                      │      ├──> IP协议分发         │
+│                                      │      ├──> ICMP: handle_icmp()│
+│                                      │      ├──> TCP:  handle_tcp() │
+│                                      │      └──> UDP:  handle_udp() │
+│                                      │                              │
+│                                      └──> IPv6:                    │
+│                                             ├──> IP协议分发         │
+│                                             └──> ICMPv6:handle_icmpv6()│
 │                                      └──> 返回 ProcessResult        │
 │                                                                │    │
 │                                                                ▼    │
@@ -551,15 +702,29 @@ pub struct RingQueue<T> {
 
 | 层级 | 协议 | RFC | 状态 |
 |------|------|-----|------|
-| 应用层 | Socket API | - | ⏳ 计划中 |
-| 传输层 | TCP/UDP | RFC 793, RFC 768 | ⏳ 计划中 |
+| 应用层 | Socket API | - | ⏳ 部分实现 |
+| 传输层 | TCP | RFC 793, RFC 9293 | ✅ 已实现（基础功能） |
+| 传输层 | UDP | RFC 768 | ✅ 已实现 |
 | 网络层 | IPv4 | RFC 791 | ✅ 已实现（无分片） |
-| 网络层 | IPv6 | RFC 2460 | ⏳ 计划中 |
+| 网络层 | IPv6 | RFC 8200 | ✅ 已实现（无分片/扩展头） |
 | 网络层 | ICMP | RFC 792 | ✅ 已实现 |
-| 网络层 | ICMPv6 | RFC 4443 | ⏳ 计划中 |
+| 网络层 | ICMPv6 | RFC 4443 | ✅ 已实现 |
+| 路由 | 路由表 | - | ✅ 已实现（最长前缀匹配） |
 | 链路层 | Ethernet | IEEE 802.3 | ✅ 已实现 |
 | 链路层 | VLAN | IEEE 802.1Q | ✅ 已实现 |
 | 链路层 | ARP | RFC 826 | ✅ 已实现 |
+
+**实现详情**：
+- **TCP**: 三次握手、四次挥手、滑动窗口、重传机制、Socket API、连接管理
+- **UDP**: 端口绑定、数据报收发、Socket API、回调机制、端口不可达响应
+- **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持
+- **路由**: IPv4/IPv6路由表、最长前缀匹配（LPM）
+
+**未实现功能**：
+- IP分片和重组（IPv4/IPv6）
+- IPv6扩展头（逐跳选项、分片、路由、目的选项）
+- 邻居发现（ND）
+- 完整Socket API（bind/connect/send/recv等）
 
 ---
 
@@ -609,4 +774,8 @@ pub struct RingQueue<T> {
 - [VLAN 协议设计](protocols/vlan.md) - 802.1Q VLAN 标签处理
 - [ARP 协议设计](protocols/arp.md) - ARP 协议和缓存管理
 - [IPv4 协议设计](protocols/ip.md) - IPv4 协议实现
+- [IPv6 协议设计](protocols/ipv6.md) - IPv6 协议实现
 - [ICMP 协议设计](protocols/icmp.md) - ICMP 协议实现
+- [TCP 协议设计](protocols/tcp.md) - TCP 协议实现
+- [UDP 协议设计](protocols/udp.md) - UDP 协议实现
+- [路由模块设计](route.md) - 路由表和最长前缀匹配
