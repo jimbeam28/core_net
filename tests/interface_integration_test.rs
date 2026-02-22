@@ -2,6 +2,7 @@
 
 use core_net::interface;
 use core_net::interface::{InterfaceState, MacAddr, Ipv4Addr};
+use core_net::protocols::Ipv6Addr;
 use core_net::context::SystemContext;
 use serial_test::serial;
 
@@ -51,6 +52,7 @@ fn test_multi_interface_coordination() {
             name: format!("eth{}", i),
             mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, i as u8]),
             ip_addr: Ipv4Addr::new(192, 168, i as u8, 100),
+            ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, i as u16 + 1),
             netmask: Ipv4Addr::new(255, 255, 255, 0),
             gateway: None,
             mtu: Some(1500),
@@ -89,6 +91,7 @@ fn test_interface_queue_independence() {
         name: "eth1".to_string(),
         mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x56]),
         ip_addr: Ipv4Addr::new(192, 168, 2, 100),
+        ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
         netmask: Ipv4Addr::new(255, 255, 255, 0),
         gateway: None,
         mtu: None,
@@ -218,6 +221,7 @@ fn test_interface_iterator() {
             name: format!("eth{}", i),
             mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, i as u8]),
             ip_addr: Ipv4Addr::new(192, 168, i as u8, 100),
+            ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, i as u16 + 1),
             netmask: Ipv4Addr::new(255, 255, 255, 0),
             gateway: None,
             mtu: None,
@@ -287,6 +291,7 @@ fn test_multiple_managers_independence() {
         name: "eth1".to_string(),
         mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x56]),
         ip_addr: Ipv4Addr::new(192, 168, 2, 100),
+        ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
         netmask: Ipv4Addr::new(255, 255, 255, 0),
         gateway: None,
         mtu: None,

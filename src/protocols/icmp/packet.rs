@@ -477,6 +477,195 @@ impl IcmpPacket {
     }
 }
 
+// ========== ICMPv6 Echo Request/Reply ==========
+
+/// ICMPv6 Echo Request/Reply 报文
+#[derive(Debug, Clone, PartialEq)]
+pub struct IcmpV6Echo {
+    /// 类型 (128=Request, 129=Reply)
+    pub type_: u8,
+
+    /// 代码 (始终为 0)
+    pub code: u8,
+
+    /// 校验和
+    pub checksum: u16,
+
+    /// 标识符（用于匹配请求和响应）
+    pub identifier: u16,
+
+    /// 序列号
+    pub sequence: u16,
+
+    /// 数据负载
+    pub data: Vec<u8>,
+}
+
+impl IcmpV6Echo {
+    /// Echo 报文最小长度（头部 8 字节，无数据）
+    pub const MIN_LEN: usize = 8;
+
+    /// 创建新的 Echo Request
+    pub fn new_request(identifier: u16, sequence: u16, data: Vec<u8>) -> Self {
+        Self::new(ICMPV6_TYPE_ECHO_REQUEST, identifier, sequence, data)
+    }
+
+    /// 创建新的 Echo Reply
+    pub fn new_reply(identifier: u16, sequence: u16, data: Vec<u8>) -> Self {
+        Self::new(ICMPV6_TYPE_ECHO_REPLY, identifier, sequence, data)
+    }
+
+    fn new(type_: u8, identifier: u16, sequence: u16, data: Vec<u8>) -> Self {
+        IcmpV6Echo {
+            type_,
+            code: 0,
+            checksum: 0,
+            identifier,
+            sequence,
+            data,
+        }
+    }
+
+    /// 从 Packet 解析 Echo 报文
+    pub fn from_packet(packet: &mut Packet) -> Result<Self> {
+        if packet.remaining() < Self::MIN_LEN {
+            return Err(CoreError::invalid_packet(format!(
+                "ICMPv6 Echo报文长度不足：{} < {}",
+                packet.remaining(),
+                Self::MIN_LEN
+            )));
+        }
+
+        // 读取类型
+        let type_ = packet.read(1)
+            .ok_or_else(|| CoreError::parse_error("读取ICMPv6 Echo类型失败"))?[0];
+
+        // 读取代码并验证（RFC 4443: Echo Request/Reply 的 Code 必须为 0）
+        let code = packet.read(1)
+            .ok_or_else(|| CoreError::parse_error("读取ICMPv6 Echo代码失败"))?[0];
+
+        if code != 0 {
+            return Err(CoreError::invalid_packet(format!(
+                "ICMPv6 Echo报文Code字段无效：{}（必须为0）",
+                code
+            )));
+        }
+
+        // 读取校验和
+        let checksum_bytes = packet.read(2)
+            .ok_or_else(|| CoreError::parse_error("读取ICMPv6 Echo校验和失败"))?;
+        let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
+
+        // 读取标识符
+        let identifier_bytes = packet.read(2)
+            .ok_or_else(|| CoreError::parse_error("读取ICMPv6 Echo标识符失败"))?;
+        let identifier = u16::from_be_bytes([identifier_bytes[0], identifier_bytes[1]]);
+
+        // 读取序列号
+        let sequence_bytes = packet.read(2)
+            .ok_or_else(|| CoreError::parse_error("读取ICMPv6 Echo序列号失败"))?;
+        let sequence = u16::from_be_bytes([sequence_bytes[0], sequence_bytes[1]]);
+
+        // 读取剩余数据
+        let mut data = Vec::new();
+        while packet.remaining() > 0 {
+            if let Some(byte) = packet.read(1) {
+                data.push(byte[0]);
+            }
+        }
+
+        Ok(IcmpV6Echo {
+            type_,
+            code,
+            checksum,
+            identifier,
+            sequence,
+            data,
+        })
+    }
+
+    /// 编码为字节数组
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + self.data.len());
+
+        bytes.push(self.type_);
+        bytes.push(self.code);
+        bytes.extend_from_slice(&self.checksum.to_be_bytes());
+        bytes.extend_from_slice(&self.identifier.to_be_bytes());
+        bytes.extend_from_slice(&self.sequence.to_be_bytes());
+        bytes.extend_from_slice(&self.data);
+
+        // 计算校验和
+        let checksum = calculate_checksum(&bytes);
+        bytes[2] = (checksum >> 8) as u8;
+        bytes[3] = (checksum & 0xFF) as u8;
+
+        bytes
+    }
+
+    /// 验证是否为 Echo Request
+    pub fn is_request(&self) -> bool {
+        self.type_ == ICMPV6_TYPE_ECHO_REQUEST
+    }
+
+    /// 验证是否为 Echo Reply
+    pub fn is_reply(&self) -> bool {
+        self.type_ == ICMPV6_TYPE_ECHO_REPLY
+    }
+
+    /// 创建对应的 Echo Reply
+    pub fn make_reply(&self) -> Self {
+        Self {
+            type_: ICMPV6_TYPE_ECHO_REPLY,
+            code: 0,
+            checksum: 0,
+            identifier: self.identifier,
+            sequence: self.sequence,
+            data: self.data.clone(),
+        }
+    }
+}
+
+// ========== ICMPv6 报文枚举 ==========
+
+/// ICMPv6 报文类型（枚举所有支持的报文）
+#[derive(Debug, Clone, PartialEq)]
+pub enum IcmpV6Packet {
+    Echo(IcmpV6Echo),
+}
+
+impl IcmpV6Packet {
+    /// 从 Packet 解析 ICMPv6 报文
+    pub fn from_packet(packet: &mut Packet) -> Result<Self> {
+        // 读取类型但不消耗
+        let type_ = packet.peek(1)
+            .ok_or_else(|| CoreError::parse_error("读取ICMPv6类型失败"))?[0];
+
+        match type_ {
+            ICMPV6_TYPE_ECHO_REPLY | ICMPV6_TYPE_ECHO_REQUEST => {
+                Ok(IcmpV6Packet::Echo(IcmpV6Echo::from_packet(packet)?))
+            }
+            _ => Err(CoreError::UnsupportedProtocol(format!(
+                "不支持的ICMPv6类型: {}", type_
+            ))),
+        }
+    }
+
+    /// 获取 ICMPv6 类型
+    pub fn get_type(&self) -> u8 {
+        match self {
+            IcmpV6Packet::Echo(echo) => echo.type_,
+        }
+    }
+
+    /// 编码为字节数组
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            IcmpV6Packet::Echo(echo) => echo.to_bytes(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

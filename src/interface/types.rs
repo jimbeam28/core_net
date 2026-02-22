@@ -1,7 +1,7 @@
 use std::fmt;
 
 // 从 common 模块导入地址类型
-pub use crate::common::{MacAddr, Ipv4Addr};
+pub use crate::common::{MacAddr, Ipv4Addr, Ipv6Addr};
 
 /// 接口错误类型
 #[derive(Debug)]

@@ -3,11 +3,11 @@
 // ICMP 报文处理逻辑
 
 use crate::common::{CoreError, Packet, Result};
-use crate::protocols::Ipv4Addr;
+use crate::protocols::{Ipv4Addr, Ipv6Addr};
 use crate::protocols::ip::verify_checksum;
 use crate::context::SystemContext;
 
-use super::packet::{IcmpPacket, IcmpEcho, is_broadcast_addr, is_multicast_addr};
+use super::packet::{IcmpPacket, IcmpEcho, IcmpV6Packet, IcmpV6Echo, is_broadcast_addr, is_multicast_addr};
 use super::types::*;
 use super::echo::{handle_echo_request, handle_echo_reply, EchoProcessResult};
 
@@ -223,6 +223,116 @@ pub fn create_time_exceeded(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
     };
 
     time_exceeded.to_bytes()
+}
+
+// ========== ICMPv6 处理函数 ==========
+
+/// 处理接收到的 ICMPv6 报文
+///
+/// # 参数
+/// - packet: ICMPv6 报文（不包含 IPv6 头部）
+/// - source_addr: 发送方 IPv6 地址
+/// - dest_addr: 接收方 IPv6 地址（本接口 IPv6）
+/// - _context: 系统上下文（包含 Echo 管理器）
+/// - verbose: 是否打印详细信息
+///
+/// # 返回
+/// - Ok(IcmpProcessResult): 处理结果
+/// - Err(CoreError): 处理失败
+pub fn process_icmpv6_packet(
+    mut packet: Packet,
+    source_addr: Ipv6Addr,
+    dest_addr: Ipv6Addr,
+    _context: &SystemContext,
+    verbose: bool,
+) -> Result<IcmpProcessResult> {
+    // 读取数据用于校验和验证
+    let data = packet.peek(packet.remaining()).unwrap_or(&[]);
+
+    // 验证校验和 - 校验和错误时静默丢弃
+    if !verify_checksum(data, 2) {
+        if verbose {
+            println!("ICMPv6: 校验和错误，静默丢弃");
+        }
+        return Ok(IcmpProcessResult::NoReply);
+    }
+
+    // 解析 ICMPv6 报文
+    let icmpv6_packet = IcmpV6Packet::from_packet(&mut packet)?;
+
+    if verbose {
+        println!("ICMPv6: Type={} Source={} Dest={}",
+            icmpv6_packet.get_type(), source_addr, dest_addr);
+    }
+
+    // 根据类型处理
+    match icmpv6_packet {
+        IcmpV6Packet::Echo(echo) => {
+            handle_icmpv6_echo_packet(echo, source_addr, dest_addr, verbose)
+        }
+    }
+}
+
+/// 处理 ICMPv6 Echo 报文
+fn handle_icmpv6_echo_packet(
+    echo: IcmpV6Echo,
+    source_addr: Ipv6Addr,
+    dest_addr: Ipv6Addr,
+    verbose: bool,
+) -> Result<IcmpProcessResult> {
+    if echo.is_request() {
+        // 处理 Echo Request
+        if verbose {
+            println!("ICMPv6: 收到 Echo Request ID={} Seq={} from {} to {}",
+                echo.identifier, echo.sequence, source_addr, dest_addr);
+        }
+
+        // 创建 Echo Reply
+        let reply = echo.make_reply();
+
+        if verbose {
+            println!("ICMPv6: 发送 Echo Reply ID={} Seq={}",
+                reply.identifier, reply.sequence);
+        }
+        Ok(IcmpProcessResult::Reply(reply.to_bytes()))
+    } else if echo.is_reply() {
+        // 处理 Echo Reply
+        if verbose {
+            println!("ICMPv6: 收到 Echo Reply ID={} Seq={} from {}",
+                echo.identifier, echo.sequence, source_addr);
+        }
+        Ok(IcmpProcessResult::Processed)
+    } else {
+        Ok(IcmpProcessResult::NoReply)
+    }
+}
+
+/// 创建 ICMPv6 Echo Request
+///
+/// # 参数
+/// - identifier: 标识符
+/// - sequence: 序列号
+/// - data: 负载数据
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 ICMPv6 报文
+pub fn create_icmpv6_echo_request(identifier: u16, sequence: u16, data: Vec<u8>) -> Vec<u8> {
+    let echo = IcmpV6Echo::new_request(identifier, sequence, data);
+    echo.to_bytes()
+}
+
+/// 创建 ICMPv6 Echo Reply
+///
+/// # 参数
+/// - identifier: 标识符
+/// - sequence: 序列号
+/// - data: 负载数据
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 ICMPv6 报文
+pub fn create_icmpv6_echo_reply(identifier: u16, sequence: u16, data: Vec<u8>) -> Vec<u8> {
+    let echo = IcmpV6Echo::new_reply(identifier, sequence, data);
+    echo.to_bytes()
 }
 
 #[cfg(test)]

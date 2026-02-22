@@ -139,7 +139,7 @@ impl Default for InterfaceManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::types::{MacAddr, Ipv4Addr};
+    use crate::interface::types::{MacAddr, Ipv4Addr, Ipv6Addr};
 
     /// 创建测试用接口
     fn create_test_interface(name: &str, index: u32) -> NetworkInterface {
@@ -148,6 +148,7 @@ mod tests {
             index,
             MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             Ipv4Addr::new(192, 168, 1, 100),
+            Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             256,
             256,
         )
@@ -159,6 +160,7 @@ mod tests {
             name: name.to_string(),
             mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             ip_addr: Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3]),
+            ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             netmask: Ipv4Addr::new(255, 255, 255, 0),
             gateway: None,
             mtu: None,

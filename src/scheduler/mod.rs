@@ -8,6 +8,7 @@ use crate::common::Packet;
 use crate::engine::PacketProcessor;
 use crate::interface::InterfaceManager;
 use crate::context::SystemContext;
+use crate::protocols::Ipv6Addr;
 
 // --- 错误类型定义 ---
 
@@ -497,6 +498,7 @@ mod tests {
             0,
             MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             Ipv4Addr::new(192, 168, 1, 100),
+            Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             256,
             256,
         );
@@ -513,6 +515,7 @@ mod tests {
             0,
             MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             Ipv4Addr::new(192, 168, 1, 100),
+            Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             256,
             256,
         );
@@ -522,6 +525,7 @@ mod tests {
             1,
             MacAddr::zero(),
             Ipv4Addr::new(127, 0, 0, 1),
+            Ipv6Addr::LOOPBACK,
             256,
             256,
         );
@@ -1005,6 +1009,7 @@ mod tests {
             0,
             MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             Ipv4Addr::new(192, 168, 1, 100),
+            Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             256,
             256,
         );

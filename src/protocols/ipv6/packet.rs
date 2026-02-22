@@ -143,11 +143,19 @@ fn is_local_address(
         })?;
 
     // 检查是否有接口配置了此地址
-    // 注意：当前接口管理器尚未支持 IPv6 地址，这里只做基本检查
     let is_local = interfaces.get_by_index(ifindex)
-        .map(|_| {
+        .map(|iface| {
+            // 检查地址是否匹配接口配置的 IPv6 地址
+            if iface.ipv6_addr() == dest_addr {
+                return true;
+            }
+
             // 特殊地址检查
-            dest_addr.is_loopback() || dest_addr == Ipv6Addr::LINK_LOCAL_ALL_NODES
+            if dest_addr.is_loopback() || dest_addr == Ipv6Addr::LINK_LOCAL_ALL_NODES {
+                return true;
+            }
+
+            false
         })
         .unwrap_or(false);
 

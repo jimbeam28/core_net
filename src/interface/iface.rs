@@ -1,4 +1,4 @@
-use crate::interface::types::{MacAddr, Ipv4Addr, InterfaceState, InterfaceType};
+use crate::interface::types::{MacAddr, Ipv4Addr, Ipv6Addr, InterfaceState, InterfaceType};
 use crate::common::queue::RingQueue;
 use crate::protocols::Packet;
 
@@ -16,6 +16,9 @@ pub struct NetworkInterface {
 
     /// IPv4地址
     pub ip_addr: Ipv4Addr,
+
+    /// IPv6地址
+    pub ipv6_addr: Ipv6Addr,
 
     /// 子网掩码
     pub netmask: Ipv4Addr,
@@ -46,7 +49,8 @@ impl NetworkInterface {
     /// - name: 接口名称
     /// - index: 接口索引
     /// - mac_addr: MAC地址
-    /// - ip_addr: IP地址
+    /// - ip_addr: IPv4地址
+    /// - ipv6_addr: IPv6地址
     /// - rxq_capacity: 接收队列容量
     /// - txq_capacity: 发送队列容量
     pub fn new(
@@ -54,6 +58,7 @@ impl NetworkInterface {
         index: u32,
         mac_addr: MacAddr,
         ip_addr: Ipv4Addr,
+        ipv6_addr: Ipv6Addr,
         rxq_capacity: usize,
         txq_capacity: usize,
     ) -> Self {
@@ -62,6 +67,7 @@ impl NetworkInterface {
             index,
             mac_addr,
             ip_addr,
+            ipv6_addr,
             netmask: Ipv4Addr::new(255, 255, 255, 0),
             gateway: None,
             mtu: 1500,
@@ -85,6 +91,7 @@ impl NetworkInterface {
             index,
             mac_addr: config.mac_addr,
             ip_addr: config.ip_addr,
+            ipv6_addr: config.ipv6_addr,
             netmask: config.netmask,
             gateway: config.gateway,
             mtu: config.mtu.unwrap_or(1500),
@@ -108,6 +115,16 @@ impl NetworkInterface {
     /// 设置IP地址
     pub fn set_ip_addr(&mut self, addr: Ipv4Addr) {
         self.ip_addr = addr;
+    }
+
+    /// 获取IPv6地址
+    pub fn ipv6_addr(&self) -> Ipv6Addr {
+        self.ipv6_addr
+    }
+
+    /// 设置IPv6地址
+    pub fn set_ipv6_addr(&mut self, addr: Ipv6Addr) {
+        self.ipv6_addr = addr;
     }
 
     /// 设置MAC地址
@@ -178,6 +195,9 @@ pub struct InterfaceConfig {
     /// IPv4地址
     pub ip_addr: Ipv4Addr,
 
+    /// IPv6地址
+    pub ipv6_addr: Ipv6Addr,
+
     /// 子网掩码
     pub netmask: Ipv4Addr,
 
@@ -202,6 +222,7 @@ mod tests {
             0,
             MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             Ipv4Addr::new(192, 168, 1, 100),
+            Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             256,
             256,
         )
@@ -213,6 +234,7 @@ mod tests {
             name: "eth0".to_string(),
             mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             ip_addr: Ipv4Addr::new(192, 168, 1, 100),
+            ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             netmask: Ipv4Addr::new(255, 255, 255, 0),
             gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
             mtu: Some(1500),
@@ -256,6 +278,7 @@ mod tests {
             name: "lo".to_string(),
             mac_addr: MacAddr::zero(),
             ip_addr: Ipv4Addr::new(127, 0, 0, 1),
+            ipv6_addr: Ipv6Addr::LOOPBACK,
             netmask: Ipv4Addr::new(255, 0, 0, 0),
             gateway: None,
             mtu: None,
@@ -276,6 +299,15 @@ mod tests {
 
         iface.set_ip_addr(Ipv4Addr::new(10, 0, 0, 1));
         assert_eq!(iface.ip_addr, Ipv4Addr::new(10, 0, 0, 1));
+    }
+
+    #[test]
+    fn test_interface_ipv6_addr() {
+        let mut iface = create_test_interface();
+        assert_eq!(iface.ipv6_addr(), Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1));
+
+        iface.set_ipv6_addr(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
+        assert_eq!(iface.ipv6_addr(), Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
     }
 
     #[test]
@@ -488,6 +520,7 @@ mod tests {
             0,
             MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             Ipv4Addr::new(192, 168, 1, 100),
+            Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             512,
             1024,
         );

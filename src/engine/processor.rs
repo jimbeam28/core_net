@@ -262,53 +262,60 @@ impl PacketProcessor {
     /// - eth_hdr: 以太网头部
     /// - packet: Packet（已去除以太网头部）
     fn handle_ipv4(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
-        // 解析 IP 头部
-        let ip_hdr = ip::Ipv4Header::from_packet(&mut packet)?;
-
-        if self.verbose {
-            println!("IP: {} -> {} Protocol={} TTL={}",
-                ip_hdr.source_addr, ip_hdr.dest_addr, ip_hdr.protocol, ip_hdr.ttl);
-        }
-
-        // 检查分片标志（当前版本不支持分片和重组）
-        if ip_hdr.is_fragmented() {
-            if self.verbose {
-                println!("IP: 检测到分片数据报 (MF={}, Offset={}), 当前版本不支持分片",
-                    ip_hdr.has_mf_flag(), ip_hdr.fragment_offset());
-            }
-            // 分片数据报直接丢弃，不发送 ICMP 响应
-            return Ok(None);
-        }
-
-        // 检查目标 IP 是否为本接口 IP
         let ifindex = packet.get_ifindex();
-        let our_ip = self.get_interface_ip(ifindex)?;
 
-        // 接受发送给本机、广播或回环地址的数据报
-        let is_local = ip_hdr.dest_addr == our_ip
-            || ip_hdr.is_broadcast()
-            || ip_hdr.is_loopback();
+        // 使用 process_ip_packet 处理 IP 数据报（与 IPv6 处理模式一致）
+        let result = ip::process_ip_packet(&mut packet, ifindex, &self.context)?;
 
-        if !is_local {
-            // 不是发送给本机的报文，不处理
-            return Ok(None);
-        }
+        match result {
+            ip::IpProcessResult::NoReply => {
+                if self.verbose {
+                    println!("IPv4: NoReply");
+                }
+                Ok(None)
+            }
+            ip::IpProcessResult::Reply(ip_bytes) => {
+                if self.verbose {
+                    println!("IPv4: Reply {} bytes", ip_bytes.len());
+                }
+                // 封装为以太网帧
+                let our_mac = self.get_interface_mac(ifindex)?;
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,  // 响应发送给原始发送方
+                    our_mac,          // 使用本接口的 MAC
+                    crate::protocols::ETH_P_IP,
+                    &ip_bytes,
+                );
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
+            ip::IpProcessResult::DeliverToProtocol { ip_hdr, data } => {
+                if self.verbose {
+                    println!("IPv4: DeliverToProtocol {} bytes, protocol={}", data.len(), ip_hdr.protocol);
+                    println!("IP: {} -> {} Protocol={} TTL={}",
+                        ip_hdr.source_addr, ip_hdr.dest_addr, ip_hdr.protocol, ip_hdr.ttl);
+                }
 
-        // 根据 IP 协议字段分发
-        match ip_hdr.protocol {
-            ip::IP_PROTO_ICMP => {
-                self.handle_icmp(eth_hdr, ip_hdr, packet)
-            }
-            ip::IP_PROTO_UDP => {
-                self.handle_udp(eth_hdr, ip_hdr, packet)
-            }
-            ip::IP_PROTO_TCP => {
-                self.handle_tcp(eth_hdr, ip_hdr, packet)
-            }
-            _ => {
-                Err(ProcessError::UnsupportedProtocol(
-                    format!("Unknown IP protocol: {}", ip_hdr.protocol)
-                ))
+                // 创建新 Packet 并保留原始 ifindex
+                let mut protocol_packet = Packet::from_bytes(data);
+                protocol_packet.set_ifindex(ifindex);
+
+                // 根据 IP 协议字段分发到上层协议
+                match ip_hdr.protocol {
+                    ip::IP_PROTO_ICMP => {
+                        self.handle_icmp(eth_hdr, ip_hdr, protocol_packet)
+                    }
+                    ip::IP_PROTO_UDP => {
+                        self.handle_udp(eth_hdr, ip_hdr, protocol_packet)
+                    }
+                    ip::IP_PROTO_TCP => {
+                        self.handle_tcp(eth_hdr, ip_hdr, protocol_packet)
+                    }
+                    _ => {
+                        Err(ProcessError::UnsupportedProtocol(
+                            format!("Unknown IP protocol: {}", ip_hdr.protocol)
+                        ))
+                    }
+                }
             }
         }
     }
@@ -342,10 +349,90 @@ impl PacketProcessor {
                 );
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
-            ipv6::Ipv6ProcessResult::DeliverToProtocol(_data) => {
-                // 当前版本不实现 ICMPv6 处理，静默丢弃
-                Ok(None)
+            ipv6::Ipv6ProcessResult::DeliverToProtocol(data) => {
+                // 提取 IPv6 头部信息用于上层协议处理
+                let ipv6_hdr = ipv6::Ipv6Header::from_packet(&mut packet)?;
+
+                if self.verbose {
+                    println!("IPv6: {} -> {} NextHeader={} HopLimit={}",
+                        ipv6_hdr.source_addr, ipv6_hdr.destination_addr, ipv6_hdr.next_header, ipv6_hdr.hop_limit);
+                }
+
+                // 根据 Next Header 字段分发到上层协议
+                match ipv6_hdr.next_header {
+                    ipv6::IpProtocol::IcmpV6 => {
+                        self.handle_icmpv6(eth_hdr, ipv6_hdr, Packet::from_bytes(data))
+                    }
+                    _ => {
+                        Err(ProcessError::UnsupportedProtocol(
+                            format!("Unknown IPv6 next header: {}", u8::from(ipv6_hdr.next_header))
+                        ))
+                    }
+                }
             }
+        }
+    }
+
+    /// 处理 ICMPv6 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ipv6_hdr: IPv6 头部
+    /// - packet: Packet（已去除 IPv6 头部）
+    fn handle_icmpv6(&self, eth_hdr: EthernetHeader, ipv6_hdr: ipv6::Ipv6Header, packet: Packet) -> ProcessResult {
+        // 获取接口索引
+        let ifindex = packet.get_ifindex();
+
+        // 获取本接口的 IPv6 地址（用作响应的源地址）
+        let interfaces = self.context.interfaces.lock()
+            .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
+        let iface = interfaces.get_by_index(ifindex)
+            .map_err(|e| ProcessError::ParseError(format!("获取接口失败: {}", e)))?;
+        let our_ipv6 = iface.ipv6_addr();
+
+        if self.verbose {
+            println!("ICMPv6: 处理 ICMPv6 报文 源={} 目的={}",
+                ipv6_hdr.source_addr, ipv6_hdr.destination_addr);
+        }
+
+        // 处理 ICMPv6 报文
+        let result = icmp::process_icmpv6_packet(
+            packet,
+            ipv6_hdr.source_addr,
+            our_ipv6,
+            &self.context,
+            self.verbose,
+        ).map_err(|e| ProcessError::ParseError(format!("ICMPv6处理失败: {}", e)))?;
+
+        // 根据处理结果返回
+        match result {
+            icmp::IcmpProcessResult::NoReply => Ok(None),
+            icmp::IcmpProcessResult::Reply(icmpv6_bytes) => {
+                // 获取本接口的 MAC 地址
+                let our_mac = self.get_interface_mac(ifindex)?;
+
+                // 封装为 IPv6 数据包
+                let ipv6_reply = ipv6::Ipv6Header::new(
+                    our_ipv6,
+                    ipv6_hdr.source_addr,
+                    icmpv6_bytes.len() as u16,
+                    ipv6::IpProtocol::IcmpV6,
+                    64,
+                );
+                let mut ipv6_packet = ipv6_reply.to_bytes().to_vec();
+                ipv6_packet.extend_from_slice(&icmpv6_bytes);
+
+                // 封装为以太网帧
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,  // 响应发送给原始发送方
+                    our_mac,          // 使用本接口的 MAC
+                    crate::protocols::ETH_P_IPV6,
+                    &ipv6_packet,
+                );
+
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
+            icmp::IcmpProcessResult::Processed => Ok(None),
         }
     }
 
@@ -376,10 +463,16 @@ impl PacketProcessor {
             self.verbose,
         ).map_err(|e| ProcessError::ParseError(format!("ICMP处理失败: {}", e)))?;
 
+        println!("ICMP: process_icmp_packet 返回 {:?}", std::mem::discriminant(&result));
+
         // 根据处理结果返回
         match result {
-            icmp::IcmpProcessResult::NoReply => Ok(None),
+            icmp::IcmpProcessResult::NoReply => {
+                println!("ICMP: NoReply");
+                Ok(None)
+            }
             icmp::IcmpProcessResult::Reply(icmp_bytes) => {
+                println!("ICMP: Reply {} bytes", icmp_bytes.len());
                 // 获取本接口的 MAC 地址
                 let our_mac = self.get_interface_mac(ifindex)?;
 
@@ -403,9 +496,13 @@ impl PacketProcessor {
                     &ip_packet,
                 );
 
+                println!("ICMP: 返回以太网帧 {} bytes", frame_bytes.len());
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
-            icmp::IcmpProcessResult::Processed => Ok(None),
+            icmp::IcmpProcessResult::Processed => {
+                println!("ICMP: Processed");
+                Ok(None)
+            }
         }
     }
 

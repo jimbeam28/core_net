@@ -116,6 +116,7 @@ impl Default for SystemContext {
 mod tests {
     use super::*;
     use crate::interface::{InterfaceConfig, InterfaceState, MacAddr, Ipv4Addr};
+    use crate::protocols::Ipv6Addr;
 
     // ========== 测试辅助函数 ==========
 
@@ -125,6 +126,7 @@ mod tests {
             name: "eth0".to_string(),
             mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             ip_addr: Ipv4Addr::new(192, 168, 1, 100),
+            ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             netmask: Ipv4Addr::new(255, 255, 255, 0),
             gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
             mtu: Some(1500),

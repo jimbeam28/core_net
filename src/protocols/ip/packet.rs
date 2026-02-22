@@ -22,8 +22,13 @@ pub enum IpProcessResult {
     /// 需要发送 ICMP 错误响应（Vec<u8> 为完整的 IP 数据报）
     Reply(Vec<u8>),
 
-    /// 交付给上层协议（Vec<u8> 为上层协议数据，不含 IP 头部）
-    DeliverToProtocol(Vec<u8>),
+    /// 交付给上层协议（包含 IP 头部和负载数据）
+    DeliverToProtocol {
+        /// IP 头部
+        ip_hdr: Ipv4Header,
+        /// 上层协议数据（不含 IP 头部）
+        data: Vec<u8>,
+    },
 }
 
 /// IP 处理专用 Result 类型
@@ -61,9 +66,8 @@ pub fn process_ip_packet(
         })?;
 
     // 2. 验证校验和
-    if verify_header_checksum(packet, ip_hdr.header_len()).is_err() {
-        return Err(IpError::checksum_error(0, 0)); // 校验和错误，静默丢弃
-    }
+    verify_header_checksum(packet, ip_hdr.header_len())
+        .map_err(|e| IpError::invalid_packet(e.to_string()))?;
 
     // 3. 检查是否为分片数据报（当前版本不支持分片和重组）
     if ip_hdr.is_fragmented() {
@@ -88,7 +92,7 @@ pub fn process_ip_packet(
         Ipv4Protocol::Icmp => {
             // 提取数据部分（不含 IP 头部）
             let data = extract_payload(packet, ip_hdr.header_len())?;
-            Ok(IpProcessResult::DeliverToProtocol(data))
+            Ok(IpProcessResult::DeliverToProtocol { ip_hdr, data })
         }
         _ => {
             // 协议不支持，需要返回 ICMP 协议不可达
@@ -121,9 +125,17 @@ pub fn encapsulate_ip_datagram(
 
 /// 验证 IP 头部校验和
 fn verify_header_checksum(packet: &Packet, header_len: usize) -> CoreResult<()> {
-    // 获取头部数据
-    let header_data = packet.peek(header_len)
-        .ok_or_else(|| CoreError::parse_error("读取IP头部失败"))?;
+    // 保存当前offset
+    let original_offset = packet.offset;
+
+    // IP数据报从当前offset减去header_len开始（因为from_packet已经读取过了）
+    // 实际上，offset现在指向IP头部之后的位置
+    // 所以IP头部在 [original_offset - header_len, original_offset)
+    let ip_header_start = original_offset.saturating_sub(header_len);
+
+    // 从原始数据中获取IP头部
+    let header_data = packet.data.get(ip_header_start..original_offset)
+        .ok_or_else(|| CoreError::parse_error("IP头部数据不足"))?;
 
     // 验证校验和（校验和字段在偏移 10 处）
     if !verify_checksum(header_data, 10) {
@@ -152,18 +164,14 @@ fn is_local_address(context: &SystemContext, dest_addr: Ipv4Addr, ifindex: u32) 
 }
 
 /// 提取 IP 负载数据
-fn extract_payload(packet: &Packet, header_len: usize) -> IpResult<Vec<u8>> {
-    let remaining = packet.remaining();
-    if remaining < header_len {
-        return Err(IpError::PacketTooShort {
-            expected: header_len,
-            found: remaining,
-        });
-    }
+fn extract_payload(packet: &Packet, _header_len: usize) -> IpResult<Vec<u8>> {
+    // 此时 packet.offset 已经在 IP 头部之后
+    // packet.remaining() 就是负载数据的长度
+    let payload_len = packet.remaining();
 
-    // 跳过 IP 头部
-    let payload_start = header_len;
-    let payload_len = remaining - payload_start;
+    if payload_len == 0 {
+        return Ok(Vec::new());
+    }
 
     let payload_data = packet.peek(payload_len)
         .ok_or(IpError::PacketTooShort {
@@ -172,17 +180,6 @@ fn extract_payload(packet: &Packet, header_len: usize) -> IpResult<Vec<u8>> {
         })?;
 
     Ok(payload_data.to_vec())
-}
-
-// IpError 辅助构造函数
-impl IpError {
-    fn invalid_packet(msg: String) -> Self {
-        match msg {
-            m if m.contains("版本") => IpError::InvalidVersion { expected: 4, found: 6 },
-            m if m.contains("头部长度") => IpError::InvalidHeaderLength { ihl: 0 },
-            _ => IpError::PacketTooShort { expected: 0, found: 0 },
-        }
-    }
 }
 
 #[cfg(test)]

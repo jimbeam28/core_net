@@ -60,6 +60,11 @@ pub enum IpError {
         mtu: u16,
         length: u16,
     },
+
+    /// 无效数据包
+    InvalidPacket {
+        message: String,
+    },
 }
 
 impl IpError {
@@ -107,6 +112,13 @@ impl IpError {
     pub fn fragmentation_needed(mtu: u16, length: u16) -> Self {
         IpError::FragmentationNeeded { mtu, length }
     }
+
+    /// 创建无效数据包错误
+    pub fn invalid_packet(msg: impl Into<String>) -> Self {
+        IpError::InvalidPacket {
+            message: msg.into(),
+        }
+    }
 }
 
 impl std::fmt::Display for IpError {
@@ -138,6 +150,9 @@ impl std::fmt::Display for IpError {
             }
             IpError::FragmentationNeeded { mtu, length } => {
                 write!(f, "IP需要分片但DF置位: MTU={}, Length={}", mtu, length)
+            }
+            IpError::InvalidPacket { message } => {
+                write!(f, "IP数据包无效: {}", message)
             }
         }
     }
@@ -171,6 +186,9 @@ impl From<IpError> for CoreError {
                 CoreError::InvalidPacket(err.to_string())
             }
             IpError::FragmentationNeeded { .. } => {
+                CoreError::InvalidPacket(err.to_string())
+            }
+            IpError::InvalidPacket { .. } => {
                 CoreError::InvalidPacket(err.to_string())
             }
         }

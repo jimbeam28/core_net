@@ -2,7 +2,7 @@ use std::fs;
 use crate::common::AddrError;
 use crate::interface::iface::InterfaceConfig;
 use crate::interface::manager::InterfaceManager;
-use crate::interface::types::{InterfaceError, InterfaceState, Ipv4Addr, MacAddr};
+use crate::interface::types::{InterfaceError, InterfaceState, Ipv4Addr, Ipv6Addr, MacAddr};
 
 /// 接口模块默认配置文件路径
 pub const DEFAULT_CONFIG_PATH: &str = "src/interface/interface.toml";
@@ -118,6 +118,7 @@ fn parse_toml_config(content: &str) -> Result<InterfaceModuleConfig, InterfaceEr
                 name: String::new(),
                 mac_addr: MacAddr::zero(),
                 ip_addr: Ipv4Addr::unspecified(),
+                ipv6_addr: Ipv6Addr::UNSPECIFIED,
                 netmask: Ipv4Addr::new(255, 255, 255, 0),
                 gateway: None,
                 mtu: None,
@@ -544,6 +545,7 @@ unknown_field = "value"
             name: "eth0".to_string(),
             mac_addr: MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
             ip_addr: Ipv4Addr::new(192, 168, 1, 100),
+            ipv6_addr: Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
             netmask: Ipv4Addr::new(255, 255, 255, 0),
             gateway: Some(Ipv4Addr::new(192, 168, 1, 1)),
             mtu: Some(1500),
@@ -555,6 +557,7 @@ unknown_field = "value"
             name: "lo".to_string(),
             mac_addr: MacAddr::zero(),
             ip_addr: Ipv4Addr::new(127, 0, 0, 1),
+            ipv6_addr: Ipv6Addr::LOOPBACK,
             netmask: Ipv4Addr::new(255, 0, 0, 0),
             gateway: None,
             mtu: None,
