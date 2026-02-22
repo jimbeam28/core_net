@@ -89,41 +89,26 @@ impl<'a> TcpSegment<'a> {
         sum += u32::from(6u16) << 8; // 协议号 TCP=6
 
         let tcp_len = (self.header.header_len() + self.payload.len() + self.options.len()) as u16;
-        sum += u32::from(tcp_len >> 8) << 8;
-        sum += u32::from(tcp_len & 0xFF) << 8;
+        sum += u32::from(tcp_len >> 8) << 8; // 高字节
+        sum += u32::from(tcp_len & 0xFF) << 8; // 低字节
 
-        // TCP 头部（不含校验和字段）
-        sum += u32::from(self.header.source_port);
-        sum += u32::from(self.header.destination_port);
-        sum += self.header.sequence_number >> 16;
-        sum += self.header.sequence_number & 0xFFFF;
-        sum += self.header.acknowledgment_number >> 16;
-        sum += self.header.acknowledgment_number & 0xFFFF;
-        // 跳过校验和字段，使用 flags 替代
-        sum += u32::from(self.header.flags() as u16) << 8;
-        sum += u32::from(self.header.window_size);
-        sum += u32::from(self.header.urgent_pointer);
+        // 构建完整的字节数组（头部 + 选项 + 数据）
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.header.serialize());
+        bytes.extend_from_slice(&self.options);
+        bytes.extend_from_slice(&self.payload);
 
-        // 选项
+        // TCP 数据（使用 16 位字累加，跳过校验和字段）
         let mut i = 0;
-        while i + 1 < self.options.len() {
-            let word = u16::from_be_bytes([self.options[i], self.options[i + 1]]);
-            sum += u32::from(word);
+        while i + 1 < bytes.len() {
+            if i != 16 && i != 17 { // 跳过校验和字段（字节 16-17）
+                let word = u16::from_be_bytes([bytes[i], bytes[i + 1]]);
+                sum += u32::from(word);
+            }
             i += 2;
         }
-        if i < self.options.len() {
-            sum += u32::from(self.options[i]) << 8;
-        }
-
-        // 数据
-        let mut j = 0;
-        while j + 1 < self.payload.len() {
-            let word = u16::from_be_bytes([self.payload[j], self.payload[j + 1]]);
-            sum += u32::from(word);
-            j += 2;
-        }
-        if j < self.payload.len() {
-            sum += u32::from(self.payload[j]) << 8;
+        if i < bytes.len() && i != 16 && i != 17 {
+            sum += u32::from(bytes[i]) << 8;
         }
 
         // 处理进位

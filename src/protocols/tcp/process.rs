@@ -6,11 +6,13 @@ use crate::common::Packet;
 use crate::protocols::Ipv4Addr;
 use crate::protocols::ip::{add_ipv4_pseudo_header, fold_carry};
 use crate::context::SystemContext;
+use std::sync::{Arc, Mutex};
 
 use super::config::TcpConfig;
 use super::tcb::{Tcb, TcpConnectionId, TcpState};
 use super::segment::TcpSegment;
 use super::header::TcpHeader;
+use super::connection::{TcpConnectionManager, TcpOption};
 use super::error::TcpError;
 
 /// TCP 处理结果
@@ -22,8 +24,11 @@ pub enum TcpProcessResult {
     /// 需要发送 TCP 响应
     Reply(Vec<u8>),
 
-    /// 数据已交付给应用层
+    /// 数据已交付给应用层（仅数据，无需回复）
     Delivered(Vec<u8>),
+
+    /// 需要发送 TCP 响应，同时数据已交付给应用层
+    ReplyAndDelivered(Vec<u8>, Vec<u8>),
 
     /// 连接已建立
     ConnectionEstablished(TcpConnectionId),
@@ -51,6 +56,10 @@ pub fn process_tcp_packet(
     context: &SystemContext,
     config: &TcpConfig,
 ) -> std::result::Result<TcpProcessResult, TcpError> {
+    // 获取连接管理器的可变引用
+    let mut conn_manager = context.tcp_connections.lock()
+        .map_err(|e| TcpError::Other(format!("锁定 TCP 管理器失败: {}", e)))?;
+
     // 读取数据用于解析
     let data = packet.peek(packet.remaining())
         .ok_or_else(|| TcpError::ParseError("读取 TCP 报文失败".to_string()))?;
@@ -69,22 +78,17 @@ pub fn process_tcp_packet(
     let conn_id = TcpConnectionId::new(dest_addr, header.destination_port, source_addr, header.source_port);
 
     // 检查是否有监听端口
-    if let Some(listen_tcb) = context.tcp_connections.lock()
-        .map_err(|e| TcpError::Other(format!("锁定 TCP 管理器失败: {}", e)))?
-        .find_listen(header.destination_port)
-    {
-        return handle_syn_for_listen(listen_tcb, source_addr, header.source_port, &segment, config);
+    if let Some(listen_tcb) = conn_manager.find_listen(header.destination_port) {
+        return handle_syn_for_listen(listen_tcb, source_addr, header.source_port, &segment, config, &mut conn_manager);
     }
 
     // 查找现有连接
-    let tcb = context.tcp_connections.lock()
-        .map_err(|e| TcpError::Other(format!("锁定 TCP 管理器失败: {}", e)))?
-        .find(&conn_id);
+    let tcb = conn_manager.find(&conn_id);
 
     if let Some(tcb) = tcb {
         let mut tcb_guard = tcb.lock()
             .map_err(|e| TcpError::Other(format!("锁定 TCB 失败: {}", e)))?;
-        return process_segment_with_tcb(&mut tcb_guard, &segment, source_addr, config);
+        return process_segment_with_tcb(&mut tcb_guard, &segment, source_addr, dest_addr, config);
     }
 
     // 连接不存在
@@ -93,11 +97,12 @@ pub fn process_tcp_packet(
 
 /// 处理 SYN 报文（针对监听端口）
 fn handle_syn_for_listen(
-    listen_tcb: std::sync::Arc<std::sync::Mutex<Tcb>>,
+    listen_tcb: Arc<Mutex<Tcb>>,
     source_ip: Ipv4Addr,
     source_port: u16,
     segment: &TcpSegment,
     config: &TcpConfig,
+    conn_manager: &mut TcpConnectionManager,
 ) -> std::result::Result<TcpProcessResult, TcpError> {
     let header = segment.header;
 
@@ -112,16 +117,36 @@ fn handle_syn_for_listen(
     let local_port = tcb_guard.id.local_port;
     drop(tcb_guard);
 
-    // 创建新连接的 TCB
-    let _new_conn_id = TcpConnectionId::new(local_ip, local_port, source_ip, source_port);
+    // 创建新连接的 TCB 并保存到连接管理器
     let iss = Tcb::generate_isn();
     let irs = header.sequence_number;
 
-    // 创建 SYN-ACK 响应
-    let response_header = TcpHeader::syn_ack(local_port, source_port, iss, irs.wrapping_add(1), config.default_window_size);
+    // 创建新连接 TCB
+    let new_conn_id = TcpConnectionId::new(local_ip, local_port, source_ip, source_port);
+    let mut tcb = Tcb::new(new_conn_id.clone());
+    tcb.state = TcpState::SynReceived;
+    tcb.init_recv_state(irs, config.default_window_size);
+    tcb.init_send_state(iss);
+    tcb.mss = config.max_segment_size;
 
-    // 序列化响应
-    let response_bytes = encapsulate_tcp_header(&response_header, &[], local_ip, source_ip);
+    // 保存新连接
+    conn_manager.add(tcb.clone())?;
+
+    // 构建 SYN-ACK（携带 MSS 选项）
+    let options = vec![
+        TcpOption::MaxSegmentSize { mss: config.max_segment_size },
+    ];
+    let options_bytes = TcpOption::serialize_options(&options);
+
+    let response_header = TcpHeader::syn_ack(
+        local_port,
+        source_port,
+        iss,
+        irs.wrapping_add(1),
+        config.default_window_size,
+    );
+
+    let response_bytes = encapsulate_tcp_segment(&response_header, &options_bytes, local_ip, source_ip);
 
     Ok(TcpProcessResult::Reply(response_bytes))
 }
@@ -131,7 +156,8 @@ fn process_segment_with_tcb(
     tcb: &mut Tcb,
     segment: &TcpSegment,
     _source_ip: Ipv4Addr,
-    _config: &TcpConfig,
+    _dest_ip: Ipv4Addr,
+    config: &TcpConfig,
 ) -> std::result::Result<TcpProcessResult, TcpError> {
     let header = segment.header;
 
@@ -150,11 +176,36 @@ fn process_segment_with_tcb(
             }
         }
         TcpState::Established => {
-            // 处理数据传输和连接关闭
+            // 处理 ACK（在数据处理之前，因为 ACK 可能更新拥塞窗口）
+            if header.is_ack() {
+                let old_una = tcb.snd_una;
+                if header.acknowledgment_number > tcb.snd_una {
+                    let acked = header.acknowledgment_number - old_una;
+
+                    // 更新拥塞控制
+                    if tcb.cwnd < tcb.ssthresh {
+                        tcb.slow_start(tcb.mss as u32);
+                    } else {
+                        tcb.congestion_avoidance(tcb.mss as u32);
+                    }
+
+                    tcb.snd_una = header.acknowledgment_number;
+
+                    // 从重传队列中移除已确认的段
+                    tcb.remove_acked_from_retransmit_queue(header.acknowledgment_number);
+
+                    // 重置重传计数
+                    if acked > 0 {
+                        tcb.reset_retransmit_count();
+                    }
+                }
+            }
+
+            // 处理 FIN（对方请求关闭）
             if header.is_fin() {
-                // 对方请求关闭
                 tcb.rcv_nxt = header.sequence_number.wrapping_add(1);
                 tcb.state = TcpState::CloseWait;
+
                 // 发送 ACK
                 let ack_header = TcpHeader::ack(
                     tcb.id.local_port,
@@ -167,11 +218,15 @@ fn process_segment_with_tcb(
                 return Ok(TcpProcessResult::Reply(response));
             }
 
+            // 处理数据接收
             if !segment.payload.is_empty() {
                 // 验证序列号
                 if header.sequence_number == tcb.rcv_nxt {
                     // 更新接收序列号
                     tcb.rcv_nxt = tcb.rcv_nxt.wrapping_add(segment.payload.len() as u32);
+
+                    // 将数据写入接收缓冲区
+                    tcb.write_to_recv_buffer(&segment.payload)?;
 
                     // 发送 ACK
                     let ack_header = TcpHeader::ack(
@@ -183,14 +238,9 @@ fn process_segment_with_tcb(
                     );
                     let response = encapsulate_tcp_header(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
 
-                    // 返回数据
-                    let _data = segment.payload.to_vec();
-                    return Ok(TcpProcessResult::Reply(response));
-                }
-            } else if header.is_ack() {
-                // 处理 ACK
-                if header.acknowledgment_number > tcb.snd_una {
-                    tcb.snd_una = header.acknowledgment_number;
+                    // 返回数据（Delivered）
+                    let data = segment.payload.to_vec();
+                    return Ok(TcpProcessResult::ReplyAndDelivered(response, data));
                 }
             }
         }

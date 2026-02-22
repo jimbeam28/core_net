@@ -150,6 +150,11 @@ impl TcpHeader {
         (self.data_offset_and_flags & 0xFF) as u8
     }
 
+    /// 获取数据偏移和标志位的原始值（用于校验和计算）
+    pub const fn data_offset_and_flags_value(&self) -> u16 {
+        self.data_offset_and_flags
+    }
+
     /// 设置标志位
     pub fn set_flags(&mut self, flags: u8) {
         let mask = 0xFF00;
@@ -278,6 +283,25 @@ impl TcpHeader {
             ack,
             TCP_MIN_DATA_OFFSET,
             flags::ACK,
+            window_size,
+        )
+    }
+
+    /// 创建 PSH+ACK 头部
+    pub fn psh_ack(
+        source_port: u16,
+        destination_port: u16,
+        seq: u32,
+        ack: u32,
+        window_size: u16,
+    ) -> Self {
+        Self::new(
+            source_port,
+            destination_port,
+            seq,
+            ack,
+            TCP_MIN_DATA_OFFSET,
+            flags::PSH | flags::ACK,
             window_size,
         )
     }

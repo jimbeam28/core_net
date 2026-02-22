@@ -11,13 +11,15 @@ mod segment;
 mod tcb;
 mod connection;
 mod process;
+mod socket;
+mod socket_manager;
 
 pub use constant::*;
 pub use config::{TcpConfig, TCP_CONFIG_DEFAULT};
 pub use error::TcpError;
 pub use header::TcpHeader;
 pub use segment::TcpSegment;
-pub use tcb::{Tcb, TcpConnectionId, TcpState};
+pub use tcb::{Tcb, TcpConnectionId, TcpState, SentSegment};
 pub use connection::{TcpConnectionManager, TcpOption};
 pub use process::{
     TcpProcessResult,
@@ -29,3 +31,5 @@ pub use process::{
     create_fin,
     create_rst,
 };
+pub use socket::{TcpSocket, TcpEvent, TcpCallback};
+pub use socket_manager::TcpSocketManager;

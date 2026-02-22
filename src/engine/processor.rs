@@ -631,6 +631,33 @@ impl PacketProcessor {
                 }
                 Ok(None)
             }
+            tcp::TcpProcessResult::ReplyAndDelivered(tcp_bytes, _data) => {
+                if self.verbose {
+                    println!("TCP: 发送响应并将数据交付给应用层");
+                }
+                // 获取本接口的 MAC 地址
+                let our_mac = self.get_interface_mac(ifindex)?;
+
+                // 封装为 IP 数据报
+                let ip_reply = ip::Ipv4Header::new(
+                    our_ip,
+                    ip_hdr.source_addr,
+                    ip::IP_PROTO_TCP,
+                    tcp_bytes.len(),
+                );
+                let mut ip_packet = ip_reply.to_bytes();
+                ip_packet.extend_from_slice(&tcp_bytes);
+
+                // 封装为以太网帧
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,
+                    our_mac,
+                    crate::protocols::ETH_P_IP,
+                    &ip_packet,
+                );
+
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
             tcp::TcpProcessResult::ConnectionEstablished(id) => {
                 if self.verbose {
                     println!("TCP: 连接已建立 {:?}", id);

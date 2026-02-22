@@ -3,6 +3,7 @@
 // TCP 传输控制块（TCB）和连接状态定义
 
 use crate::protocols::Ipv4Addr;
+use super::error::TcpError;
 
 /// TCP 连接四元组（标识符）
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -139,6 +140,28 @@ impl std::fmt::Display for TcpState {
     }
 }
 
+/// 已发送但未确认的数据段
+#[derive(Debug, Clone)]
+pub struct SentSegment {
+    /// 起始序列号
+    pub seq: u32,
+    /// 数据长度
+    pub len: usize,
+    /// 发送时间（微秒）
+    pub send_time: u64,
+}
+
+impl SentSegment {
+    /// 创建新的已发送段记录
+    pub fn new(seq: u32, len: usize, send_time: u64) -> Self {
+        Self {
+            seq,
+            len,
+            send_time,
+        }
+    }
+}
+
 /// TCP 传输控制块（TCB）
 ///
 /// 存储每个 TCP 连接的完整状态信息。
@@ -196,6 +219,16 @@ pub struct Tcb {
     // ========== 统计信息 ==========
     /// 重传次数
     pub retransmit_count: u32,
+
+    // ========== 缓冲区 ==========
+    /// 发送缓冲区（环形队列）
+    pub send_buffer: Vec<u8>,
+    /// 接收缓冲区（环形队列）
+    pub recv_buffer: Vec<u8>,
+    /// 接收缓冲区已读取偏移
+    pub recv_buffer_read: usize,
+    /// 重传队列（记录已发送但未确认的数据段）
+    pub retransmit_queue: Vec<SentSegment>,
 }
 
 impl Tcb {
@@ -222,6 +255,10 @@ impl Tcb {
             sack_permitted: false,
             timestamps: false,
             retransmit_count: 0,
+            send_buffer: Vec::with_capacity(65536),  // 默认 64KB
+            recv_buffer: Vec::with_capacity(65536),  // 默认 64KB
+            recv_buffer_read: 0,
+            retransmit_queue: Vec::new(),
         }
     }
 
@@ -353,6 +390,101 @@ impl Tcb {
     /// 重置重传计数
     pub fn reset_retransmit_count(&mut self) {
         self.retransmit_count = 0;
+    }
+
+    // ========== 缓冲区管理方法 ==========
+
+    /// 写入数据到接收缓冲区
+    ///
+    /// # 参数
+    /// - data: 要写入的数据
+    ///
+    /// # 返回
+    /// - Ok(()): 写入成功
+    /// - Err(TcpError): 缓冲区已满
+    pub fn write_to_recv_buffer(&mut self, data: &[u8]) -> Result<(), TcpError> {
+        // 检查可用空间（基于当前未读取数据量）
+        let unread_count = self.recv_buffer.len() - self.recv_buffer_read;
+        let available = self.recv_buffer.capacity() - unread_count;
+        if data.len() > available {
+            return Err(TcpError::BufferFull);
+        }
+
+        // 写入数据到缓冲区末尾
+        self.recv_buffer.extend_from_slice(data);
+
+        Ok(())
+    }
+
+    /// 从接收缓冲区读取数据
+    ///
+    /// # 参数
+    /// - buf: 输出缓冲区
+    ///
+    /// # 返回
+    /// - usize: 实际读取的字节数
+    pub fn read_from_recv_buffer(&mut self, buf: &mut [u8]) -> usize {
+        let available = self.available_recv_data();
+        let to_read = buf.len().min(available);
+
+        // 从缓冲区复制数据
+        if to_read > 0 {
+            buf[..to_read].copy_from_slice(&self.recv_buffer[self.recv_buffer_read..self.recv_buffer_read + to_read]);
+            self.recv_buffer_read += to_read;
+
+            // 清理已读取的数据（如果读指针超过一半）
+            if self.recv_buffer_read > self.recv_buffer.capacity() / 2 {
+                self.recv_buffer.drain(0..self.recv_buffer_read);
+                self.recv_buffer_read = 0;
+            }
+        }
+
+        to_read
+    }
+
+    /// 获取接收缓冲区中可读取的数据量
+    pub fn available_recv_data(&self) -> usize {
+        self.recv_buffer.len().saturating_sub(self.recv_buffer_read)
+    }
+
+    /// 添加段到重传队列
+    pub fn add_to_retransmit_queue(&mut self, seq: u32, len: usize) {
+        // 简化实现：使用当前时间
+        let send_time = 0; // 实际应使用真实时间戳
+        self.retransmit_queue.push(SentSegment::new(seq, len, send_time));
+    }
+
+    /// 从重传队列中移除已确认的段
+    pub fn remove_acked_from_retransmit_queue(&mut self, ack: u32) {
+        self.retransmit_queue.retain(|seg| {
+            // 保留序列号 >= ACK 的段（未完全确认）
+            seg.seq.wrapping_add(seg.len as u32) > ack
+        });
+    }
+
+    /// 获取发送缓冲区可用空间
+    pub fn available_send_space(&self) -> usize {
+        self.send_buffer.capacity() - self.send_buffer.len()
+    }
+
+    /// 写入数据到发送缓冲区
+    ///
+    /// # 参数
+    /// - data: 要写入的数据
+    ///
+    /// # 返回
+    /// - Ok(usize): 实际写入的字节数
+    /// - Err(TcpError): 写入失败
+    pub fn write_to_send_buffer(&mut self, data: &[u8]) -> Result<usize, TcpError> {
+        let available = self.available_send_space();
+        let to_write = data.len().min(available);
+
+        if to_write == 0 {
+            return Err(TcpError::BufferFull);
+        }
+
+        self.send_buffer.extend_from_slice(&data[..to_write]);
+        Ok(to_write)
     }
 }
 
@@ -541,5 +673,78 @@ mod tests {
 
         tcb.reset_retransmit_count();
         assert_eq!(tcb.retransmit_count, 0);
+    }
+
+    #[test]
+    fn test_tcb_recv_buffer_write_read() {
+        let mut tcb = Tcb::new(TcpConnectionId::listen(Ipv4Addr::new(192, 168, 1, 100), 80));
+
+        // 写入数据
+        let data = b"Hello TCP";
+        tcb.write_to_recv_buffer(data).unwrap();
+
+        assert_eq!(tcb.available_recv_data(), 9);
+
+        // 读取数据
+        let mut buf = [0u8; 20];
+        let n = tcb.read_from_recv_buffer(&mut buf);
+        assert_eq!(n, 9);
+        assert_eq!(&buf[..9], data);
+        assert_eq!(tcb.available_recv_data(), 0);
+    }
+
+    #[test]
+    fn test_tcb_recv_buffer_multiple_writes() {
+        let mut tcb = Tcb::new(TcpConnectionId::listen(Ipv4Addr::new(192, 168, 1, 100), 80));
+
+        tcb.write_to_recv_buffer(b"First ").unwrap();
+        tcb.write_to_recv_buffer(b"Second").unwrap();
+
+        // "First " (6 bytes) + "Second" (6 bytes) = 12 bytes
+        assert_eq!(tcb.available_recv_data(), 12);
+
+        let mut buf = [0u8; 20];
+        let n = tcb.read_from_recv_buffer(&mut buf);
+        assert_eq!(n, 12);
+        assert_eq!(&buf[..12], b"First Second");
+    }
+
+    #[test]
+    fn test_tcb_send_buffer() {
+        let mut tcb = Tcb::new(TcpConnectionId::listen(Ipv4Addr::new(192, 168, 1, 100), 80));
+
+        // 检查初始可用空间
+        assert!(tcb.available_send_space() > 0);
+
+        // 写入数据
+        let data = b"Hello TCP";
+        let n = tcb.write_to_send_buffer(data).unwrap();
+        assert_eq!(n, 9);
+
+        // 可用空间减少
+        assert!(tcb.available_send_space() < 65536);
+    }
+
+    #[test]
+    fn test_tcb_retransmit_queue() {
+        let mut tcb = Tcb::new(TcpConnectionId::listen(Ipv4Addr::new(192, 168, 1, 100), 80));
+
+        // 添加段到重传队列
+        tcb.add_to_retransmit_queue(1000, 100);
+        tcb.add_to_retransmit_queue(1100, 200);
+
+        assert_eq!(tcb.retransmit_queue.len(), 2);
+
+        // 确认部分数据
+        tcb.remove_acked_from_retransmit_queue(1050);
+        assert_eq!(tcb.retransmit_queue.len(), 2); // 第一个段未完全确认
+
+        // 确认第一个段
+        tcb.remove_acked_from_retransmit_queue(1100);
+        assert_eq!(tcb.retransmit_queue.len(), 1); // 第一个段已确认
+
+        // 确认所有数据
+        tcb.remove_acked_from_retransmit_queue(1300);
+        assert_eq!(tcb.retransmit_queue.len(), 0);
     }
 }

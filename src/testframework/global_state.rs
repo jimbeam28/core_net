@@ -61,6 +61,7 @@ impl GlobalStateManager {
             Arc::new(std::sync::Mutex::new(ArpCache::default())),
             Arc::new(std::sync::Mutex::new(EchoManager::default())),
             Arc::new(std::sync::Mutex::new(crate::protocols::tcp::TcpConnectionManager::default())),
+            None, // tcp_sockets: 使用默认值
             None, // udp_ports: 使用默认值
             None, // timers: 使用默认值
         )

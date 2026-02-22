@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use crate::interface::InterfaceManager;
 use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
-use crate::protocols::tcp::TcpConnectionManager;
+use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager};
 use crate::protocols::udp::UdpPortManager;
 use crate::common::timer::TimerHandle;
 
@@ -29,6 +29,9 @@ pub struct SystemContext {
     /// TCP 连接管理器
     pub tcp_connections: Arc<Mutex<TcpConnectionManager>>,
 
+    /// TCP Socket 管理器
+    pub tcp_sockets: Arc<Mutex<TcpSocketManager>>,
+
     /// UDP 端口管理器
     pub udp_ports: Arc<Mutex<UdpPortManager>>,
 
@@ -46,6 +49,7 @@ impl SystemContext {
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
+            tcp_sockets: Arc::new(Mutex::new(TcpSocketManager::new())),
             udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
         }
@@ -72,6 +76,7 @@ impl SystemContext {
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
+            tcp_sockets: Arc::new(Mutex::new(TcpSocketManager::new())),
             udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
         }
@@ -87,6 +92,7 @@ impl SystemContext {
     /// - `arp_cache`: ARP 缓存
     /// - `icmp_echo`: ICMP Echo 管理器
     /// - `tcp_connections`: TCP 连接管理器
+    /// - `tcp_sockets`: TCP Socket 管理器（可选，默认为空）
     /// - `udp_ports`: UDP 端口管理器（可选，默认为空）
     /// - `timers`: 定时器管理器（可选，默认为空）
     pub fn with_components(
@@ -94,6 +100,7 @@ impl SystemContext {
         arp_cache: Arc<Mutex<ArpCache>>,
         icmp_echo: Arc<Mutex<EchoManager>>,
         tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+        tcp_sockets: Option<Arc<Mutex<TcpSocketManager>>>,
         udp_ports: Option<Arc<Mutex<UdpPortManager>>>,
         timers: Option<Arc<Mutex<TimerHandle>>>,
     ) -> Self {
@@ -102,6 +109,7 @@ impl SystemContext {
             arp_cache,
             icmp_echo,
             tcp_connections,
+            tcp_sockets: tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new()))),
             udp_ports: udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new()))),
             timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
         }
@@ -174,6 +182,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.arp_cache, &ctx2.arp_cache));
         assert!(Arc::ptr_eq(&ctx1.icmp_echo, &ctx2.icmp_echo));
         assert!(Arc::ptr_eq(&ctx1.tcp_connections, &ctx2.tcp_connections));
+        assert!(Arc::ptr_eq(&ctx1.tcp_sockets, &ctx2.tcp_sockets));
         assert!(Arc::ptr_eq(&ctx1.udp_ports, &ctx2.udp_ports));
         assert!(Arc::ptr_eq(&ctx1.timers, &ctx2.timers));
     }
@@ -184,6 +193,7 @@ mod tests {
         let arp_cache = ArpCache::default();
         let echo_mgr = EchoManager::default();
         let tcp_mgr = TcpConnectionManager::default();
+        let tcp_sockets = TcpSocketManager::new();
         let udp_mgr = UdpPortManager::new();
 
         let ctx = SystemContext::with_components(
@@ -191,6 +201,7 @@ mod tests {
             Arc::new(Mutex::new(arp_cache)),
             Arc::new(Mutex::new(echo_mgr)),
             Arc::new(Mutex::new(tcp_mgr)),
+            Some(Arc::new(Mutex::new(tcp_sockets))),
             Some(Arc::new(Mutex::new(udp_mgr))),
             None,
         );
@@ -255,6 +266,10 @@ mod tests {
         assert!(tcp_guard.is_ok());
         drop(tcp_guard);
 
+        let tcp_sockets_guard = ctx.tcp_sockets.lock();
+        assert!(tcp_sockets_guard.is_ok());
+        drop(tcp_sockets_guard);
+
         let udp_guard = ctx.udp_ports.lock();
         assert!(udp_guard.is_ok());
     }
@@ -268,6 +283,10 @@ mod tests {
         // 所有克隆指向相同的底层状态
         assert!(Arc::ptr_eq(&ctx.interfaces, &ctx_clone1.interfaces));
         assert!(Arc::ptr_eq(&ctx_clone1.interfaces, &ctx_clone2.interfaces));
+
+        // 验证 tcp_sockets 也共享相同的 Arc
+        assert!(Arc::ptr_eq(&ctx.tcp_sockets, &ctx_clone1.tcp_sockets));
+        assert!(Arc::ptr_eq(&ctx_clone1.tcp_sockets, &ctx_clone2.tcp_sockets));
 
         // 强度计数
         assert_eq!(Arc::strong_count(&ctx.interfaces), 3);
