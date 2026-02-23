@@ -30,7 +30,7 @@ IPv4 解决了异构网络之间互联互通的核心问题：
 IPv4 采用**数据报交换**模型，核心思想是"尽力而为" (Best Effort) 传输：
 
 **CoreNet 实现范围：**
-- **不支持分片和重组**：当前版本不实现 IP 分片和重组功能
+- **支持分片和重组**：实现完整的 IP 分片和重组功能
 - **上层协议仅支持 ICMP**：当前版本仅支持 ICMP 协议（Protocol=1），TCP/UDP 暂不实现
 
 ```
@@ -186,10 +186,13 @@ IPv4 本质上是**无状态协议**，不维护连接状态。
 
 | 变量名称 | 类型 | 用途 | 初始值 |
 |---------|------|------|--------|
+| identification | u16 | 数据报标识符，用于分片重组 | 随机生成 |
 | ttl | u8 | 数据报生存时间 | 配置值(64/128) |
 | packet_size | u16 | 当前处理的数据报长度 | 解析后获得 |
-
-**注：CoreNet 当前版本不支持分片和重组，因此不维护 identification 和分片相关状态。**
+| fragment_offset | u16 | 当前分片在原始数据报中的偏移（8字节单位） | 解析后获得 |
+| more_fragments | bool | 是否还有后续分片 | 解析后获得 |
+| total_fragments | u8 | 重组时已收到的分片数 | 0 |
+| received_bytes | u16 | 重组时已收到的数据字节数 | 0 |
 
 ---
 
@@ -201,9 +204,12 @@ IPv4 使用的主要定时器：
 
 | 定时器名称 | 启动条件 | 超时时间 | 超时动作 |
 |-----------|---------|---------|---------|
-| (无) | 当前版本不实现分片重组，无定时器 | - | - |
+| 重组定时器 (Reassembly Timer) | 收到第一个分片时启动，每收到新分片重置 | 30 秒 (RFC 1122 推荐) | 丢弃所有分片，发送 ICMP Time Exceeded (Type 11 Code 1) |
 
-**注：CoreNet 当前版本不支持分片和重组，因此不使用重组定时器。**
+**重组定时器说明：**
+- 根据 RFC 1122，推荐重组超时时间为 30 秒
+- 超时后应丢弃所有已收到的分片
+- 如果收到的是第一个分片，应向源发送 ICMP Time Exceeded 消息
 
 ### 4.1 接收处理总流程
 
@@ -232,15 +238,23 @@ IPv4 使用的主要定时器：
    本机接收         转发
       |               |
       v               v
-[检查协议字段]    [TTL -= 1]
+[检查分片标志]    [TTL -= 1]
       |               |
-      v          +----+----+
-  [多路分解]      |         |
-      |        TTL=0      TTL>0
-      |         |         |
-      v         v         v
-[提交上层]   [丢弃]    [路由转发]
-                    [可能分片]
+  +---+---+           |
+  |       |           |
+有分片   无分片       |
+  |       |           |
+  v       v           v
+[重组/   [检查      +----+----+
+ 等待]   协议字段]  |         |
+  |        |      TTL=0      TTL>0
+  |        v       |         |
+  |   [多路分解]   v         v
+  |        |    [丢弃]    [路由转发]
+  |        v              [可能分片]
+  |   [提交上层]
+  |        |
+  +--------+
 ```
 
 ### 4.2 接收处理
@@ -253,27 +267,54 @@ IPv4 使用的主要定时器：
    - Version → 必须为 4
    - IHL → 计算首部长度
    - Protocol → 上层协议类型
-   - Source Address → 源 IP（用于响应）
+   - Source Address → 源 IP（用于响应和重组键）
    - Destination Address → 必须匹配本机 IP 或广播/组播地址
    - Total Length → 验证数据完整性
+   - Identification → 分片标识符（用于重组）
+   - Fragment Offset → 分片偏移量
+   - MF Flag → 是否还有后续分片
+   - Data → 数据部分
 
 2. **处理步骤：**
    - 验证首部校验和
    - 检查版本号
    - 验证首部长度（IHL >= 5）
    - 检查目的地址是否为本机地址
-   - 检查是否需要重组（MF 或 Offset 非零）
-   - 提取数据部分提交上层协议
+   - **检查分片标志**：
+     - 如果 MF=1 或 Fragment Offset 非 0，则需要重组
+     - 否则为完整数据报，直接提交上层
 
-3. **资源更新：**
+3. **分片重组处理：**
+
+```
+收到分片时的处理流程：
+----------------------------------------------------
+1. 提取重组键: <源IP, 目的IP, 协议, ID>
+2. 查找/创建重组条目
+3. 存储分片数据（按偏移量）
+4. 检查是否完整：
+   - 所有偏移量连续无空洞
+   - 已收到 MF=0 的最后一片
+5. 如果完整：
+   - 组装完整数据报
+   - 提交上层协议
+   - 删除重组条目
+   - 取消重组定时器
+6. 如果未完整：
+   - 启动/重置重组定时器（30秒）
+   - 等待更多分片
+```
+
+4. **资源更新：**
    - 接口统计：接收字节数、数据报数 +1
-   - 重组表：如有分片，添加/更新重组条目
-   - 定时器：如有分片，启动/重置重组定时器
+   - **重组表**：如有分片，添加/更新重组条目
+   - **定时器**：如有分片，启动/重置重组定时器
 
-4. **响应动作：**
+5. **响应动作：**
    - 校验和错误：静默丢弃（不发送 ICMP）
    - 协议不可达：如果 Protocol 字段不支持，发送 ICMP Type 3 Code 2
-   - 正常：将数据部分传递给上层协议处理
+   - 重组超时：丢弃所有分片，发送 ICMP Type 11 Code 1（如果收到过第一个分片）
+   - 正常：将完整数据报的数据部分传递给上层协议处理
 
 #### 4.2.2 转发处理
 
@@ -299,13 +340,65 @@ IPv4 使用的主要定时器：
    - TTL=0：丢弃数据报，发送 ICMP Time Exceeded (Type 11 Code 0)
    - 正常：转发到下一跳
 
-**注：CoreNet 当前版本不支持分片和重组，因此不实现分段处理逻辑。收到 MF=1 或 Fragment Offset 非 0 的数据报应直接丢弃。**
+**转发时可能需要分片**：如果出接口 MTU < 数据报长度，需要分片（除非 DF 标志置位）。
 
 ### 4.3 分段处理
 
-**注：CoreNet 当前版本不支持分片和重组，本章节仅供参考，不实现。**
-
 #### 4.3.1 发送分片
+
+**触发条件：** 数据报长度 > 出接口 MTU 且 DF 标志未置位
+
+**处理步骤：**
+
+```
+原始数据报: 4000 字节, MTU = 1500, 首部 = 20 字节
+----------------------------------------------------
+每片最大数据长度 = (MTU - 首部长度) & ~7
+                = (1500 - 20) & ~7
+                = 1480 & ~7
+                = 1480 字节
+
+分片计算：
+- 原始数据长度 = 4000 - 20 = 3980 字节
+- 每片数据 = 1480 字节
+- 片数 = ceil(3980 / 1480) = 3 片
+- 每片偏移增量 = 1480 / 8 = 185
+
+分片1: Total=1500, ID=12345, MF=1, Offset=0
+  数据: 1480 字节 (偏移 0-1479)
+
+分片2: Total=1500, ID=12345, MF=1, Offset=185
+  数据: 1480 字节 (偏移 1480-2959)
+
+分片3: Total=1040, ID=12345, MF=0, Offset=370
+  数据: 1020 字节 (偏移 2960-3979)
+```
+
+**分片计算规则：**
+1. **每片数据长度** = (MTU - 首部长度) 且必须为 8 字节倍数
+2. **片偏移** = 累积数据长度 / 8（以 8 字节为单位）
+3. **最后一片** MF=0，其余 MF=1
+4. **所有分片使用相同 Identification**
+
+**分片首部字段设置：**
+- Version, IHL, TOS, Protocol: 复制自原始数据报
+- Identification: 所有分片使用相同值
+- Flags: DF 复制，MF 最后一片为 0，其余为 1
+- Fragment Offset: 每片递增（以 8 字节为单位）
+- TTL: 复制自原始数据报
+- Header Checksum: 每片重新计算
+- Source/Destination Address: 复制自原始数据报
+- Options: 仅在第一片中包含（如果有）
+
+**资源更新：**
+- Identification: 为所有分片生成相同 ID
+- Fragment Offset: 每片递增
+- MF: 最后一片为 0，其余为 1
+- Header Checksum: 每片重新计算
+
+**特殊情况：**
+- DF 标志置位：不进行分片，丢弃数据报并发送 ICMP Destination Unreachable (Type 3 Code 4)
+- 数据报长度 <= MTU：无需分片，直接发送
 
 **触发条件：** 数据报长度 > 出接口 MTU
 
@@ -337,33 +430,95 @@ IPv4 使用的主要定时器：
 
 #### 4.3.2 重组处理
 
+**重组键 (Reassembly Key):**
+```
+<源IP地址, 目的IP地址, 协议号, 标识符>
+```
+以上四元组唯一标识一个待重组的数据报的所有分片。
+
 **处理步骤：**
 
 1. **提取信息：**
    - Identification, Source, Destination, Protocol → 重组键
-   - Fragment Offset → 在原始数据报中的位置
+   - Fragment Offset → 在原始数据报中的位置（以 8 字节为单位）
    - MF → 是否为最后一片
+   - Total Length → 当前分片总长度
    - Data → 分片数据
 
-2. **重组逻辑：**
-   ```
-   for 每个收到的分片:
-       基于 <源IP, 目的IP, 协议, ID> 查找/创建重组条目
-       存储分片数据（按偏移量）
-       检查是否收到所有分片（数据连续且 MF=0 已收到）
-       if 所有分片到齐:
-           组装完整数据报
-           提交上层
-           删除重组条目
-   ```
+2. **重组算法 (RFC 815 简化算法):**
 
-3. **资源更新：**
-   - 重组表：添加/更新分片信息
-   - 定时器：启动/重置 60 秒超时
+```
+收到分片时的处理逻辑：
+----------------------------------------------------
+1. 检查分片合法性：
+   - Fragment Offset * 8 + 数据长度 <= 65535
+   - 重叠检测：新分片不应与已有分片重叠
+
+2. 基于 <源IP, 目的IP, 协议, ID> 查找重组条目：
+   - 如果不存在：创建新条目，启动 30 秒定时器
+   - 如果存在：重置 30 秒定时器
+
+3. 存储分片：
+   - 按照 Fragment Offset 排序存储
+   - 记录分片数据长度和位置
+   - 更新总长度估计
+
+4. 检查重组完成条件：
+   a) 收到 MF=0 的分片（最后一片）
+   b) 所有分片数据连续无空洞
+   c) 总数据长度 = 最后一片的 Offset*8 + 数据长度
+
+5. 如果完成：
+   - 按偏移量组装完整数据报
+   - 验证数据完整性
+   - 提交给上层协议处理
+   - 删除重组条目
+   - 取消重组定时器
+
+6. 如果未完成：
+   - 继续等待更多分片
+   - 定时器超时则丢弃所有分片
+```
+
+**完成检查示例：**
+
+```
+原始数据报：4000 字节（不含首部）
+收到的分片：
+- 分片1: Offset=0, MF=1, 数据=1480 字节
+- 分片3: Offset=370, MF=0, 数据=1020 字节  ← 最后一片
+- 分片2: Offset=185, MF=1, 数据=1480 字节
+
+检查：
+1. MF=0 已收到 ✓
+2. 偏移量连续：0 → 185*8=1480 → 370*8=2960 ✓
+3. 总长度 = 2960 + 1020 = 3980 字节 ✓
+
+重组完成，组装数据报！
+```
+
+**重叠分片处理：**
+- 检测到重叠分片时，应采用更保守的策略
+- 可以选择丢弃重叠分片或覆盖已有数据
+- 建议实现时记录重叠情况用于安全分析
+
+**资源更新：**
+- 重组表：添加/更新分片信息
+- 定时器：启动/重置 30 秒超时（RFC 1122 推荐）
+- 状态变量：total_fragments++, received_bytes += data_length
 
 4. **响应动作：**
-   - 重组成功：提交上层协议
-   - 重组超时：丢弃所有分片，发送 ICMP Type 11 Code 1
+   - **重组成功**：提交上层协议处理
+   - **重组超时**：
+     - 丢弃所有已收到的分片
+     - 删除重组条目
+     - 如果收到过第一个分片（Offset=0），发送 ICMP Time Exceeded (Type 11 Code 1) 到源地址
+   - **分片重叠**：记录安全事件，根据策略处理
+
+**RFC 815 简化重组算法优势：**
+- 使用描述块列表跟踪已收到的数据块
+- 高效处理分片到达顺序任意的情况
+- 避免大块内存分配，按需分配缓冲区
 
 ---
 
@@ -375,9 +530,20 @@ IPv4 维护的主要表项：
 
 | 资源名称 | 用途 | 最大容量 | 淘汰策略 |
 |---------|------|---------|---------|
-| (无) | 当前版本不支持分片重组，无表项 | - | - |
+| 重组表 (Reassembly Table) | 存储未完成重组的分片数据 | 可配置（默认 64） | 超时淘汰（30秒） |
 
-**注：CoreNet 当前版本不支持分片和重组，因此不维护分段重组表。**
+#### 5.0.1 重组表 (Reassembly Table)
+
+**用途：** 存储正在重组中的数据报分片信息，等待所有分片到齐后组装完整数据报。
+
+**键结构：** `<源IP, 目的IP, 协议号, 标识符>`
+
+**关键操作：**
+- **查询**：基于重组键查找已有条目
+- **添加**：收到第一个分片时创建新条目
+- **更新**：收到后续分片时更新分片列表，重置定时器
+- **删除**：重组完成或超时时删除条目
+- **超时处理**：定时器触发时删除条目并发送 ICMP 消息
 
 ### 5.1 报文结构
 
@@ -556,8 +722,221 @@ pub enum Ipv4Error {
 ```
 
 ```rust
-// 注：当前版本不支持分片和重组，因此不定义 FragmentInfo 和 ReassemblyEntry 结构体
-// 收到 MF=1 或 Fragment Offset 非 0 的数据报直接丢弃
+/// 分片信息
+///
+/// 存储单个分片的位置和数据
+#[derive(Debug, Clone)]
+pub struct FragmentInfo {
+    /// 片偏移（以 8 字节为单位）
+    pub offset: u16,
+
+    /// 分片数据
+    pub data: Vec<u8>,
+
+    /// 分片到达时间（用于超时检测）
+    pub arrival_time: Instant,
+}
+
+/// 重组条目
+///
+/// 存储一个待重组数据报的所有分片信息
+#[derive(Debug)]
+pub struct ReassemblyEntry {
+    /// 重组键：源地址、目的地址、协议号、标识符
+    pub key: ReassemblyKey,
+
+    /// 已收到的分片列表（按偏移量排序）
+    pub fragments: Vec<FragmentInfo>,
+
+    /// 是否已收到最后一片 (MF=0)
+    pub last_fragment_received: bool,
+
+    /// 最后一片的偏移量（如果已收到）
+    pub last_fragment_offset: Option<u16>,
+
+    /// 已收到的总字节数
+    pub received_bytes: u16,
+
+    /// 分片到达时间（用于超时检测）
+    pub arrival_time: Instant,
+
+    /// 重组定时器句柄
+    pub timer_handle: Option<TimerHandle>,
+}
+
+/// 重组键
+///
+/// 唯一标识一个待重组的数据报
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ReassemblyKey {
+    /// 源 IP 地址
+    pub source_addr: Ipv4Addr,
+
+    /// 目的 IP 地址
+    pub dest_addr: Ipv4Addr,
+
+    /// 协议号
+    pub protocol: u8,
+
+    /// 标识符
+    pub identification: u16,
+}
+
+impl ReassemblyEntry {
+    /// 创建新的重组条目
+    pub fn new(key: ReassemblyKey) -> Self {
+        Self {
+            key,
+            fragments: Vec::new(),
+            last_fragment_received: false,
+            last_fragment_offset: None,
+            received_bytes: 0,
+            arrival_time: Instant::now(),
+            timer_handle: None,
+        }
+    }
+
+    /// 添加分片
+    pub fn add_fragment(&mut self, fragment: FragmentInfo) -> Result<(), Ipv4Error> {
+        // 检查重叠
+        for existing in &self.fragments {
+            let existing_start = existing.offset as u32 * 8;
+            let existing_end = existing_start + existing.data.len() as u32;
+            let new_start = fragment.offset as u32 * 8;
+            let new_end = new_start + fragment.data.len() as u32;
+
+            if new_start < existing_end && new_end > existing_start {
+                // 检测到重叠
+                return Err(Ipv4Error::FragmentOverlap {
+                    offset: fragment.offset,
+                });
+            }
+        }
+
+        // 插入分片并保持有序
+        let pos = self
+            .fragments
+            .partition_point(|f| f.offset < fragment.offset);
+        self.fragments.insert(pos, fragment);
+        self.received_bytes += fragment.data.len() as u16;
+        Ok(())
+    }
+
+    /// 检查重组是否完成
+    pub fn is_complete(&self) -> bool {
+        if !self.last_fragment_received {
+            return false;
+        }
+
+        let last_offset = match self.last_fragment_offset {
+            Some(o) => o,
+            None => return false,
+        };
+
+        // 检查所有分片是否连续
+        let mut expected_offset: u16 = 0;
+        for fragment in &self.fragments {
+            if fragment.offset != expected_offset {
+                return false;
+            }
+            expected_offset += (fragment.data.len() as u16 + 7) / 8;
+        }
+
+        expected_offset == last_offset
+    }
+
+    /// 组装完整数据报
+    pub fn assemble(&self) -> Vec<u8> {
+        let total_len = self.received_bytes as usize;
+        let mut buffer = vec![0u8; total_len];
+
+        for fragment in &self.fragments {
+            let start = (fragment.offset as usize) * 8;
+            let end = start + fragment.data.len();
+            buffer[start..end].copy_from_slice(&fragment.data);
+        }
+
+        buffer
+    }
+}
+
+/// 重组表
+///
+/// 管理所有待重组的数据报
+pub struct ReassemblyTable {
+    /// 条目映射表
+    entries: HashMap<ReassemblyKey, ReassemblyEntry>,
+
+    /// 最大条目数
+    max_entries: usize,
+
+    /// 当前条目数
+    current_entries: usize,
+}
+
+impl ReassemblyTable {
+    /// 创建新的重组表
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            max_entries,
+            current_entries: 0,
+        }
+    }
+
+    /// 查找或创建重组条目
+    pub fn get_or_create(&mut self, key: ReassemblyKey) -> &mut ReassemblyEntry {
+        if !self.entries.contains_key(&key) {
+            if self.current_entries >= self.max_entries {
+                // 表已满，需要淘汰最旧的条目
+                self.evict_oldest();
+            }
+            self.entries.insert(key, ReassemblyEntry::new(key));
+            self.current_entries += 1;
+        }
+        self.entries.get_mut(&key).unwrap()
+    }
+
+    /// 移除重组条目
+    pub fn remove(&mut self, key: &ReassemblyKey) -> Option<ReassemblyEntry> {
+        self.entries.remove(key).map(|entry| {
+            self.current_entries -= 1;
+            entry
+        })
+    }
+
+    /// 淘汰最旧的条目
+    fn evict_oldest(&mut self) {
+        if let Some((oldest_key, _)) = self
+            .entries
+            .iter()
+            .min_by_key(|(_, entry)| entry.arrival_time)
+        {
+            let key = *oldest_key;
+            self.entries.remove(&key);
+            self.current_entries -= 1;
+        }
+    }
+
+    /// 处理超时条目
+    pub fn handle_timeout(&mut self) -> Vec<ReassemblyKey> {
+        let now = Instant::now();
+        let timeout_keys: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                now.duration_since(entry.arrival_time) > Duration::from_secs(30)
+            })
+            .map(|(key, _)| *key)
+            .collect();
+
+        for key in &timeout_keys {
+            self.remove(key);
+        }
+
+        timeout_keys
+    }
+}
 ```
 
 ---
@@ -658,18 +1037,62 @@ if ethertype == EtherType::Ipv4 {
 4. Processor 解析 VLAN（如有）
 5. Processor 解析 IPv4 首部
 6. IPv4 模块验证校验和、检查目的地址
-7. IPv4 模块检查分片标志（MF 或 Offset 非 0 则丢弃）
-8. IPv4 模块根据 Protocol 字段分发到上层（仅支持 ICMP）
-9. ICMP 模块处理数据
+7. IPv4 模块检查分片标志：
+   - 如果 MF=1 或 Fragment Offset 非 0 → 进入重组流程
+   - 否则 → 直接分发到上层
+8. 重组流程（如果需要）：
+   a) 基于 <源IP, 目的IP, 协议, ID> 查找/创建重组条目
+   b) 存储分片数据，重置 30 秒定时器
+   c) 检查是否所有分片到齐
+   d) 如果完成 → 组装完整数据报，提交上层
+   e) 如果未完成 → 继续等待
+9. IPv4 模块根据 Protocol 字段分发到上层（仅支持 ICMP）
+10. ICMP 模块处理数据
 ```
 
 **下游（发送）流程：**
 ```
 1. ICMP 协议构造报文
 2. IPv4 模块封装：添加 IPv4 首部
-3. IPv4 模块检查 MTU（不支持分片，超过 MTU 则丢弃）
-4. IP 数据报添加以太网首部
-5. 发送到 TxQ
+3. IPv4 模块检查 MTU：
+   - 如果数据报长度 > MTU：
+     a) 如果 DF 标志置位 → 丢弃并发送 ICMP 目的不可达
+     b) 如果 DF 标志未置位 → 执行分片处理
+4. 分片处理（如果需要）：
+   a) 计算每片最大数据长度（8 字节对齐）
+   b) 生成相同 Identification 的所有分片
+   c) 每片设置正确的 Fragment Offset 和 MF 标志
+   d) 为每片重新计算校验和
+5. IP 数据报/分片添加以太网首部
+6. 发送到 TxQ
+```
+
+**分片数据流示例：**
+
+```
+发送端：                      路由器：                      接收端：
+-------                       ------                      ------
+构造 4000 字节数据报
+      |
+      v
+检查 MTU=1500，需要分片
+      |
+      +--> 分片1 (1500字节) ---+
+      |                        |
+      +--> 分片2 (1500字节) ---+---> 转发分片1 ---+
+      |                        |                  |
+      +--> 分片3 (1040字节) ---+-------------------> 转发分片2 ---+
+                                                   |
+                                                   +-------------> 转发分片3 ---+
+                                                                        |
+接收端重组：
+<源IP, 目的IP, 协议, ID> 键匹配
+存储分片1 (Offset=0, MF=1)
+存储分片2 (Offset=185, MF=1)
+存储分片3 (Offset=370, MF=0)
+检查：MF=0 已收到，数据连续 ✓
+组装完整数据报
+提交 ICMP 处理
 ```
 
 ### 6.6 模块初始化顺序
@@ -708,7 +1131,40 @@ if ethertype == EtherType::Ipv4 {
 
 #### 7.1.2 分片攻击
 
-**注：当前版本不支持分片和重组，因此不受分片攻击影响。收到任何分片数据报（MF=1 或 Fragment Offset 非 0）直接丢弃。**
+**攻击方式：**
+
+1. **分片洪水攻击 (Fragment Flood)**
+   - 攻击者发送大量部分分片的数据报
+   - 目标：耗尽接收方的重组表资源
+   - 影响：合法分片无法重组，服务拒绝
+
+2. **分片重叠攻击 (Fragment Overlap)**
+   - 发送偏移量重叠的分片，试图覆盖关键数据
+   - 可用于绕过入侵检测系统（IDS）
+   - TCP 协议栈历史上存在重叠分片处理漏洞（如 TEARDROP 攻击）
+
+3. **微小分片攻击 (Tiny Fragment)**
+   - 发送极小的第一个分片（如 8 字节），仅包含 TCP 端口
+   - 后续分片包含实际数据
+   - 可用于绕过防火墙过滤（防火墙可能只检查第一个分片）
+
+4. **超长分片攻击 (Jumbo Fragment)**
+   - 发送声明巨大总长度的分片
+   - 目标：耗尽接收方内存资源
+
+**攻击影响：**
+- 资源耗尽（内存、CPU）
+- 服务拒绝
+- 安全策略绕过
+
+**防御措施：**
+- **限制重组表大小**：限制最大重组条目数
+- **超时机制**：30 秒超时快速释放资源
+- **分片数量限制**：限制每个数据报的最大分片数
+- **重叠检测**：检测并处理重叠分片
+- **最小分片大小**：RFC 规定第一个分片必须至少包含 8 字节数据
+- **速率限制**：对分片报文进行速率限制
+- **内存保护**：限制重组缓冲区大小，防止耗尽内存
 
 #### 7.1.3 TTL 攻击
 
@@ -724,12 +1180,20 @@ if ethertype == EtherType::Ipv4 {
 
 1. **校验和验证**：必须验证接收数据报的校验和，丢弃错误数据报
 2. **严格的长度检查**：验证 Total Length 与实际接收的数据长度一致
-3. **分片拒绝**：收到 MF=1 或 Fragment Offset 非 0 的数据报直接丢弃
+3. **分片重组**：
+   - 使用 RFC 815 简化重组算法
+   - 实现重叠分片检测
+   - 限制重组表大小和超时时间
+   - 跟踪分片数量，防止资源耗尽
 4. **协议限制**：仅支持 ICMP（Protocol=1），其他协议返回 ICMP 协议不可达
 5. **选项字段处理**：谨慎处理 IP 选项，验证长度和格式
 6. **TTL 初始值**：使用合理的默认值（64），避免硬编码
-7. **速率限制**：对 ICMP 错误消息限速，防止被利用进行反射攻击
-8. **日志记录**：记录异常情况（版本错误、校验和错误、协议不支持）
+7. **速率限制**：对 ICMP 错误消息和分片报文进行速率限制，防止被利用进行反射攻击
+8. **日志记录**：记录异常情况（版本错误、校验和错误、协议不支持、分片重叠、重组超时）
+9. **内存安全**：
+   - 限制每个数据报的最大重组内存
+   - 使用所有权语义避免数据复制
+   - 分片超时及时释放内存
 
 ---
 
@@ -755,6 +1219,46 @@ pub struct Ipv4Config {
 
     /// ICMP 错误消息速率限制（每秒）
     pub icmp_error_rate_limit: u32,  // 默认: 100
+
+    // ========== 分片和重组相关参数 ==========
+
+    /// 是否允许分片（全局开关，可被 DF 标志覆盖）
+    pub allow_fragmentation: bool,  // 默认: true
+
+    /// 发送时默认 DF 标志
+    pub df_flag: bool,  // 默认: false（允许分片）
+
+    /// 重组超时时间（秒）
+    /// RFC 1122 推荐至少 30 秒
+    pub reassembly_timeout: u32,  // 默认: 30
+
+    /// 最大重组条目数
+    pub max_reassembly_entries: usize,  // 默认: 64
+
+    /// 每个数据报最大分片数
+    pub max_fragments_per_datagram: usize,  // 默认: 16
+
+    /// 是否检测分片重叠
+    pub detect_fragment_overlap: bool,  // 默认: true
+
+    /// 分片重叠处理策略
+    pub fragment_overlap_policy: FragmentOverlapPolicy,  // 默认: Drop
+}
+
+/// 分片重叠处理策略
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FragmentOverlapPolicy {
+    /// 丢弃重叠分片
+    Drop,
+
+    /// 使用先收到的分片
+    First,
+
+    /// 使用后收到的分片
+    Last,
+
+    /// 记录并丢弃（安全模式）
+    LogAndDrop,
 }
 
 impl Default for Ipv4Config {
@@ -766,12 +1270,16 @@ impl Default for Ipv4Config {
             verify_checksum: true,
             process_options: true,
             icmp_error_rate_limit: 100,
+            allow_fragmentation: true,
+            df_flag: false,
+            reassembly_timeout: 30,
+            max_reassembly_entries: 64,
+            max_fragments_per_datagram: 16,
+            detect_fragment_overlap: true,
+            fragment_overlap_policy: FragmentOverlapPolicy::Drop,
         }
     }
 }
-
-// 注：当前版本不支持分片和重组，因此不包含 allow_fragmentation、df_flag、
-// reassembly_timeout、max_reassembly_entries、max_fragments_per_datagram 等参数
 ```
 
 ---
@@ -810,11 +1318,53 @@ impl Default for Ipv4Config {
 
 ### 9.3 分段相关测试
 
-1. **分片拒绝测试**
-   - 发送 MF=1 的数据报 → 应丢弃并发送 ICMP 参数错误
-   - 发送 Fragment Offset 非 0 的数据报 → 应丢弃并发送 ICMP 参数错误
+#### 9.3.1 分片发送测试
 
-**注：当前版本不支持分片和重组，收到任何分片数据报应直接丢弃。**
+1. **基本分片测试**
+   - 发送 4000 字节数据报，MTU=1500
+   - 验证生成 3 个分片，偏移量正确
+   - 验证 MF 标志设置正确
+   - 验证所有分片使用相同 Identification
+
+2. **DF 标志测试**
+   - 发送 DF=1 的大数据报（超过 MTU）
+   - 应丢弃并发送 ICMP Destination Unreachable (Type 3 Code 4)
+   - 验证消息中包含正确的 MTU 值
+
+3. **边界分片测试**
+   - 数据长度恰好是 8 字节倍数
+   - 数据长度不是 8 字节倍数
+   - 验证分片数据长度对齐正确
+
+#### 9.3.2 重组测试
+
+1. **顺序重组测试**
+   - 按顺序发送所有分片
+   - 验证正确重组完整数据报
+   - 验证重组条目被删除
+
+2. **乱序重组测试**
+   - 随机顺序发送分片（先发最后一片）
+   - 验证所有分片到齐后正确重组
+
+3. **重组超时测试**
+   - 发送部分分片后停止
+   - 等待 30 秒超时
+   - 验证所有分片被丢弃
+   - 验证发送 ICMP Time Exceeded (Type 11 Code 1)
+
+4. **分片重叠测试**
+   - 发送偏移量重叠的分片
+   - 验证根据配置策略处理（丢弃/保留第一个/保留最后一个）
+   - 验证安全日志记录（如果启用）
+
+5. **重复分片测试**
+   - 发送相同偏移量的重复分片
+   - 验证正确处理（覆盖或忽略）
+
+6. **最大分片数测试**
+   - 发送超过 max_fragments_per_datagram 的分片
+   - 验证正确处理（丢弃后续分片或返回错误）
 
 ### 9.4 异常情况测试
 
@@ -852,19 +1402,56 @@ impl Default for Ipv4Config {
 
 ## 10. 参考资料
 
+### 10.1 核心 RFC 标准
+
 1. **RFC 791** - Internet Protocol (DARPA Internet Program Protocol Specification)
+   - 定义 IPv4 协议格式、寻址、分片和重组机制
+   - 发布于 1981 年 9 月
+
 2. **RFC 792** - Internet Control Message Protocol (ICMP)
+   - 定义 ICMP 协议，用于错误报告和诊断
+
 3. **RFC 815** - IP Datagram Reassembly Algorithms
+   - 描述简化的 IP 数据报重组算法
+   - 优化了 RFC 791 中的基本重组算法
+
 4. **RFC 950** - Internet Standard Subnetting Procedure
+   - 定义子网划分 (Subnetting)
+
 5. **RFC 1122** - Requirements for Internet Hosts -- Communication Layers
+   - 主机通信层要求
+   - **推荐 30 秒重组超时时间**
+
 6. **RFC 1519** - Classless Inter-Domain Routing (CIDR)
+   - 无类域间路由
+
 7. **RFC 1812** - Requirements for IP Version 4 Routers
+   - IPv4 路由器要求
+
+### 10.2 相关协议标准
+
 8. **RFC 2460** - Internet Protocol, Version 6 (IPv6) Specification
+   - IPv6 协议规范
+
 9. **RFC 3022** - Traditional IP Network Address Translator (Traditional NAT)
+   - NAT 协议规范
+
 10. **RFC 6810** - The IPv4 Variable Length Mask Option
+    - IPv4 可变长度掩码选项
+
+### 10.3 安全相关 RFC
+
+11. **RFC 2827** - Network Ingress Filtering: Defeating Denial of Service Attacks which employ IP Source Address Spoofing
+    - 入口过滤，防止 IP 欺骗攻击
+
+12. **RFC 3260** - New Terminology and Clarifications for Diffserv
+    - DiffServ 相关术语
+
+13. **RFC 4987** - TCP SYN Flooding Attacks and Common Mitigations
+    - SYN 洪水攻击和缓解措施（参考）
 
 ---
 
-*文档版本：v1.0*
-*生成日期：2026-02-19*
-*CoreNet 项目 - IPv4 协议设计*
+*文档版本：v1.1*
+*更新日期：2026-02-23*
+*CoreNet 项目 - IPv4 协议设计（含分片和重组）*

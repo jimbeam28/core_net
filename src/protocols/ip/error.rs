@@ -40,6 +40,25 @@ pub enum IpError {
         fragment_offset: u16,
     },
 
+    /// 分片重叠
+    FragmentOverlap {
+        offset: u16,
+    },
+
+    /// 分片数量超过限制
+    TooManyFragments {
+        count: usize,
+        max: usize,
+    },
+
+    /// 重组表已满
+    ReassemblyTableFull,
+
+    /// 重组超时
+    ReassemblyTimeout {
+        id: u16,
+    },
+
     /// 协议不支持
     UnsupportedProtocol {
         protocol: u8,
@@ -93,6 +112,26 @@ impl IpError {
         IpError::FragmentedPacket { mf_flag, fragment_offset }
     }
 
+    /// 创建分片重叠错误
+    pub fn fragment_overlap(offset: u16) -> Self {
+        IpError::FragmentOverlap { offset }
+    }
+
+    /// 创建分片数量过多错误
+    pub fn too_many_fragments(count: usize, max: usize) -> Self {
+        IpError::TooManyFragments { count, max }
+    }
+
+    /// 创建重组表已满错误
+    pub fn reassembly_table_full() -> Self {
+        IpError::ReassemblyTableFull
+    }
+
+    /// 创建重组超时错误
+    pub fn reassembly_timeout(id: u16) -> Self {
+        IpError::ReassemblyTimeout { id }
+    }
+
     /// 创建协议不支持错误
     pub fn unsupported_protocol(protocol: u8) -> Self {
         IpError::UnsupportedProtocol { protocol }
@@ -139,6 +178,18 @@ impl std::fmt::Display for IpError {
             IpError::FragmentedPacket { mf_flag, fragment_offset } => {
                 write!(f, "IP分片数据报(不支持): MF={}, Offset={}", mf_flag, fragment_offset)
             }
+            IpError::FragmentOverlap { offset } => {
+                write!(f, "IP分片重叠: Offset={}", offset)
+            }
+            IpError::TooManyFragments { count, max } => {
+                write!(f, "IP分片数量超过限制: count={}, max={}", count, max)
+            }
+            IpError::ReassemblyTableFull => {
+                write!(f, "IP重组表已满")
+            }
+            IpError::ReassemblyTimeout { id } => {
+                write!(f, "IP重组超时: ID={}", id)
+            }
             IpError::UnsupportedProtocol { protocol } => {
                 write!(f, "IP协议不支持: Protocol={}", protocol)
             }
@@ -175,6 +226,18 @@ impl From<IpError> for CoreError {
             }
             IpError::FragmentedPacket { .. } => {
                 CoreError::UnsupportedProtocol(err.to_string())
+            }
+            IpError::FragmentOverlap { .. } => {
+                CoreError::InvalidPacket(err.to_string())
+            }
+            IpError::TooManyFragments { .. } => {
+                CoreError::InvalidPacket(err.to_string())
+            }
+            IpError::ReassemblyTableFull => {
+                CoreError::InvalidPacket(err.to_string())
+            }
+            IpError::ReassemblyTimeout { .. } => {
+                CoreError::InvalidPacket(err.to_string())
             }
             IpError::UnsupportedProtocol { .. } => {
                 CoreError::UnsupportedProtocol(err.to_string())
