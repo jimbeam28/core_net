@@ -68,6 +68,7 @@ impl GlobalStateManager {
             None, // icmpv6_context: 使用默认值
             None, // ip_reassembly: 使用默认值
             None, // ipv6_fragment_cache: 使用默认值
+            None, // socket_mgr: 使用默认值
         )
     }
 

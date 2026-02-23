@@ -14,6 +14,7 @@ use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT
 use crate::protocols::ipv6::FragmentCache;
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
+use crate::socket::SocketManager;
 
 /// 系统上下文，持有所有全局状态的所有权
 ///
@@ -53,6 +54,9 @@ pub struct SystemContext {
 
     /// IPv6 分片重组缓存
     pub ipv6_fragment_cache: Arc<Mutex<FragmentCache>>,
+
+    /// Socket 管理器
+    pub socket_mgr: Arc<Mutex<SocketManager>>,
 }
 
 impl SystemContext {
@@ -60,13 +64,23 @@ impl SystemContext {
     ///
     /// 创建一个空的系统上下文，所有组件使用默认值。
     pub fn new() -> Self {
+        // 创建 TCP Socket 管理器和 UDP 端口管理器
+        let tcp_sockets = Arc::new(Mutex::new(TcpSocketManager::new()));
+        let udp_ports = Arc::new(Mutex::new(UdpPortManager::new()));
+
+        // 创建 Socket 管理器
+        let socket_mgr = Arc::new(Mutex::new(SocketManager::new(
+            tcp_sockets.clone(),
+            udp_ports.clone(),
+        )));
+
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
-            tcp_sockets: Arc::new(Mutex::new(TcpSocketManager::new())),
-            udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
+            tcp_sockets,
+            udp_ports,
             timers: Arc::new(Mutex::new(TimerHandle::new())),
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
@@ -75,6 +89,7 @@ impl SystemContext {
                 DEFAULT_REASSEMBLY_TIMEOUT_SECS,
             ))),
             ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
+            socket_mgr,
         }
     }
 
@@ -94,13 +109,23 @@ impl SystemContext {
             }
         };
 
+        // 创建 TCP Socket 管理器和 UDP 端口管理器
+        let tcp_sockets = Arc::new(Mutex::new(TcpSocketManager::new()));
+        let udp_ports = Arc::new(Mutex::new(UdpPortManager::new()));
+
+        // 创建 Socket 管理器
+        let socket_mgr = Arc::new(Mutex::new(SocketManager::new(
+            tcp_sockets.clone(),
+            udp_ports.clone(),
+        )));
+
         Self {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
-            tcp_sockets: Arc::new(Mutex::new(TcpSocketManager::new())),
-            udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
+            tcp_sockets,
+            udp_ports,
             timers: Arc::new(Mutex::new(TimerHandle::new())),
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
@@ -109,6 +134,7 @@ impl SystemContext {
                 DEFAULT_REASSEMBLY_TIMEOUT_SECS,
             ))),
             ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
+            socket_mgr,
         }
     }
 
@@ -129,6 +155,7 @@ impl SystemContext {
     /// - `icmpv6_context`: ICMPv6 上下文（可选，默认为空）
     /// - `ip_reassembly`: IPv4 重组表（可选，默认为空）
     /// - `ipv6_fragment_cache`: IPv6 分片缓存（可选，默认为空）
+    /// - `socket_mgr`: Socket 管理器（可选，默认为空）
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
         arp_cache: Arc<Mutex<ArpCache>>,
@@ -141,6 +168,7 @@ impl SystemContext {
         icmpv6_context: Option<Arc<Mutex<Icmpv6Context>>>,
         ip_reassembly: Option<Arc<Mutex<ReassemblyTable>>>,
         ipv6_fragment_cache: Option<Arc<Mutex<FragmentCache>>>,
+        socket_mgr: Option<Arc<Mutex<SocketManager>>>,
     ) -> Self {
         // 创建默认的重组表（如果未提供）
         let default_reassembly = || Arc::new(Mutex::new(ReassemblyTable::new(
@@ -151,18 +179,28 @@ impl SystemContext {
         // 创建默认的 IPv6 分片缓存（如果未提供）
         let default_ipv6_fragment_cache = || Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES)));
 
+        // 创建 TCP Socket 管理器和 UDP 端口管理器（如果未提供）
+        let tcp_sockets = tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
+        let udp_ports = udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new())));
+
+        // 创建或使用提供的 Socket 管理器
+        let socket_mgr = socket_mgr.unwrap_or_else(|| {
+            Arc::new(Mutex::new(SocketManager::new(tcp_sockets.clone(), udp_ports.clone())))
+        });
+
         Self {
             interfaces,
             arp_cache,
             icmp_echo,
             tcp_connections,
-            tcp_sockets: tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new()))),
-            udp_ports: udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new()))),
+            tcp_sockets,
+            udp_ports,
             timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
             route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
             icmpv6_context: icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
             ip_reassembly: ip_reassembly.unwrap_or_else(default_reassembly),
             ipv6_fragment_cache: ipv6_fragment_cache.unwrap_or_else(default_ipv6_fragment_cache),
+            socket_mgr,
         }
     }
 
@@ -239,6 +277,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.icmpv6_context, &ctx2.icmpv6_context));
         assert!(Arc::ptr_eq(&ctx1.ip_reassembly, &ctx2.ip_reassembly));
         assert!(Arc::ptr_eq(&ctx1.ipv6_fragment_cache, &ctx2.ipv6_fragment_cache));
+        assert!(Arc::ptr_eq(&ctx1.socket_mgr, &ctx2.socket_mgr));
     }
 
     #[test]
@@ -262,6 +301,7 @@ mod tests {
             None, // icmpv6_context
             None, // ip_reassembly
             None, // ipv6_fragment_cache
+            None, // socket_mgr
         );
 
         assert_eq!(ctx.interface_count(), 1);

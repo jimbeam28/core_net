@@ -12,6 +12,7 @@ pub mod scheduler;
 pub mod protocols;
 pub mod interface;
 pub mod route;
+pub mod socket;
 pub mod testframework;
 
 // 重新导出常用类型
@@ -88,4 +89,12 @@ pub use route::{
     Ipv6Route,
     RouteLookup,
     RouteError,
+};
+
+// 导出 Socket 模块
+pub use socket::{
+    SocketManager, SocketError, SocketConfig,
+    SocketFd, SocketAddr, SocketAddrV4, SocketAddrV6,
+    AddressFamily, SocketType, SocketProtocol,
+    SendFlags, RecvFlags, TcpState,
 };
