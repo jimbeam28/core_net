@@ -125,31 +125,6 @@ impl TcpSocket {
         self.connection_id.clone()
     }
 
-    /// 设置本地地址
-    pub(crate) fn set_local_addr(&mut self, ip: Ipv4Addr, port: u16) {
-        self.local_addr = Some((ip, port));
-    }
-
-    /// 设置远程地址
-    pub(crate) fn set_remote_addr(&mut self, ip: Ipv4Addr, port: u16) {
-        self.remote_addr = Some((ip, port));
-    }
-
-    /// 设置连接 ID
-    pub(crate) fn set_connection_id(&mut self, id: TcpConnectionId) {
-        self.connection_id = Some(id);
-    }
-
-    /// 设置为监听状态
-    pub(crate) fn set_listening(&mut self, listening: bool) {
-        self.is_listening = listening;
-    }
-
-    /// 设置为已连接状态
-    pub(crate) fn set_connected(&mut self, connected: bool) {
-        self.is_connected = connected;
-    }
-
     /// 设置事件回调
     ///
     /// # 参数
@@ -168,15 +143,6 @@ impl TcpSocket {
     /// 检查是否有回调
     pub fn has_callback(&self) -> bool {
         self.callback_set.load(Ordering::SeqCst)
-    }
-
-    /// 触发事件回调
-    pub(crate) fn trigger_event(&self, event: TcpEvent) {
-        if self.callback_set.load(Ordering::SeqCst) {
-            if let Some(callback) = self.callback.lock().unwrap().as_ref() {
-                callback(event);
-            }
-        }
     }
 
     /// 关闭 Socket
@@ -227,56 +193,6 @@ mod tests {
     }
 
     #[test]
-    fn test_socket_set_local_addr() {
-        let mut socket = TcpSocket::new(1);
-
-        socket.set_local_addr(Ipv4Addr::new(192, 168, 1, 100), 8080);
-
-        assert!(socket.is_bound());
-        assert_eq!(socket.local_addr(), Some((Ipv4Addr::new(192, 168, 1, 100), 8080)));
-    }
-
-    #[test]
-    fn test_socket_set_remote_addr() {
-        let mut socket = TcpSocket::new(1);
-
-        socket.set_remote_addr(Ipv4Addr::new(192, 168, 1, 1), 80);
-
-        assert_eq!(socket.remote_addr(), Some((Ipv4Addr::new(192, 168, 1, 1), 80)));
-    }
-
-    #[test]
-    fn test_socket_set_connection_id() {
-        let mut socket = TcpSocket::new(1);
-
-        let conn_id = TcpConnectionId::new(
-            Ipv4Addr::new(192, 168, 1, 100), 8080,
-            Ipv4Addr::new(192, 168, 1, 1), 80,
-        );
-        socket.set_connection_id(conn_id.clone());
-
-        assert_eq!(socket.connection_id(), Some(conn_id));
-    }
-
-    #[test]
-    fn test_socket_set_listening() {
-        let mut socket = TcpSocket::new(1);
-
-        socket.set_listening(true);
-
-        assert!(socket.is_listening());
-    }
-
-    #[test]
-    fn test_socket_set_connected() {
-        let mut socket = TcpSocket::new(1);
-
-        socket.set_connected(true);
-
-        assert!(socket.is_connected());
-    }
-
-    #[test]
     fn test_socket_callback() {
         let socket = TcpSocket::new(1);
 
@@ -304,14 +220,9 @@ mod tests {
     fn test_socket_close() {
         let mut socket = TcpSocket::new(1);
 
-        socket.set_listening(true);
-        socket.set_connected(true);
-
         socket.close().unwrap();
 
         assert!(socket.is_closed());
-        assert!(!socket.is_listening());
-        assert!(!socket.is_connected());
     }
 
     #[test]
@@ -321,27 +232,5 @@ mod tests {
         socket.close().unwrap();
         let result = socket.close();
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_socket_trigger_event() {
-        let socket = TcpSocket::new(1);
-
-        // 使用 Arc<Mutex<Cell>> 来跟踪回调是否被调用
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let called = Arc::new(AtomicBool::new(false));
-        let called_clone = called.clone();
-
-        socket.set_callback(Box::new(move |_event| {
-            called_clone.store(true, Ordering::SeqCst);
-        }));
-
-        let conn_id = TcpConnectionId::new(
-            Ipv4Addr::new(192, 168, 1, 100), 8080,
-            Ipv4Addr::new(192, 168, 1, 1), 80,
-        );
-        socket.trigger_event(TcpEvent::Connected(conn_id.clone()));
-
-        assert!(called.load(Ordering::SeqCst));
     }
 }

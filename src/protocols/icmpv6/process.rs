@@ -4,15 +4,14 @@
 // RFC 4443: ICMPv6 处理规范
 // RFC 4861: 邻居发现处理
 
-use crate::common::{Packet, Result};
+use crate::common::Packet;
 use crate::protocols::Ipv6Addr;
-use crate::context::SystemContext;
 
 use super::types::*;
 use super::packet::*;
 use super::neighbor::*;
 use super::config::*;
-use super::error::{Icmpv6Error, Icmpv6Result};
+use super::error::Icmpv6Result;
 use super::checksum::verify_icmpv6_checksum;
 
 /// ICMPv6 处理结果
@@ -365,10 +364,8 @@ fn handle_router_advertisement(
                 }
             }
             _ => {
-                if context.config.drop_unknown_options {
-                    if verbose {
-                        println!("  未知选项类型: {}", opt.option_type);
-                    }
+                if context.config.drop_unknown_options && verbose {
+                    println!("  未知选项类型: {}", opt.option_type);
                 }
             }
         }
@@ -424,7 +421,7 @@ fn handle_neighbor_solicitation(
 /// 处理 Neighbor Advertisement
 fn handle_neighbor_advertisement(
     na: Icmpv6NeighborAdvertisement,
-    source_addr: Ipv6Addr,
+    _source_addr: Ipv6Addr,
     context: &mut Icmpv6Context,
     verbose: bool,
 ) -> Icmpv6Result<Icmpv6ProcessResult> {

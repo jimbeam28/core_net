@@ -157,7 +157,7 @@ fn process_segment_with_tcb(
     segment: &TcpSegment,
     _source_ip: Ipv4Addr,
     _dest_ip: Ipv4Addr,
-    config: &TcpConfig,
+    _config: &TcpConfig,
 ) -> std::result::Result<TcpProcessResult, TcpError> {
     let header = segment.header;
 
@@ -214,7 +214,7 @@ fn process_segment_with_tcb(
                     tcb.rcv_nxt,
                     tcb.rcv_wnd,
                 );
-                let response = encapsulate_tcp_header(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
+                let response = encapsulate_tcp_segment(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
                 return Ok(TcpProcessResult::Reply(response));
             }
 
@@ -236,7 +236,7 @@ fn process_segment_with_tcb(
                         tcb.rcv_nxt,
                         tcb.rcv_wnd,
                     );
-                    let response = encapsulate_tcp_header(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
+                    let response = encapsulate_tcp_segment(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
 
                     // 返回数据（Delivered）
                     let data = segment.payload.to_vec();
@@ -309,25 +309,6 @@ pub fn encapsulate_tcp_segment(
     bytes[17] = (checksum & 0xFF) as u8;
 
     bytes
-}
-
-/// 封装 TCP 头部（无选项）
-///
-/// # 参数
-/// - header: TCP 头部
-/// - _options: TCP 选项（当前未使用，保留供未来扩展）
-/// - source_addr: 源 IP 地址
-/// - dest_addr: 目的 IP 地址
-///
-/// # 返回
-/// - Vec<u8>: 包含 TCP 头部和校验和的字节数组
-pub fn encapsulate_tcp_header(
-    header: &TcpHeader,
-    _options: &[u8],
-    source_addr: Ipv4Addr,
-    dest_addr: Ipv4Addr,
-) -> Vec<u8> {
-    encapsulate_tcp_segment(header, &[], source_addr, dest_addr)
 }
 
 /// 计算 TCP 校验和（包含伪头部）

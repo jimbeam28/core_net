@@ -5,12 +5,14 @@ use core_net::engine::PacketProcessor;
 use core_net::interface::InterfaceManager;
 use core_net::poweron::{boot_default, shutdown};
 use core_net::scheduler::Scheduler;
+use core_net::interface::{InterfaceConfig, InterfaceState};
+use core_net::protocols::Ipv6Addr;
 use core_net::context::SystemContext;
 use serial_test::serial;
 
 mod common;
 use common::{
-    create_test_eth0_config, create_test_lo_config, create_test_packet,
+    create_test_eth0_config, create_test_packet,
     create_arp_request_packet, count_all_rxq_packets, count_all_txq_packets,
 };
 
@@ -18,7 +20,20 @@ use common::{
 fn create_multi_interface_manager() -> InterfaceManager {
     let mut manager = InterfaceManager::new(256, 256);
     manager.add_from_config(create_test_eth0_config()).unwrap();
-    manager.add_from_config(create_test_lo_config()).unwrap();
+
+    // 添加回环接口
+    let lo_config = InterfaceConfig {
+        name: "lo".to_string(),
+        mac_addr: MacAddr::zero(),
+        ip_addr: Ipv4Addr::new(127, 0, 0, 1),
+        ipv6_addr: Ipv6Addr::LOOPBACK,
+        netmask: Ipv4Addr::new(255, 0, 0, 0),
+        gateway: None,
+        mtu: Some(65535),
+        state: Some(InterfaceState::Up),
+    };
+    manager.add_from_config(lo_config).unwrap();
+
     manager
 }
 

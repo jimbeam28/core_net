@@ -162,7 +162,8 @@ mod tests {
 
     #[test]
     fn test_config_const() {
-        assert!(ICMPV6_CONFIG_DEFAULT.enable_echo_reply);
+        const { assert!(ICMPV6_CONFIG_DEFAULT.enable_echo_reply) };
+        const { assert!(ICMPV6_CONFIG_DEFAULT.accept_router_advertisements) };
         assert_eq!(ICMPV6_CONFIG_DEFAULT.max_neighbor_cache_entries, 256);
     }
 }

@@ -287,7 +287,6 @@ mod tests {
         // 端口 0 自动分配
         let port1 = manager.bind(0).unwrap();
         assert!(port1 >= EPHEMERAL_PORT_MIN);
-        assert!(port1 <= EPHEMERAL_PORT_MAX);
 
         // 再次分配应该得到不同的端口
         let port2 = manager.bind(0).unwrap();

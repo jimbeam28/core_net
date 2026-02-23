@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::protocols::{Ipv6Addr, MacAddr};
-use crate::common::CoreError;
 
 use super::types::*;
 use super::error::{Icmpv6Error, Icmpv6Result};

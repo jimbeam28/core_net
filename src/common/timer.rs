@@ -203,14 +203,9 @@ impl TimerManager {
         let mut count = 0;
         let mut reinsert = Vec::new();
 
-        loop {
+        while let Some(entry) = self.timers.peek() {
             // 检查最早的定时器是否到期
-            let should_pop = if let Some(entry) = self.timers.peek() {
-                entry.expires_at <= now
-            } else {
-                break;
-            };
-
+            let should_pop = entry.expires_at <= now;
             if !should_pop {
                 break;
             }
@@ -227,11 +222,12 @@ impl TimerManager {
             count += 1;
 
             // 如果是周期性定时器且回调返回true，重新加入队列
-            if expired_entry.timer_type == TimerType::Periodic && should_continue {
-                if let Some(interval) = expired_entry.interval {
-                    expired_entry.expires_at = now + interval;
-                    reinsert.push(expired_entry);
-                }
+            if expired_entry.timer_type == TimerType::Periodic
+                && should_continue
+                && let Some(interval) = expired_entry.interval
+            {
+                expired_entry.expires_at = now + interval;
+                reinsert.push(expired_entry);
             }
         }
 
@@ -355,12 +351,11 @@ mod tests {
     #[test]
     fn test_timer_oneshot() {
         let mut manager = TimerManager::new();
-        let mut triggered = false;
 
         manager.add_oneshot(
             Duration::from_secs(1),
-            |_id, data: &mut bool| {
-                *data = true;
+            |_id, _data: &mut bool| {
+                // 定时器回调
             },
             false
         );
@@ -368,7 +363,6 @@ mod tests {
         // 时间未到
         manager.advance(Duration::from_millis(500));
         assert_eq!(manager.process_expired(), 0);
-        assert!(!triggered);
 
         // 时间到了
         manager.advance(Duration::from_millis(600));

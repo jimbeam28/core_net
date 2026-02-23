@@ -68,7 +68,7 @@ fn test_icmpv6_echo_direct_processing() {
 
     // 创建 Echo Request（使用正确的 ICMPv6 校验和计算）
     let echo_bytes = create_icmpv6_echo_request(source, dest, 1234, 1, vec![0x42; 32]);
-    let mut packet = Packet::from_bytes(echo_bytes);
+    let packet = Packet::from_bytes(echo_bytes);
 
     // 直接处理
     let result = core_net::protocols::icmpv6::process_icmpv6_packet(

@@ -8,6 +8,8 @@ use crate::context::SystemContext;
 
 use super::packet::UdpDatagram;
 use super::config::UdpConfig;
+
+#[cfg(test)]
 use super::UdpSocket;
 
 /// UDP 处理结果

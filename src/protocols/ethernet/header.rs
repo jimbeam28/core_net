@@ -13,10 +13,6 @@ pub const ETH_P_8021Q: u16 = 0x8100;
 /// 以太网类型：Q-in-Q VLAN
 pub const ETH_P_8021AD: u16 = 0x88A8;
 
-/// IEEE 802.3 最小帧长（不含 FCS）
-/// 根据标准，以太网帧（不含 FCS）最小长度为 60 字节
-pub const ETH_MIN_FRAME_LEN: usize = 60;
-
 /// IEEE 802.3 最大帧长（不含 FCS）
 /// 标准以太网最大帧长为 1500 字节（不含 FCS）
 pub const ETH_MAX_FRAME_LEN: usize = 1500;

@@ -3,7 +3,7 @@
 // ICMPv6 报文结构定义
 // RFC 4443: ICMPv6 报文格式
 
-use crate::common::{CoreError, Packet, Result};
+use crate::common::Packet;
 use crate::protocols::Ipv6Addr;
 use crate::protocols::ip::calculate_checksum;
 
@@ -97,7 +97,14 @@ impl Icmpv6Echo {
         }
     }
 
-    /// 从 Packet 解析
+    /// 从 Packet 解析 ICMPv6 Echo 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Echo 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6Echo)`: 解析成功的 ICMPv6 Echo 报文
+    /// - `Err(Icmpv6Error)`: 解析失败（长度不足或字段无效）
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -224,6 +231,14 @@ pub struct Icmpv6DestUnreachable {
 impl Icmpv6DestUnreachable {
     pub const MIN_LEN: usize = 8;
 
+    /// 从 Packet 解析 ICMPv6 Destination Unreachable 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Destination Unreachable 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6DestUnreachable)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败（长度不足或代码无效）
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -307,6 +322,14 @@ pub struct Icmpv6PacketTooBig {
 impl Icmpv6PacketTooBig {
     pub const MIN_LEN: usize = 8;
 
+    /// 从 Packet 解析 ICMPv6 Packet Too Big 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Packet Too Big 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6PacketTooBig)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -389,6 +412,14 @@ pub struct Icmpv6TimeExceeded {
 impl Icmpv6TimeExceeded {
     pub const MIN_LEN: usize = 8;
 
+    /// 从 Packet 解析 ICMPv6 Time Exceeded 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Time Exceeded 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6TimeExceeded)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -472,6 +503,14 @@ pub struct Icmpv6ParameterProblem {
 impl Icmpv6ParameterProblem {
     pub const MIN_LEN: usize = 8;
 
+    /// 从 Packet 解析 ICMPv6 Parameter Problem 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Parameter Problem 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6ParameterProblem)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -565,6 +604,14 @@ impl Icmpv6RouterSolicitation {
         }
     }
 
+    /// 从 Packet 解析 ICMPv6 Router Solicitation 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Router Solicitation 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6RouterSolicitation)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -655,6 +702,14 @@ pub struct Icmpv6RouterAdvertisement {
 impl Icmpv6RouterAdvertisement {
     pub const MIN_LEN: usize = 16;
 
+    /// 从 Packet 解析 ICMPv6 Router Advertisement 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Router Advertisement 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6RouterAdvertisement)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -786,6 +841,14 @@ impl Icmpv6NeighborSolicitation {
         }
     }
 
+    /// 从 Packet 解析 ICMPv6 Neighbor Solicitation 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Neighbor Solicitation 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6NeighborSolicitation)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -903,6 +966,14 @@ impl Icmpv6NeighborAdvertisement {
         }
     }
 
+    /// 从 Packet 解析 ICMPv6 Neighbor Advertisement 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Neighbor Advertisement 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6NeighborAdvertisement)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -925,8 +996,8 @@ impl Icmpv6NeighborAdvertisement {
             .ok_or_else(|| Icmpv6Error::ParseError("读取标志失败".to_string()))?[0];
 
         let mut reserved = [0u8; 3];
-        for i in 0..3 {
-            reserved[i] = packet.read(1)
+        for item in &mut reserved {
+            *item = packet.read(1)
                 .ok_or_else(|| Icmpv6Error::ParseError("读取保留字段失败".to_string()))?[0];
         }
 
@@ -1019,6 +1090,14 @@ pub struct Icmpv6Redirect {
 impl Icmpv6Redirect {
     pub const MIN_LEN: usize = 40;
 
+    /// 从 Packet 解析 ICMPv6 Redirect 报文
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 Redirect 报文的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6Redirect)`: 解析成功的报文
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError(format!(
@@ -1114,7 +1193,14 @@ impl Icmpv6Option {
     /// 最小选项长度（Type + Length = 2 字节）
     pub const MIN_LEN: usize = 2;
 
-    /// 从 Packet 解析选项
+    /// 从 Packet 解析 ICMPv6 选项
+    ///
+    /// # 参数
+    /// - `packet`: 包含 ICMPv6 选项的数据包
+    ///
+    /// # 返回
+    /// - `Ok(Icmpv6Option)`: 解析成功的选项
+    /// - `Err(Icmpv6Error)`: 解析失败
     pub fn from_packet(packet: &mut Packet) -> Icmpv6Result<Self> {
         if packet.remaining() < Self::MIN_LEN {
             return Err(Icmpv6Error::ParseError("选项长度不足".to_string()));
@@ -1162,11 +1248,7 @@ impl Icmpv6Option {
 
         // 计算长度（以 8 字节为单位）
         let total_len = 2 + self.data.len();
-        let length_field = if total_len % 8 == 0 {
-            (total_len / 8) as u8
-        } else {
-            ((total_len + 7) / 8) as u8
-        };
+        let length_field = total_len.div_ceil(8) as u8;
         bytes.push(length_field);
 
         bytes.extend_from_slice(&self.data);

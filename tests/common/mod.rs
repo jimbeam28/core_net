@@ -28,20 +28,6 @@ pub fn create_test_eth0_config() -> InterfaceConfig {
     }
 }
 
-/// 创建测试用 lo 配置
-pub fn create_test_lo_config() -> InterfaceConfig {
-    InterfaceConfig {
-        name: "lo".to_string(),
-        mac_addr: MacAddr::zero(),
-        ip_addr: Ipv4Addr::new(127, 0, 0, 1),
-        ipv6_addr: Ipv6Addr::LOOPBACK,
-        netmask: Ipv4Addr::new(255, 0, 0, 0),
-        gateway: None,
-        mtu: Some(65535),
-        state: Some(InterfaceState::Up),
-    }
-}
-
 // 报文创建函数
 
 /// 创建 IP 头部

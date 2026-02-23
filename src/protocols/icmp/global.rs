@@ -212,8 +212,10 @@ mod tests {
 
     #[test]
     fn test_echo_manager_cleanup() {
-        let mut config = IcmpConfig::default();
-        config.echo_timeout = Duration::from_millis(100);
+        let config = IcmpConfig {
+            echo_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
         let mut manager = EchoManager::new(config);
 
         let dest = Ipv4Addr::new(192, 168, 1, 1);
@@ -253,8 +255,10 @@ mod tests {
 
     #[test]
     fn test_rate_limit() {
-        let mut config = IcmpConfig::default();
-        config.max_echo_replies_per_sec = 2;
+        let config = IcmpConfig {
+            max_echo_replies_per_sec: 2,
+            ..Default::default()
+        };
         let mut manager = EchoManager::new(config);
 
         // First two should succeed

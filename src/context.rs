@@ -9,7 +9,7 @@ use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
 use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager};
 use crate::protocols::udp::UdpPortManager;
-use crate::protocols::icmpv6::{Icmpv6Context, Icmpv6Config};
+use crate::protocols::icmpv6::Icmpv6Context;
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
 

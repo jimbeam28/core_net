@@ -141,7 +141,6 @@ pub use tcp::{
     TCP_CONFIG_DEFAULT,
     process_tcp_packet,
     encapsulate_tcp_segment,
-    encapsulate_tcp_header,
     create_syn,
     create_ack,
     create_fin,

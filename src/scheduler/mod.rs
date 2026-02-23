@@ -8,7 +8,6 @@ use crate::common::Packet;
 use crate::engine::PacketProcessor;
 use crate::interface::InterfaceManager;
 use crate::context::SystemContext;
-use crate::protocols::Ipv6Addr;
 
 // --- 错误类型定义 ---
 
@@ -450,7 +449,7 @@ pub fn schedule_packets_verbose(rxq: &mut RingQueue<Packet>, txq: &mut RingQueue
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{MacAddr, Ipv4Addr, ETH_P_ARP};
+    use crate::common::{MacAddr, Ipv4Addr, Ipv6Addr, ETH_P_ARP};
     use crate::protocols::arp::{ArpPacket, ArpOperation};
     use crate::protocols::ethernet;
 

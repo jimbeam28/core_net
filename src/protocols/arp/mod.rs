@@ -552,26 +552,26 @@ pub fn process_arp_packet_with_context(
         let target_mac = arp_pkt.sender_hardware_addr;
 
         // 尝试将等待的报文放入接口的txq
-        if let Ok(mut interfaces) = context.interfaces.lock() {
-            if let Ok(iface) = interfaces.get_by_index_mut(ifindex) {
-                for pending_pkt in handle_result.pending_packets {
-                    // 封装为以太网帧
-                    let frame = ethernet::build_ethernet_frame(
-                        target_mac,
-                        local_mac,
-                        0x0800, // IP协议
-                        pending_pkt.as_slice()
-                    );
-                    let out_packet = Packet::from_bytes(frame);
+        if let Ok(mut interfaces) = context.interfaces.lock()
+            && let Ok(iface) = interfaces.get_by_index_mut(ifindex)
+        {
+            for pending_pkt in handle_result.pending_packets {
+                // 封装为以太网帧
+                let frame = ethernet::build_ethernet_frame(
+                    target_mac,
+                    local_mac,
+                    0x0800, // IP协议
+                    pending_pkt.as_slice()
+                );
+                let out_packet = Packet::from_bytes(frame);
 
-                    // 尝试放入发送队列
-                    if let Err(_) = iface.txq.enqueue(out_packet) {
-                        if verbose {
-                            println!("  警告: TxQ已满，等待的数据包丢失");
-                        }
-                    } else if verbose {
-                        println!("  发送等待队列中的数据包到 {}", target_mac);
+                // 尝试放入发送队列
+                if iface.txq.enqueue(out_packet).is_err() {
+                    if verbose {
+                        println!("  警告: TxQ已满，等待的数据包丢失");
                     }
+                } else if verbose {
+                    println!("  发送等待队列中的数据包到 {}", target_mac);
                 }
             }
         }

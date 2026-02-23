@@ -7,7 +7,7 @@ use core_net::common::Packet;
 use core_net::interface::{MacAddr, Ipv4Addr};
 use core_net::protocols::ETH_P_IP;
 use core_net::protocols::udp::{UdpDatagram, UdpHeader, UdpSocket, encapsulate_udp_datagram};
-use core_net::protocols::udp::{UdpPortManager, EPHEMERAL_PORT_MIN, EPHEMERAL_PORT_MAX};
+use core_net::protocols::udp::{UdpPortManager, EPHEMERAL_PORT_MIN};
 use serial_test::serial;
 use std::sync::{Arc, Mutex};
 
@@ -446,7 +446,6 @@ fn test_udp_port_manager_bind_auto() {
     // 自动分配端口
     let port1 = manager.bind(0).unwrap();
     assert!(port1 >= EPHEMERAL_PORT_MIN);
-    assert!(port1 <= EPHEMERAL_PORT_MAX);
 
     // 再次分配
     let port2 = manager.bind(0).unwrap();
@@ -669,7 +668,6 @@ fn test_udp_ephemeral_port_range() {
     for _ in 0..10 {
         let port = manager.bind(0).unwrap();
         assert!(port >= EPHEMERAL_PORT_MIN);
-        assert!(port <= EPHEMERAL_PORT_MAX);
     }
 }
 
