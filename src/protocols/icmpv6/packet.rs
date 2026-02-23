@@ -672,6 +672,12 @@ impl Icmpv6RouterSolicitation {
     }
 }
 
+impl Default for Icmpv6RouterSolicitation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ========== Router Advertisement ==========
 
 /// ICMPv6 Router Advertisement 报文

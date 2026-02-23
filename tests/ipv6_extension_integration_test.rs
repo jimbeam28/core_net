@@ -3,9 +3,8 @@
 // IPv6 扩展头集成测试
 
 use core_net::common::Packet;
-use core_net::context::SystemContext;
 use core_net::protocols::ipv6;
-use core_net::protocols::{Ipv6Addr, MacAddr};
+use core_net::protocols::Ipv6Addr;
 use core_net::testframework::{GlobalStateManager, TestHarness, PacketInjector};
 use serial_test::serial;
 
@@ -343,8 +342,6 @@ fn test_ipv6_fragment_reassembly_key() {
 #[test]
 #[serial]
 fn test_ipv6_fragment_cache_operations() {
-    use std::collections::HashMap;
-
     let src = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
     let dst = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
 

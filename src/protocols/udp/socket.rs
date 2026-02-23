@@ -179,12 +179,11 @@ impl UdpSocket {
     /// # 返回
     /// - bool: 是否有回调
     pub fn has_callback(&self) -> bool {
-        if let Some(port) = self.port {
-            if let Ok(port_manager) = self.context.udp_ports.lock() {
-                if let Some(entry) = port_manager.lookup(port) {
-                    return entry.has_callback();
-                }
-            }
+        if let Some(port) = self.port
+            && let Ok(port_manager) = self.context.udp_ports.lock()
+            && let Some(entry) = port_manager.lookup(port)
+        {
+            return entry.has_callback();
         }
         false
     }

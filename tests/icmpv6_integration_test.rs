@@ -433,5 +433,5 @@ fn test_icmpv6_router_advertisement_parsing() {
 
     // 验证路由器列表已更新
     let icmpv6_ctx = ctx.icmpv6_context.lock().unwrap();
-    assert!(icmpv6_ctx.router_list.routers().len() > 0, "路由器列表应该有更新");
+    assert!(!icmpv6_ctx.router_list.routers().is_empty(), "路由器列表应该有更新");
 }

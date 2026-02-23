@@ -372,7 +372,7 @@ pub fn create_fragments(
 
     // 计算每个分片的最大数据长度
     // MTU - 分片头长度 (8 字节)
-    let max_fragment_data = if mtu > 8 { mtu - 8 } else { 0 };
+    let max_fragment_data = mtu.saturating_sub(8);
 
     if max_fragment_data == 0 || data.len() <= max_fragment_data {
         // 不需要分片

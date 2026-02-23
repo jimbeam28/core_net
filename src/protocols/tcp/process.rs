@@ -226,7 +226,7 @@ fn process_segment_with_tcb(
                     tcb.rcv_nxt = tcb.rcv_nxt.wrapping_add(segment.payload.len() as u32);
 
                     // 将数据写入接收缓冲区
-                    tcb.write_to_recv_buffer(&segment.payload)?;
+                    tcb.write_to_recv_buffer(segment.payload)?;
 
                     // 发送 ACK
                     let ack_header = TcpHeader::ack(

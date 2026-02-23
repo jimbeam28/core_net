@@ -96,7 +96,7 @@ impl<'a> TcpSegment<'a> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.header.serialize());
         bytes.extend_from_slice(&self.options);
-        bytes.extend_from_slice(&self.payload);
+        bytes.extend_from_slice(self.payload);
 
         // TCP 数据（使用 16 位字累加，跳过校验和字段）
         let mut i = 0;

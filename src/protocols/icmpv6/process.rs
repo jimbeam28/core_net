@@ -218,21 +218,6 @@ fn handle_icmpv6_echo_packet(
     }
 }
 
-/// 检查是否允许发送 ICMPv6 Error 消息
-///
-/// 根据速率限制配置检查是否允许发送 Error 消息
-/// 这是为了防止 ICMPv6 Error 消息泛洪攻击
-///
-/// # 参数
-/// - context: ICMPv6 处理上下文
-///
-/// # 返回
-/// - true: 允许发送
-/// - false: 超过速率限制，应丢弃
-fn check_error_rate_limit(context: &mut Icmpv6Context) -> bool {
-    context.error_rate_limiter.check_and_record()
-}
-
 /// 处理 Destination Unreachable
 fn handle_dest_unreachable(
     _dest_unreach: Icmpv6DestUnreachable,

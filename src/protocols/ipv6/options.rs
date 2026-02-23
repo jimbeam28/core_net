@@ -232,13 +232,13 @@ impl RouterAlertOption {
 
         if data[0] != OPTION_TYPE_ROUTER_ALERT {
             return Err(CoreError::parse_error(
-                &format!("无效的 Router Alert 选项类型: {}", data[0])
+                format!("无效的 Router Alert 选项类型: {}", data[0])
             ));
         }
 
         if data[1] != 2 {
             return Err(CoreError::parse_error(
-                &format!("无效的 Router Alert 选项长度: {}", data[1])
+                format!("无效的 Router Alert 选项长度: {}", data[1])
             ));
         }
 
@@ -311,13 +311,13 @@ impl JumboPayloadOption {
 
         if data[0] != OPTION_TYPE_JUMBO_PAYLOAD {
             return Err(CoreError::parse_error(
-                &format!("无效的 Jumbo Payload 选项类型: {}", data[0])
+                format!("无效的 Jumbo Payload 选项类型: {}", data[0])
             ));
         }
 
         if data[1] != 4 {
             return Err(CoreError::parse_error(
-                &format!("无效的 Jumbo Payload 选项长度: {}", data[1])
+                format!("无效的 Jumbo Payload 选项长度: {}", data[1])
             ));
         }
 
@@ -398,7 +398,7 @@ pub fn parse_options(data: &[u8]) -> Result<OptionsParseResult> {
 pub fn create_padn(length: usize) -> Option {
     // PadN 选项：类型=1, 长度字段, 填充数据
     // 总长度 = 2 + length
-    let data_length = if length >= 2 { length - 2 } else { 0 };
+    let data_length = length.saturating_sub(2);
     let data = vec![0u8; data_length];
 
     Option {

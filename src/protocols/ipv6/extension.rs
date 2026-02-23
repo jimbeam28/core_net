@@ -78,7 +78,7 @@ impl HopByHopHeader {
         let header_length = if options_length == 0 {
             0
         } else {
-            ((options_length + 7) / 8) - 1
+            options_length.div_ceil(8) - 1
         };
 
         HopByHopHeader {
@@ -134,7 +134,7 @@ impl RoutingHeader {
         let header_length = if data_length == 0 {
             0
         } else {
-            ((data_length + 7) / 8) - 1
+            data_length.div_ceil(8) - 1
         };
 
         RoutingHeader {
@@ -352,7 +352,7 @@ impl DestinationOptionsHeader {
         let header_length = if options_length == 0 {
             0
         } else {
-            ((options_length + 7) / 8) - 1
+            options_length.div_ceil(8) - 1
         };
 
         DestinationOptionsHeader {
