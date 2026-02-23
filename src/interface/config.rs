@@ -148,6 +148,13 @@ fn parse_toml_config(content: &str) -> Result<InterfaceModuleConfig, InterfaceEr
                                 AddrError::InvalidIpAddr(s) => InterfaceError::InvalidIpAddr(s),
                             })?;
                         }
+                        "ipv6_addr" => {
+                            iface.ipv6_addr = value.parse().map_err(|e: AddrError| match e {
+                                AddrError::InvalidIpAddr(s) | AddrError::InvalidMacAddr(s) => {
+                                    InterfaceError::InvalidIpv6Addr(s)
+                                }
+                            })?;
+                        }
                         "netmask" => {
                             iface.netmask = value.parse().map_err(|e: AddrError| match e {
                                 AddrError::InvalidMacAddr(s) => InterfaceError::InvalidMacAddr(s),

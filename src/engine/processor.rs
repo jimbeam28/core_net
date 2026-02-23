@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::{arp, ip, icmp, ipv6, udp, tcp, Ipv4Addr};
+use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, Ipv4Addr};
 use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
@@ -349,23 +349,20 @@ impl PacketProcessor {
                 );
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
-            ipv6::Ipv6ProcessResult::DeliverToProtocol(data) => {
-                // 提取 IPv6 头部信息用于上层协议处理
-                let ipv6_hdr = ipv6::Ipv6Header::from_packet(&mut packet)?;
-
+            ipv6::Ipv6ProcessResult::DeliverToProtocol { header, data } => {
                 if self.verbose {
                     println!("IPv6: {} -> {} NextHeader={} HopLimit={}",
-                        ipv6_hdr.source_addr, ipv6_hdr.destination_addr, ipv6_hdr.next_header, ipv6_hdr.hop_limit);
+                        header.source_addr, header.destination_addr, header.next_header, header.hop_limit);
                 }
 
                 // 根据 Next Header 字段分发到上层协议
-                match ipv6_hdr.next_header {
+                match header.next_header {
                     ipv6::IpProtocol::IcmpV6 => {
-                        self.handle_icmpv6(eth_hdr, ipv6_hdr, Packet::from_bytes(data))
+                        self.handle_icmpv6(eth_hdr, header, Packet::from_bytes(data))
                     }
                     _ => {
                         Err(ProcessError::UnsupportedProtocol(
-                            format!("Unknown IPv6 next header: {}", u8::from(ipv6_hdr.next_header))
+                            format!("Unknown IPv6 next header: {}", u8::from(header.next_header))
                         ))
                     }
                 }
@@ -383,12 +380,14 @@ impl PacketProcessor {
         // 获取接口索引
         let ifindex = packet.get_ifindex();
 
-        // 获取本接口的 IPv6 地址（用作响应的源地址）
-        let interfaces = self.context.interfaces.lock()
-            .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
-        let iface = interfaces.get_by_index(ifindex)
-            .map_err(|e| ProcessError::ParseError(format!("获取接口失败: {}", e)))?;
-        let our_ipv6 = iface.ipv6_addr();
+        // 一次性获取所有需要的接口信息（避免多次锁定）
+        let (our_ipv6, our_mac) = {
+            let interfaces = self.context.interfaces.lock()
+                .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
+            let iface = interfaces.get_by_index(ifindex)
+                .map_err(|e| ProcessError::ParseError(format!("获取接口失败: {}", e)))?;
+            (iface.ipv6_addr(), iface.mac_addr)
+        };
 
         if self.verbose {
             println!("ICMPv6: 处理 ICMPv6 报文 源={} 目的={}",
@@ -396,21 +395,21 @@ impl PacketProcessor {
         }
 
         // 处理 ICMPv6 报文
-        let result = icmp::process_icmpv6_packet(
+        let mut icmpv6_ctx = self.context.icmpv6_context.lock()
+            .map_err(|e| ProcessError::ParseError(format!("锁定ICMPv6上下文失败: {}", e)))?;
+
+        let result = icmpv6::process_icmpv6_packet(
             packet,
             ipv6_hdr.source_addr,
             our_ipv6,
-            &self.context,
+            &mut icmpv6_ctx,
             self.verbose,
-        ).map_err(|e| ProcessError::ParseError(format!("ICMPv6处理失败: {}", e)))?;
+        ).map_err(|e| ProcessError::ParseError(format!("ICMPv6处理失败: {:?}", e)))?;
 
         // 根据处理结果返回
         match result {
-            icmp::IcmpProcessResult::NoReply => Ok(None),
-            icmp::IcmpProcessResult::Reply(icmpv6_bytes) => {
-                // 获取本接口的 MAC 地址
-                let our_mac = self.get_interface_mac(ifindex)?;
-
+            icmpv6::Icmpv6ProcessResult::NoReply => Ok(None),
+            icmpv6::Icmpv6ProcessResult::Reply(icmpv6_bytes) => {
                 // 封装为 IPv6 数据包
                 let ipv6_reply = ipv6::Ipv6Header::new(
                     our_ipv6,
@@ -432,7 +431,7 @@ impl PacketProcessor {
 
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
-            icmp::IcmpProcessResult::Processed => Ok(None),
+            icmpv6::Icmpv6ProcessResult::Processed => Ok(None),
         }
     }
 

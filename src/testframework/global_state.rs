@@ -65,6 +65,7 @@ impl GlobalStateManager {
             None, // udp_ports: 使用默认值
             None, // timers: 使用默认值
             None, // route_table: 使用默认值
+            None, // icmpv6_context: 使用默认值
         )
     }
 

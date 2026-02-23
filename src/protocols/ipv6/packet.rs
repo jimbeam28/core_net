@@ -21,8 +21,8 @@ pub enum Ipv6ProcessResult {
     /// 需要发送 ICMPv6 错误响应（Vec<u8> 为完整的 IPv6 数据包）
     Reply(Vec<u8>),
 
-    /// 交付给上层协议（Vec<u8> 为上层协议数据，不含 IPv6 头部）
-    DeliverToProtocol(Vec<u8>),
+    /// 交付给上层协议（包含 IPv6 头部信息和负载数据）
+    DeliverToProtocol { header: Ipv6Header, data: Vec<u8> },
 }
 
 /// IPv6 处理专用 Result 类型
@@ -92,7 +92,10 @@ pub fn process_ipv6_packet(
         IpProtocol::IcmpV6 => {
             // 提取数据部分（不含 IPv6 头部）
             let data = extract_payload(packet, ip_hdr.payload_length as usize)?;
-            Ok(Ipv6ProcessResult::DeliverToProtocol(data))
+            Ok(Ipv6ProcessResult::DeliverToProtocol {
+                header: ip_hdr,
+                data,
+            })
         }
         _ => {
             // 协议不支持
@@ -218,10 +221,16 @@ mod tests {
 
     #[test]
     fn test_ipv6_process_result_deliver() {
+        let src = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+        let dst = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
+        let header = Ipv6Header::new(src, dst, 8, IpProtocol::IcmpV6, 64);
         let data = vec![0x01, 0x02, 0x03];
-        let result = Ipv6ProcessResult::DeliverToProtocol(data.clone());
+        let result = Ipv6ProcessResult::DeliverToProtocol {
+            header,
+            data: data.clone(),
+        };
         match result {
-            Ipv6ProcessResult::DeliverToProtocol(d) => assert_eq!(d, data),
+            Ipv6ProcessResult::DeliverToProtocol { header: _, data: d } => assert_eq!(d, data),
             _ => panic!("Expected DeliverToProtocol"),
         }
     }

@@ -272,12 +272,20 @@ pub fn create_ipv6_echo_request_packet(
     let icmp_data = vec![0x42; 32]; // 数据负载
 
     // ICMPv6 Echo Request: Type=128, Code=0
-    let mut icmp_packet = Vec::with_capacity(4 + icmp_data.len());
+    let mut icmp_packet = Vec::with_capacity(8 + icmp_data.len());
     icmp_packet.push(128); // Type: Echo Request
     icmp_packet.push(0);   // Code: 0
+    icmp_packet.extend_from_slice(&[0, 0]); // Checksum (placeholder)
     icmp_packet.extend_from_slice(&identifier.to_be_bytes()); // Identifier
     icmp_packet.extend_from_slice(&sequence.to_be_bytes());   // Sequence
     icmp_packet.extend_from_slice(&icmp_data);
+
+    // 计算校验和（使用 ICMPv6 伪头部）
+    let checksum = core_net::protocols::icmpv6::calculate_icmpv6_checksum(
+        src_ipv6, dst_ipv6, &icmp_packet
+    );
+    icmp_packet[2] = (checksum >> 8) as u8;
+    icmp_packet[3] = (checksum & 0xFF) as u8;
 
     // 封装 IPv6 头部
     let ipv6_packet = encapsulate_ipv6_packet(

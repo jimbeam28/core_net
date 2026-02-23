@@ -20,6 +20,9 @@ pub mod ipv6;
 // ICMP 协议
 pub mod icmp;
 
+// ICMPv6 协议
+pub mod icmpv6;
+
 // UDP 协议
 pub mod udp;
 
@@ -80,6 +83,31 @@ pub use icmp::{
     process_icmp_packet,
     create_echo_request,
     create_echo_reply,
+};
+
+// ICMPv6 模块导出
+pub use icmpv6::{
+    Icmpv6Type,
+    Icmpv6Packet,
+    Icmpv6Echo,
+    Icmpv6Error,
+    Icmpv6Result,
+    Icmpv6Config,
+    ICMPV6_CONFIG_DEFAULT,
+    NeighborCache,
+    NeighborCacheEntry,
+    NeighborCacheState,
+    RouterList,
+    DefaultRouterEntry,
+    PrefixList,
+    PrefixEntry,
+    PmtuCache,
+    EchoManager,
+    PendingEcho,
+    process_icmpv6_packet,
+    create_icmpv6_echo_request,
+    create_icmpv6_echo_reply,
+    IPPROTO_ICMPV6,
 };
 
 // UDP 模块导出

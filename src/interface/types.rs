@@ -27,6 +27,9 @@ pub enum InterfaceError {
     /// IP地址格式无效
     InvalidIpAddr(String),
 
+    /// IPv6地址格式无效
+    InvalidIpv6Addr(String),
+
     /// MTU值无效
     InvalidMtu(u16),
 
@@ -60,6 +63,9 @@ impl fmt::Display for InterfaceError {
             }
             InterfaceError::InvalidIpAddr(addr) => {
                 write!(f, "无效的IP地址格式: {}", addr)
+            }
+            InterfaceError::InvalidIpv6Addr(addr) => {
+                write!(f, "无效的IPv6地址格式: {}", addr)
             }
             InterfaceError::InvalidMtu(mtu) => {
                 write!(f, "无效的MTU值: {}", mtu)

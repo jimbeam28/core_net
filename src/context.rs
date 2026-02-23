@@ -9,6 +9,7 @@ use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
 use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager};
 use crate::protocols::udp::UdpPortManager;
+use crate::protocols::icmpv6::{Icmpv6Context, Icmpv6Config};
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
 
@@ -41,6 +42,9 @@ pub struct SystemContext {
 
     /// 路由表
     pub route_table: Arc<Mutex<RouteTable>>,
+
+    /// ICMPv6 上下文
+    pub icmpv6_context: Arc<Mutex<Icmpv6Context>>,
 }
 
 impl SystemContext {
@@ -57,6 +61,7 @@ impl SystemContext {
             udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
             route_table: Arc::new(Mutex::new(RouteTable::new())),
+            icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
         }
     }
 
@@ -85,6 +90,7 @@ impl SystemContext {
             udp_ports: Arc::new(Mutex::new(UdpPortManager::new())),
             timers: Arc::new(Mutex::new(TimerHandle::new())),
             route_table: Arc::new(Mutex::new(RouteTable::new())),
+            icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
         }
     }
 
@@ -110,6 +116,7 @@ impl SystemContext {
         udp_ports: Option<Arc<Mutex<UdpPortManager>>>,
         timers: Option<Arc<Mutex<TimerHandle>>>,
         route_table: Option<Arc<Mutex<RouteTable>>>,
+        icmpv6_context: Option<Arc<Mutex<Icmpv6Context>>>,
     ) -> Self {
         Self {
             interfaces,
@@ -120,6 +127,7 @@ impl SystemContext {
             udp_ports: udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new()))),
             timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
             route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
+            icmpv6_context: icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
         }
     }
 
@@ -193,6 +201,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.tcp_sockets, &ctx2.tcp_sockets));
         assert!(Arc::ptr_eq(&ctx1.udp_ports, &ctx2.udp_ports));
         assert!(Arc::ptr_eq(&ctx1.timers, &ctx2.timers));
+        assert!(Arc::ptr_eq(&ctx1.icmpv6_context, &ctx2.icmpv6_context));
     }
 
     #[test]
@@ -213,6 +222,7 @@ mod tests {
             Some(Arc::new(Mutex::new(udp_mgr))),
             None,
             None,
+            None, // icmpv6_context
         );
 
         assert_eq!(ctx.interface_count(), 1);
