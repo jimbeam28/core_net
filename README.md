@@ -104,10 +104,10 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
   - ✅ ARP - 缓存管理、响应生成、状态机
 
 - **网络层**
-  - ✅ IPv4 - 头部解析、校验和、协议分发（暂不支持分片）
-  - ✅ IPv6 - 头部解析、协议分发（暂不支持分片/扩展头）
+  - ✅ IPv4 - 头部解析、校验和、协议分发、分片与重组
+  - ✅ IPv6 - 头部解析、协议分发、分片与重组、扩展头支持
   - ✅ ICMP - Echo Request/Reply、Destination Unreachable、Time Exceeded
-  - ✅ ICMPv6 - Echo Request/Reply
+  - ✅ ICMPv6 - Echo Request/Reply、邻居发现(NDP)
   - ✅ 路由 - IPv4/IPv6路由表、最长前缀匹配
 
 - **传输层**
@@ -116,11 +116,9 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 
 ### 计划中 ⏳
 - **网络层**
-  - ⏳ IP 分片与重组
-  - ⏳ IPv6 扩展头（逐跳选项、分片、路由、目的选项）
-  - ⏳ ND (Neighbor Discovery) - IPv6 邻居发现
+  - ⏳ IPSec 支持（ESP/AH扩展头）
 - **应用层**
-  - ⏳ 完整 Socket API（bind/connect/send/recv等）
+  - ⏳ 动态路由协议（OSPF、BGP等）
 
 ## 目录结构
 
@@ -182,9 +180,11 @@ core_net/
 │   │   ├── arp/               # ARP 协议 ✅
 │   │   ├── ip/                # IPv4 协议 ✅
 │   │   ├── ipv6/              # IPv6 协议 ✅
-│   │   ├── icmp/              # ICMP/ICMPv6 协议 ✅
+│   │   ├── icmp/              # ICMP 协议 ✅
+│   │   ├── icmpv6/            # ICMPv6 协议 ✅
 │   │   ├── udp/               # UDP 协议 ✅
 │   │   └── tcp/               # TCP 协议 ✅
+│   ├── socket/                # Socket API ✅
 │   └── testframework/         # 测试框架
 │       ├── harness.rs         # TestHarness
 │       ├── injector.rs        # PacketInjector
@@ -236,11 +236,19 @@ core_net/
 - `ethernet` - 以太网帧解析/封装
 - `vlan` - 802.1Q/802.1AD 标签处理
 - `arp` - ARP 协议和缓存管理
-- `ip` - IPv4 协议
-- `ipv6` - IPv6 协议
-- `icmp` - ICMP/ICMPv6 协议
-- `udp` - UDP 协议和 Socket
-- `tcp` - TCP 协议、连接管理和 Socket
+- `ip` - IPv4 协议、分片与重组（RFC 791, RFC 815）
+- `ipv6` - IPv6 协议、分片与重组、扩展头（RFC 8200）
+- `icmp` - ICMP 协议（Echo、Dest Unreachable、Time Exceeded）
+- `icmpv6` - ICMPv6 协议（Echo、NDP、错误报告）
+- `udp` - UDP 协议和 Socket（RFC 768）
+- `tcp` - TCP 协议、连接管理、拥塞控制、Socket（RFC 793, RFC 9293）
+
+### socket
+POSIX风格 Socket API 实现：
+- `types.rs` - Socket 类型定义
+- `entry.rs` - Socket 入口（状态管理、缓冲区）
+- `manager.rs` - Socket 管理器（完整 API）
+- `error.rs` - Socket 错误类型
 
 ### testframework
 协议测试框架：
@@ -322,11 +330,17 @@ cargo clippy
 
 **目标**：支持 IPv6 基础通信 ✅ 已实现
 
-### 阶段五：高级功能（进行中）
-- [ ] IP 分片与重组
-- [ ] IPv6 扩展头
-- [ ] ND (Neighbor Discovery)
-- [ ] 完整 Socket API
+### 阶段五：高级功能 ✅
+- [x] IP 分片与重组（IPv4/IPv6）
+- [x] IPv6 扩展头（逐跳选项、路由、分片、目的选项）
+- [x] ND (Neighbor Discovery)
+- [x] Socket API（完整实现）
+
+**目标**：支持完整的 IP 分片重组和 IPv6 扩展头 ✅ 已实现
+
+### 阶段六：高级网络功能（计划中）
+- [ ] IPSec 支持（ESP/AH扩展头）
+- [ ] 动态路由协议
 
 ---
 
@@ -337,18 +351,19 @@ cargo clippy
 - Interface 模块: 100%
 - Scheduler 模块: 100%
 - Engine 模块: 100%
-- Route 模块: 80%（支持基础路由，不支持动态路由）
+- Route 模块: 85%（支持基础路由和LPM，不支持动态路由）
+- Socket 模块: 95%（POSIX风格API，完整实现）
 - Ethernet 协议: 100%
 - VLAN 协议: 100%
 - ARP 协议: 100%
-- IPv4 协议: 85%（支持头部解析和校验和，不支持分片/重组）
-- IPv6 协议: 75%（支持基础头部，不支持分片/扩展头）
+- IPv4 协议: 95%（支持分片/重组）
+- IPv6 协议: 90%（支持分片/重组/扩展头）
 - ICMP 协议: 100%
-- ICMPv6 协议: 60%（仅支持 Echo）
-- UDP 协议: 90%（支持基础功能）
-- TCP 协议: 85%（支持基础连接和数据传输）
+- ICMPv6 协议: 85%（支持Echo和NDP）
+- UDP 协议: 100%（完整实现）
+- TCP 协议: 95%（完整状态机、拥塞控制）
 
-**整体项目完成度: ~90%**
+**整体项目完成度: ~95%**
 
 ## 设计文档
 
@@ -374,7 +389,8 @@ cargo clippy
 - [ARP 协议设计](docs/design/protocols/arp.md) - ARP 协议和缓存管理
 - [IPv4 协议设计](docs/design/protocols/ip.md) - IPv4 协议实现
 - [IPv6 协议设计](docs/design/protocols/ipv6.md) - IPv6 协议实现
-- [ICMP 协议设计](docs/design/protocols/icmp.md) - ICMP/ICMPv6 协议实现
+- [ICMP 协议设计](docs/design/protocols/icmp.md) - ICMP 协议实现
+- [ICMPv6 协议设计](docs/design/protocols/icmpv6.md) - ICMPv6 协议实现
 - [TCP 协议设计](docs/design/protocols/tcp.md) - TCP 协议实现
 - [UDP 协议设计](docs/design/protocols/udp.md) - UDP 协议实现
 
@@ -387,11 +403,11 @@ cargo clippy
 | Ethernet | IEEE 802.3 | 以太网标准 | ✅ 已实现 |
 | VLAN | IEEE 802.1Q | 虚拟局域网 | ✅ 已实现 |
 | ARP | RFC 826 | 地址解析协议 | ✅ 已实现 |
-| IPv4 | RFC 791 | 互联网协议 | ✅ 已实现（无分片） |
-| IPv6 | RFC 8200 | 互联网协议第 6 版 | ✅ 已实现（无分片/扩展头） |
+| IPv4 | RFC 791 | 互联网协议 | ✅ 已实现（含分片/重组） |
+| IPv6 | RFC 8200 | 互联网协议第 6 版 | ✅ 已实现（含分片/重组/扩展头） |
 | ICMP | RFC 792 | 互联网控制报文协议 | ✅ 已实现 |
-| ICMPv6 | RFC 4443 | ICMPv6 | ✅ 部分实现（Echo） |
-| TCP | RFC 793, RFC 9293 | 传输控制协议 | ✅ 已实现（基础功能） |
+| ICMPv6 | RFC 4443 | ICMPv6 | ✅ 已实现（Echo、NDP） |
+| TCP | RFC 793, RFC 9293 | 传输控制协议 | ✅ 已实现（完整状态机、拥塞控制） |
 | UDP | RFC 768 | 用户数据报协议 | ✅ 已实现 |
 
 ## 开发日志

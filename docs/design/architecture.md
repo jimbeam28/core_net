@@ -12,10 +12,12 @@
 
 ### 1.3 项目状态
 - ✅ 链路层完整实现（Ethernet、VLAN、ARP）
-- ✅ 网络层完整实现（IPv4、IPv6、ICMP、ICMPv6）
+- ✅ 网络层完整实现（IPv4、IPv6、ICMP、ICMPv6、NDP）
 - ✅ 传输层完整实现（TCP、UDP）
 - ✅ 路由模块实现（IPv4/IPv6路由表、最长前缀匹配）
-- ⏳ 应用层Socket API（部分实现）
+- ✅ IP分片与重组（IPv4/IPv6）
+- ✅ IPv6扩展头（逐跳选项、路由、分片、目的选项）
+- ✅ Socket API（bind、connect、send、recv、close等）
 
 ---
 
@@ -39,6 +41,10 @@
 │  │  │  Arc<Mutex<UdpPortManager>>   (UDP 端口)                    │  │   │
 │  │  │  Arc<Mutex<RouteTable>>       (路由表)                      │  │   │
 │  │  │  Arc<Mutex<TimerHandle>>      (定时器)                      │  │   │
+│  │  │  Arc<Mutex<Icmpv6Context>>    (ICMPv6上下文)                │  │   │
+│  │  │  Arc<Mutex<ReassemblyTable>>  (IPv4分片重组)                │  │   │
+│  │  │  Arc<Mutex<FragmentCache>>    (IPv6分片缓存)                │  │   │
+│  │  │  Arc<Mutex<SocketManager>>    (Socket管理器)                │  │   │
 │  │  │                   (依赖注入模式，支持 Clone)                  │  │   │
 │  │  └──────────────────────────────────────────────────────────────┘  │   │
 │  │       from_config() ──► 加载 interface.toml ──► 初始化所有组件      │   │
@@ -344,20 +350,22 @@ protocols/ip/
 ├── protocol.rs  # Ipv4Protocol 枚举
 ├── error.rs     # IpError 枚举
 ├── config.rs    # Ipv4Config
-└── packet.rs    # IP 报文处理逻辑
+├── packet.rs    # IP 报文处理逻辑
+└── fragment.rs  # 分片与重组
 ```
 
 **核心功能**：
 - IPv4 头部解析（20-60 字节）
 - 校验和验证
 - 协议字段分发（ICMP, TCP, UDP）
-- 分片检测（当前不支持分片重组，分片报文被丢弃）
+- 分片与重组（RFC 791, RFC 815）
+- 重叠检测和处理策略
 
 **已实现**：
 - ✅ 头部解析
 - ✅ 校验和计算和验证
 - ✅ 协议分发
-- ❌ 分片和重组（暂不支持）
+- ✅ 分片和重组（30秒超时，64最大条目，16最大分片数）
 
 #### 3.5.5 ICMP 模块
 
@@ -386,7 +394,37 @@ protocols/icmp/
 
 ---
 
-### 3.5.6 IPv6 模块
+### 3.5.6 ICMPv6 模块
+
+```
+protocols/icmpv6/
+├── mod.rs       # 模块入口
+├── packet.rs    # Icmpv6Packet 结构
+├── types.rs     # ICMPv6 类型枚举
+├── process.rs   # ICMPv6 报文处理
+├── neighbor.rs  # 邻居发现协议 (NDP)
+├── checksum.rs  # ICMPv6 校验和（伪头部）
+└── config.rs    # ICMPv6 配置
+```
+
+**核心功能**：
+- Echo Request/Reply（ping6）
+- 邻居发现协议 (NDP)
+- 邻居通告 (Neighbor Advertisement)
+- 邻居请求 (Neighbor Solicitation)
+- 路由器通告/请求
+- 错误报告（目标不可达、超时、参数问题）
+- ICMPv6 校验和（包含伪头部）
+
+**已实现**：
+- ✅ Echo Request/Reply
+- ✅ 邻居发现 (NDP)
+- ✅ 错误报告
+- ✅ 校验和验证
+
+---
+
+### 3.5.7 IPv6 模块
 
 ```
 protocols/ipv6/
@@ -395,7 +433,10 @@ protocols/ipv6/
 ├── protocol.rs  # IpProtocol 枚举
 ├── error.rs     # Ipv6Error 枚举
 ├── config.rs    # Ipv6Config
-└── packet.rs    # IPv6 报文处理逻辑
+├── packet.rs    # IPv6 报文处理逻辑
+├── extension.rs # 扩展头处理
+├── fragment.rs  # 分片与重组
+└── options.rs   # 选项处理
 ```
 
 **核心功能**：
@@ -403,14 +444,25 @@ protocols/ipv6/
 - 协议字段分发（ICMPv6、TCP、UDP）
 - 地址验证
 - 128位地址支持
+- 扩展头链解析
+- 分片与重组
+
+**扩展头支持**：
+- ✅ Hop-by-Hop Options (Next Header = 0)
+- ✅ Routing Header Type 2 (Next Header = 43)
+- ✅ Fragment Header (Next Header = 44)
+- ✅ Destination Options (Next Header = 60)
+- ❌ ESP/AH（返回错误）
 
 **已实现**：
 - ✅ 头部解析
 - ✅ 协议分发
-- ❌ 分片和重组（暂不支持）
-- ❌ 扩展头（暂不支持）
+- ✅ 分片和重组（60秒超时，256最大条目，64最大分片数）
+- ✅ 扩展头（逐跳选项、路由、分片、目的选项）
+- ✅ 原子分片拒绝（RFC 6981）
+- ✅ 重叠检测（RFC 5722）
 
-#### 3.5.7 TCP 模块
+#### 3.5.8 TCP 模块
 
 ```
 protocols/tcp/
@@ -432,19 +484,22 @@ protocols/tcp/
 - 四次挥手（FIN、ACK）
 - 滑动窗口和流量控制
 - 重传机制
-- 连接状态管理（LISTEN、SYN_SENT、ESTABLISHED等）
+- 拥塞控制（慢启动、拥塞避免）
+- 连接状态管理（LISTEN、SYN_SENT、SYN_RECEIVED、ESTABLISHED、FIN_WAIT1/2、CLOSE_WAIT、LAST_ACK、TIME_WAIT）
 - Socket API（bind、connect、send、recv、close）
 - 端口复用和TIME_WAIT状态
+- MSS选项支持
 
 **已实现**：
-- ✅ 三次握手
+- ✅ 三次握手（RFC 793, RFC 9293）
 - ✅ 四次挥手
 - ✅ 滑动窗口
 - ✅ 重传机制
 - ✅ Socket API
 - ✅ 连接管理
+- ✅ 拥塞控制
 
-#### 3.5.8 UDP 模块
+#### 3.5.9 UDP 模块
 
 ```
 protocols/udp/
@@ -498,7 +553,38 @@ route/
 
 ---
 
-### 3.7 通用模块 (Common)
+### 3.7 Socket 模块
+
+```
+socket/
+├── mod.rs       # 模块入口
+├── types.rs     # Socket类型定义（AddressFamily, SocketType, SocketProtocol等）
+├── entry.rs     # SocketEntry（状态管理、缓冲区、监听队列）
+├── manager.rs   # SocketManager（socket, bind, listen, accept, connect, send, recv, close）
+└── error.rs     # SocketError 错误类型
+```
+
+**核心功能**：
+- POSIX风格Socket API
+- Socket生命周期管理
+- TCP/UDP Socket支持
+- 绑定、监听、接受、连接操作
+- 发送/接收缓冲区
+- Socket文件描述符管理
+
+**已实现**：
+- ✅ socket() - 创建Socket
+- ✅ bind() - 绑定地址
+- ✅ listen() - 监听连接
+- ✅ accept() - 接受连接
+- ✅ connect() - 发起连接
+- ✅ send() - 发送数据
+- ✅ recv() - 接收数据
+- ✅ close() - 关闭Socket
+
+---
+
+### 3.8 通用模块 (Common)
 
 ```
 common/
@@ -511,7 +597,7 @@ common/
 └── timer.rs     # Timer 定时器
 ```
 
-#### 3.7.1 Packet（报文描述符）
+#### 3.8.1 Packet（报文描述符）
 
 **核心结构**：
 ```rust
@@ -526,7 +612,7 @@ pub struct Packet {
 - `enqueue()` 转移所有权
 - `dequeue()` 获取所有权
 
-#### 3.7.2 RingQueue（环形队列）
+#### 3.8.2 RingQueue（环形队列）
 
 **核心结构**：
 ```rust
@@ -541,7 +627,7 @@ pub struct RingQueue<T> {
 
 **队列模型**：SPSC（单生产者单消费者）
 
-#### 3.7.3 Error（错误处理）
+#### 3.8.3 Error（错误处理）
 
 **三种错误类型**：
 - `CoreError`: 通用错误（在 common 模块）
@@ -550,7 +636,7 @@ pub struct RingQueue<T> {
 
 **错误转换**：各模块实现 `From<T>` trait 进行转换
 
-#### 3.7.4 Timer（定时器）
+#### 3.8.4 Timer（定时器）
 
 **核心功能**：
 - 驱动协议状态机（如TCP重传、ARP超时）
@@ -702,29 +788,29 @@ pub struct RingQueue<T> {
 
 | 层级 | 协议 | RFC | 状态 |
 |------|------|-----|------|
-| 应用层 | Socket API | - | ⏳ 部分实现 |
-| 传输层 | TCP | RFC 793, RFC 9293 | ✅ 已实现（基础功能） |
+| 应用层 | Socket API | - | ✅ 已实现（POSIX风格） |
+| 传输层 | TCP | RFC 793, RFC 9293 | ✅ 已实现（完整状态机、拥塞控制） |
 | 传输层 | UDP | RFC 768 | ✅ 已实现 |
-| 网络层 | IPv4 | RFC 791 | ✅ 已实现（无分片） |
-| 网络层 | IPv6 | RFC 8200 | ✅ 已实现（无分片/扩展头） |
+| 网络层 | IPv4 | RFC 791 | ✅ 已实现（含分片/重组） |
+| 网络层 | IPv6 | RFC 8200 | ✅ 已实现（含分片/重组/扩展头） |
 | 网络层 | ICMP | RFC 792 | ✅ 已实现 |
-| 网络层 | ICMPv6 | RFC 4443 | ✅ 已实现 |
+| 网络层 | ICMPv6 | RFC 4443 | ✅ 已实现（Echo、NDP） |
 | 路由 | 路由表 | - | ✅ 已实现（最长前缀匹配） |
 | 链路层 | Ethernet | IEEE 802.3 | ✅ 已实现 |
 | 链路层 | VLAN | IEEE 802.1Q | ✅ 已实现 |
 | 链路层 | ARP | RFC 826 | ✅ 已实现 |
 
 **实现详情**：
-- **TCP**: 三次握手、四次挥手、滑动窗口、重传机制、Socket API、连接管理
+- **TCP**: 三次握手、四次挥手、滑动窗口、重传机制、拥塞控制、Socket API、连接管理、MSS选项
 - **UDP**: 端口绑定、数据报收发、Socket API、回调机制、端口不可达响应
-- **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持
+- **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持、分片与重组、扩展头支持
 - **路由**: IPv4/IPv6路由表、最长前缀匹配（LPM）
+- **Socket API**: POSIX风格API（socket, bind, listen, accept, connect, send, recv, close）
+- **IP分片**: IPv4/IPv6分片与重组（超时处理、重叠检测）
 
 **未实现功能**：
-- IP分片和重组（IPv4/IPv6）
-- IPv6扩展头（逐跳选项、分片、路由、目的选项）
-- 邻居发现（ND）
-- 完整Socket API（bind/connect/send/recv等）
+- IPSec（ESP/AH扩展头返回错误）
+- 动态路由协议（OSPF、BGP等）
 
 ---
 
@@ -776,6 +862,8 @@ pub struct RingQueue<T> {
 - [IPv4 协议设计](protocols/ip.md) - IPv4 协议实现
 - [IPv6 协议设计](protocols/ipv6.md) - IPv6 协议实现
 - [ICMP 协议设计](protocols/icmp.md) - ICMP 协议实现
+- [ICMPv6 协议设计](protocols/icmpv6.md) - ICMPv6 协议实现
 - [TCP 协议设计](protocols/tcp.md) - TCP 协议实现
 - [UDP 协议设计](protocols/udp.md) - UDP 协议实现
 - [路由模块设计](route.md) - 路由表和最长前缀匹配
+- [Socket API 设计](socket.md) - Socket API 实现
