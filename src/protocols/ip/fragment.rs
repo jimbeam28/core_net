@@ -557,7 +557,10 @@ mod tests {
         assert!(!entry.is_complete());
 
         // 设置最后一片
-        entry.set_last_fragment(40, 0);
+        // frag1: offset 0, 160 bytes (0-159, offsets 0-19)
+        // frag2: offset 20, 80 bytes (160-239, offsets 20-29)
+        // 最后一片结束于 offset 30 (240 bytes)
+        entry.set_last_fragment(30);
 
         // 现在应该完成
         assert!(entry.is_complete());

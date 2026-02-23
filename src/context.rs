@@ -11,6 +11,7 @@ use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager};
 use crate::protocols::udp::UdpPortManager;
 use crate::protocols::icmpv6::Icmpv6Context;
 use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_REASSEMBLY_ENTRIES, DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM, FragmentOverlapPolicy};
+use crate::protocols::ipv6::FragmentCache;
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
 
@@ -49,6 +50,9 @@ pub struct SystemContext {
 
     /// IPv4 重组表
     pub ip_reassembly: Arc<Mutex<ReassemblyTable>>,
+
+    /// IPv6 分片重组缓存
+    pub ipv6_fragment_cache: Arc<Mutex<FragmentCache>>,
 }
 
 impl SystemContext {
@@ -72,6 +76,7 @@ impl SystemContext {
                 DEFAULT_REASSEMBLY_TIMEOUT_SECS,
                 FragmentOverlapPolicy::default(),
             ))),
+            ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
         }
     }
 
@@ -107,6 +112,7 @@ impl SystemContext {
                 DEFAULT_REASSEMBLY_TIMEOUT_SECS,
                 FragmentOverlapPolicy::default(),
             ))),
+            ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
         }
     }
 
@@ -126,6 +132,7 @@ impl SystemContext {
     /// - `route_table`: 路由表（可选，默认为空）
     /// - `icmpv6_context`: ICMPv6 上下文（可选，默认为空）
     /// - `ip_reassembly`: IPv4 重组表（可选，默认为空）
+    /// - `ipv6_fragment_cache`: IPv6 分片缓存（可选，默认为空）
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
         arp_cache: Arc<Mutex<ArpCache>>,
@@ -137,6 +144,7 @@ impl SystemContext {
         route_table: Option<Arc<Mutex<RouteTable>>>,
         icmpv6_context: Option<Arc<Mutex<Icmpv6Context>>>,
         ip_reassembly: Option<Arc<Mutex<ReassemblyTable>>>,
+        ipv6_fragment_cache: Option<Arc<Mutex<FragmentCache>>>,
     ) -> Self {
         // 创建默认的重组表（如果未提供）
         let default_reassembly = || Arc::new(Mutex::new(ReassemblyTable::new(
@@ -145,6 +153,9 @@ impl SystemContext {
             DEFAULT_REASSEMBLY_TIMEOUT_SECS,
             FragmentOverlapPolicy::default(),
         )));
+
+        // 创建默认的 IPv6 分片缓存（如果未提供）
+        let default_ipv6_fragment_cache = || Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES)));
 
         Self {
             interfaces,
@@ -157,6 +168,7 @@ impl SystemContext {
             route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
             icmpv6_context: icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
             ip_reassembly: ip_reassembly.unwrap_or_else(default_reassembly),
+            ipv6_fragment_cache: ipv6_fragment_cache.unwrap_or_else(default_ipv6_fragment_cache),
         }
     }
 
@@ -232,6 +244,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.timers, &ctx2.timers));
         assert!(Arc::ptr_eq(&ctx1.icmpv6_context, &ctx2.icmpv6_context));
         assert!(Arc::ptr_eq(&ctx1.ip_reassembly, &ctx2.ip_reassembly));
+        assert!(Arc::ptr_eq(&ctx1.ipv6_fragment_cache, &ctx2.ipv6_fragment_cache));
     }
 
     #[test]
@@ -254,6 +267,7 @@ mod tests {
             None,
             None, // icmpv6_context
             None, // ip_reassembly
+            None, // ipv6_fragment_cache
         );
 
         assert_eq!(ctx.interface_count(), 1);
@@ -341,6 +355,10 @@ mod tests {
         // 验证 ip_reassembly 也共享相同的 Arc
         assert!(Arc::ptr_eq(&ctx.ip_reassembly, &ctx_clone1.ip_reassembly));
         assert!(Arc::ptr_eq(&ctx_clone1.ip_reassembly, &ctx_clone2.ip_reassembly));
+
+        // 验证 ipv6_fragment_cache 也共享相同的 Arc
+        assert!(Arc::ptr_eq(&ctx.ipv6_fragment_cache, &ctx_clone1.ipv6_fragment_cache));
+        assert!(Arc::ptr_eq(&ctx_clone1.ipv6_fragment_cache, &ctx_clone2.ipv6_fragment_cache));
 
         // 强度计数
         assert_eq!(Arc::strong_count(&ctx.interfaces), 3);

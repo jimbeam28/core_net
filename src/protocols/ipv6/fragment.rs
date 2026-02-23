@@ -350,9 +350,139 @@ impl Default for FragmentCache {
 
 // --- 分片创建 ---
 
+/// 分片创建结果
+///
+/// 包含每个分片的完整信息。
+#[derive(Debug, Clone)]
+pub struct FragmentPacket {
+    /// 分片偏移（以 8 字节为单位）
+    pub fragment_offset: u16,
+    /// 更多分片标志
+    pub more_fragments: bool,
+    /// 分片标识符
+    pub identification: u32,
+    /// 分片数据（包含分片头）
+    pub data: Vec<u8>,
+}
+
 /// 创建分片数据
 ///
-/// 将大数据包分片为多个小数据包。
+/// 将大数据包分片为多个小数据包，遵循 RFC 8200 规范。
+///
+/// # 参数
+/// - unfragmentable: 不可分片部分（IPv6 基本头部 + 必须的扩展头）
+/// - fragmentable: 可分片部分（剩余扩展头 + 上层协议数据）
+/// - mtu: 路径 MTU（完整数据包的最大长度，包括 IPv6 头部）
+/// - identification: 分片标识符
+/// - next_header: 分片头后的下一头部类型
+///
+/// # 返回
+/// 分片数据包列表，每个包含分片头和分片数据
+///
+/// # 分片规则（RFC 8200）
+/// - 不可分片部分：IPv6 基本头部 + 逐跳选项头 + 目的选项头（第一次） + 路由头
+/// - 可分片部分：剩余扩展头 + 上层协议头部 + 上层协议数据
+/// - 分片偏移以 8 字节为单位
+/// - 除最后一片外，每片数据长度必须是 8 字节的倍数
+pub fn create_fragments(
+    unfragmentable: &[u8],
+    fragmentable: &[u8],
+    mtu: usize,
+    identification: u32,
+    next_header: u8,
+) -> Vec<FragmentPacket> {
+    let mut fragments = Vec::new();
+
+    // 检查是否需要分片
+    let total_len = unfragmentable.len() + fragmentable.len();
+    if total_len <= mtu {
+        // 不需要分片，直接返回单个"分片"（实际未分片）
+        fragments.push(FragmentPacket {
+            fragment_offset: 0,
+            more_fragments: false,
+            identification,
+            data: [unfragmentable, fragmentable].concat(),
+        });
+        return fragments;
+    }
+
+    // 每个分片包含：不可分片部分 + 分片头 (8字节) + 分片数据
+    let per_fragment_unfragmentable = unfragmentable.len();
+    let per_fragment_header = 8; // 分片头长度
+    let max_fragment_data = mtu.saturating_sub(per_fragment_unfragmentable + per_fragment_header);
+
+    if max_fragment_data == 0 {
+        // MTU 太小，无法分片
+        fragments.push(FragmentPacket {
+            fragment_offset: 0,
+            more_fragments: false,
+            identification,
+            data: [unfragmentable, fragmentable].concat(),
+        });
+        return fragments;
+    }
+
+    // 分片数据长度必须是 8 字节的倍数（除了最后一片）
+    let fragment_data_len = (max_fragment_data / 8) * 8;
+
+    if fragment_data_len == 0 {
+        // MTU 太小，无法进行 8 字节对齐的分片
+        fragments.push(FragmentPacket {
+            fragment_offset: 0,
+            more_fragments: false,
+            identification,
+            data: [unfragmentable, fragmentable].concat(),
+        });
+        return fragments;
+    }
+
+    let mut offset = 0u16;
+    let mut pos = 0;
+
+    while pos < fragmentable.len() {
+        let remaining = fragmentable.len() - pos;
+        let chunk_size = if remaining > fragment_data_len {
+            fragment_data_len
+        } else {
+            remaining
+        };
+
+        let more_fragments = pos + chunk_size < fragmentable.len();
+
+        // 构造分片头
+        let frag_header = super::extension::FragmentHeader::new(
+            next_header,
+            offset,
+            more_fragments,
+            identification,
+        );
+
+        // 构造分片数据：不可分片部分 + 分片头 + 分片数据
+        let mut fragment_data = Vec::with_capacity(
+            per_fragment_unfragmentable + per_fragment_header + chunk_size
+        );
+        fragment_data.extend_from_slice(unfragmentable);
+        fragment_data.extend_from_slice(&frag_header.to_bytes());
+        fragment_data.extend_from_slice(&fragmentable[pos..pos + chunk_size]);
+
+        fragments.push(FragmentPacket {
+            fragment_offset: offset,
+            more_fragments,
+            identification,
+            data: fragment_data,
+        });
+
+        // 更新偏移（以 8 字节为单位）
+        offset += (chunk_size / 8) as u16;
+        pos += chunk_size;
+    }
+
+    fragments
+}
+
+/// 遗留接口：仅分片数据的简单版本
+///
+/// 此函数仅为向后兼容保留，新代码应使用 `create_fragments` 完整版本。
 ///
 /// # 参数
 /// - data: 原始数据
@@ -362,57 +492,28 @@ impl Default for FragmentCache {
 ///
 /// # 返回
 /// 分片列表，每个元素为 (fragment_offset, more_fragments, fragment_data)
-pub fn create_fragments(
+pub fn create_fragments_simple(
     data: &[u8],
     mtu: usize,
-    _identification: u32,
-    _next_header: u8,
+    identification: u32,
+    next_header: u8,
 ) -> Vec<(u16, bool, Vec<u8>)> {
-    let mut fragments = Vec::new();
+    let empty_unfragmentable = &[];
+    let fragments = create_fragments(empty_unfragmentable, data, mtu, identification, next_header);
 
-    // 计算每个分片的最大数据长度
-    // MTU - 分片头长度 (8 字节)
-    let max_fragment_data = mtu.saturating_sub(8);
-
-    if max_fragment_data == 0 || data.len() <= max_fragment_data {
-        // 不需要分片
-        fragments.push((0, false, data.to_vec()));
-        return fragments;
-    }
-
-    // 分片数据长度必须是 8 字节的倍数（除了最后一片）
-    let fragment_data_len = (max_fragment_data / 8) * 8;
-
-    if fragment_data_len == 0 {
-        // MTU 太小，无法分片
-        fragments.push((0, false, data.to_vec()));
-        return fragments;
-    }
-
-    let mut offset = 0u16;
-    let mut pos = 0;
-
-    while pos < data.len() {
-        let remaining = data.len() - pos;
-        let chunk_size = if remaining > fragment_data_len {
-            fragment_data_len
+    // 转换为旧格式
+    fragments.into_iter().map(|f| {
+        // 如果只有一个分片且偏移为0，没有分片头，直接返回原数据
+        if f.fragment_offset == 0 && !f.more_fragments && f.data.len() == data.len() {
+            // 没有分片
+            (f.fragment_offset, f.more_fragments, data.to_vec())
         } else {
-            remaining
-        };
-
-        let more_fragments = pos + chunk_size < data.len();
-
-        fragments.push((
-            offset,
-            more_fragments,
-            data[pos..pos + chunk_size].to_vec(),
-        ));
-
-        offset += (chunk_size / 8) as u16;
-        pos += chunk_size;
-    }
-
-    fragments
+            // 有分片，跳过分片头提取分片数据
+            // 分片数据在分片头之后：总长度 - 8（分片头） - 0（不可分片部分）
+            let frag_data = &f.data[8..]; // 跳过 8 字节分片头
+            (f.fragment_offset, f.more_fragments, frag_data.to_vec())
+        }
+    }).collect()
 }
 
 #[cfg(test)]
@@ -534,10 +635,75 @@ mod tests {
 
     #[test]
     fn test_create_fragments() {
+        let unfragmentable = vec![0xFFu8; 40]; // IPv6 基本头部
+        let fragmentable = vec![1u8; 100]; // 可分片数据
+        let mtu = 128; // MTU 128 字节
+
+        let fragments = create_fragments(&unfragmentable, &fragmentable, mtu, 12345, 58);
+
+        // 每个分片: 40 (不可分片) + 8 (分片头) + 分片数据
+        // 可分片部分: 128 - 48 = 80 字节
+        // 100 字节需要 2 个分片: 80 + 20
+        assert_eq!(fragments.len(), 2);
+
+        // 检查第一个分片
+        assert_eq!(fragments[0].fragment_offset, 0);
+        assert!(fragments[0].more_fragments);
+        assert_eq!(fragments[0].identification, 12345);
+        // 40 + 8 + 80 = 128
+        assert_eq!(fragments[0].data.len(), 128);
+
+        // 检查第二个分片
+        assert_eq!(fragments[1].fragment_offset, 10); // 80 / 8
+        assert!(!fragments[1].more_fragments);
+        // 40 + 8 + 20 = 68
+        assert_eq!(fragments[1].data.len(), 68);
+    }
+
+    #[test]
+    fn test_create_fragments_no_fragmentation_needed() {
+        let unfragmentable = vec![0xFFu8; 40]; // IPv6 基本头部
+        let fragmentable = vec![1u8; 20]; // 可分片数据
+        let mtu = 128; // MTU 128 字节
+
+        let fragments = create_fragments(&unfragmentable, &fragmentable, mtu, 12345, 58);
+
+        // 不需要分片
+        assert_eq!(fragments.len(), 1);
+        assert_eq!(fragments[0].fragment_offset, 0);
+        assert!(!fragments[0].more_fragments);
+        // 40 + 20 = 60（无分片头）
+        assert_eq!(fragments[0].data.len(), 60);
+    }
+
+    #[test]
+    fn test_create_fragments_small_mtu() {
+        let unfragmentable = vec![0xFFu8; 40]; // IPv6 基本头部
+        let fragmentable = vec![1u8; 200]; // 可分片数据
+        let mtu = 80; // MTU 80 字节
+
+        let fragments = create_fragments(&unfragmentable, &fragmentable, mtu, 12345, 58);
+
+        // 每个分片: 40 + 8 + 分片数据
+        // 分片数据: (80 - 48) = 32 字节
+        // 200 字节需要 7 个分片: 6 * 32 + 8
+        assert_eq!(fragments.len(), 7);
+
+        // 检查第一个分片
+        assert_eq!(fragments[0].data.len(), 80); // 40 + 8 + 32
+        assert_eq!(fragments[0].fragment_offset, 0);
+        assert!(fragments[0].more_fragments);
+
+        // 检查最后一个分片
+        assert!(!fragments[6].more_fragments);
+    }
+
+    #[test]
+    fn test_create_fragments_simple() {
         let data = vec![1u8; 100]; // 100 字节数据
         let mtu = 60; // MTU 60 字节
 
-        let fragments = create_fragments(&data, mtu, 12345, 58);
+        let fragments = create_fragments_simple(&data, mtu, 12345, 58);
 
         // 每个分片最多 (60 - 8) / 8 * 8 = 48 字节（8字节对齐）
         // 100 字节需要 3 个分片: 48 + 48 + 4
@@ -560,11 +726,11 @@ mod tests {
     }
 
     #[test]
-    fn test_create_fragments_no_fragmentation_needed() {
+    fn test_create_fragments_simple_no_fragmentation_needed() {
         let data = vec![1u8; 20]; // 20 字节数据
         let mtu = 60; // MTU 60 字节
 
-        let fragments = create_fragments(&data, mtu, 12345, 58);
+        let fragments = create_fragments_simple(&data, mtu, 12345, 58);
 
         // 不需要分片
         assert_eq!(fragments.len(), 1);

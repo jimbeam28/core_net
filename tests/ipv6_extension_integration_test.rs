@@ -385,11 +385,11 @@ fn test_ipv6_option_parsing() {
 #[test]
 #[serial]
 fn test_ipv6_fragment_creation() {
-    // 测试分片创建
+    // 测试分片创建（使用简化版 API）
     let data = vec![1u8; 100];
     let mtu = 60;
 
-    let fragments = ipv6::create_fragments(&data, mtu, 12345, 58);
+    let fragments = ipv6::create_fragments_simple(&data, mtu, 12345, 58);
 
     // 100 字节，MTU 60，分片头 8 字节
     // 每片最多 (60-8)/8*8 = 40 字节（8字节对齐）

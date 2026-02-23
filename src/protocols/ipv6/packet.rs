@@ -10,7 +10,8 @@ use super::header::Ipv6Header;
 use super::protocol::IpProtocol;
 use super::error::Ipv6Error;
 use super::config::Ipv6Config;
-use super::extension::{parse_extension_chain, ExtensionConfig};
+use super::extension::{parse_extension_chain, ExtensionConfig, ExtensionHeaderType};
+use super::fragment::{ReassemblyKey, FragmentInfo, ReassemblyError};
 
 /// IPv6 处理结果
 ///
@@ -99,7 +100,7 @@ pub fn process_ipv6_packet(
 
     // 6. 处理扩展头链（如果启用）
     let final_next_header = if config.allow_extension_headers {
-        process_extension_chain(packet, ip_hdr.next_header, &extension_config)?
+        process_extension_chain(packet, ip_hdr.next_header, &extension_config, context, &ip_hdr)?
     } else {
         // 扩展头未启用，检查 Next Header 是否为扩展头类型
         if ip_hdr.next_header.is_extension_header() {
@@ -138,24 +139,34 @@ pub fn process_ipv6_packet(
 /// 处理扩展头链
 ///
 /// 解析扩展头链，返回最终的上层协议类型。
-/// 如果遇到分片头，返回需要重组的处理结果。
+/// 如果遇到分片头，处理分片逻辑。
 fn process_extension_chain(
     packet: &mut Packet,
     initial_next_header: IpProtocol,
     config: &ExtensionConfig,
+    context: &SystemContext,
+    ip_hdr: &Ipv6Header,
 ) -> Ipv6Result<IpProtocol> {
 
     // 尝试解析扩展头链
     match parse_extension_chain(packet, initial_next_header, config) {
         Ok(chain_result) => {
             // 检查是否有分片头
-            for ext_header in &chain_result.headers {
-                if let super::extension::ExtensionHeaderType::Fragment { .. } = ext_header {
-                    // 遇到分片头，需要重组（当前版本暂不支持）
-                    if !config.enable_fragmentation {
-                        return Err(Ipv6Error::unsupported_protocol(44));
-                    }
+            let fragment_header = chain_result.headers.iter().find_map(|ext| {
+                if let ExtensionHeaderType::Fragment { header } = ext {
+                    Some(header)
+                } else {
+                    None
                 }
+            });
+
+            if let Some(frag_hdr) = fragment_header {
+                // 处理分片
+                if !config.enable_fragmentation {
+                    return Err(Ipv6Error::unsupported_protocol(44));
+                }
+
+                return process_fragment(packet, frag_hdr, ip_hdr, context);
             }
 
             Ok(chain_result.next_header)
@@ -189,6 +200,73 @@ fn process_extension_chain(
                 }
                 _ => Err(Ipv6Error::invalid_header_length(0)),
             }
+        }
+    }
+}
+
+/// 处理分片数据包
+///
+/// 将分片添加到重组缓存，如果重组完成则返回重组后的数据。
+fn process_fragment(
+    packet: &mut Packet,
+    frag_hdr: &super::extension::FragmentHeader,
+    ip_hdr: &Ipv6Header,
+    context: &SystemContext,
+) -> Result<IpProtocol, Ipv6Error> {
+    // 提取分片数据
+    let remaining = packet.remaining();
+    let fragment_data = packet.read(remaining)
+        .ok_or_else(|| Ipv6Error::PacketTooShort {
+            expected: remaining,
+            found: 0,
+        })?
+        .to_vec();
+
+    // 创建重组键
+    let key = ReassemblyKey::new(
+        ip_hdr.source_addr,
+        ip_hdr.destination_addr,
+        frag_hdr.identification,
+    );
+
+    // 创建分片信息
+    let fragment = FragmentInfo::new(
+        frag_hdr.fragment_offset(),
+        frag_hdr.more_fragments(),
+        fragment_data,
+    );
+
+    // 添加到分片缓存
+    let mut cache = context.ipv6_fragment_cache.lock()
+        .map_err(|_| Ipv6Error::reassembly_error())?;
+
+    match cache.add_fragment(key, fragment) {
+        Ok(Some(_reassembled_data)) => {
+            // 重组完成，返回下一头部类型
+            // 注意：重组后的数据会被缓存，上层协议需要处理
+            Ok(IpProtocol::from(frag_hdr.next_header))
+        }
+        Ok(None) => {
+            // 重组未完成，返回特殊标记
+            Err(Ipv6Error::reassembly_incomplete())
+        }
+        Err(ReassemblyError::TooManyFragments { .. }) => {
+            Err(Ipv6Error::reassembly_too_many_fragments())
+        }
+        Err(ReassemblyError::FragmentOverlap { .. }) => {
+            Err(Ipv6Error::reassembly_fragment_overlap())
+        }
+        Err(ReassemblyError::Incomplete) => {
+            Err(Ipv6Error::reassembly_incomplete())
+        }
+        Err(ReassemblyError::InvalidFragmentData) => {
+            Err(Ipv6Error::invalid_header_length_simple())
+        }
+        Err(ReassemblyError::Timeout) => {
+            Err(Ipv6Error::reassembly_timeout())
+        }
+        Err(ReassemblyError::InconsistentTotalLength { .. }) => {
+            Err(Ipv6Error::invalid_header_length_simple())
         }
     }
 }

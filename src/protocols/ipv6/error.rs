@@ -114,6 +114,21 @@ pub enum Ipv6Error {
 
     /// Jumbo Payload 不支持
     JumboPayloadNotSupported,
+
+    /// 重组错误（通用错误）
+    ReassemblyError,
+
+    /// 重组未完成
+    ReassemblyIncomplete,
+
+    /// 分片数量过多
+    ReassemblyTooManyFragments,
+
+    /// 分片重叠
+    ReassemblyFragmentOverlap,
+
+    /// 重组超时
+    ReassemblyTimeout,
 }
 
 impl Ipv6Error {
@@ -221,6 +236,31 @@ impl Ipv6Error {
     pub fn jumbo_payload_not_supported() -> Self {
         Ipv6Error::JumboPayloadNotSupported
     }
+
+    /// 创建重组错误
+    pub fn reassembly_error() -> Self {
+        Ipv6Error::ReassemblyError
+    }
+
+    /// 创建重组未完成错误
+    pub fn reassembly_incomplete() -> Self {
+        Ipv6Error::ReassemblyIncomplete
+    }
+
+    /// 创建分片数量过多错误
+    pub fn reassembly_too_many_fragments() -> Self {
+        Ipv6Error::ReassemblyTooManyFragments
+    }
+
+    /// 创建分片重叠错误
+    pub fn reassembly_fragment_overlap() -> Self {
+        Ipv6Error::ReassemblyFragmentOverlap
+    }
+
+    /// 创建重组超时错误
+    pub fn reassembly_timeout() -> Self {
+        Ipv6Error::ReassemblyTimeout
+    }
 }
 
 impl std::fmt::Display for Ipv6Error {
@@ -288,6 +328,21 @@ impl std::fmt::Display for Ipv6Error {
             }
             Ipv6Error::JumboPayloadNotSupported => {
                 write!(f, "IPv6 Jumbo Payload不支持")
+            }
+            Ipv6Error::ReassemblyError => {
+                write!(f, "IPv6分片重组错误")
+            }
+            Ipv6Error::ReassemblyIncomplete => {
+                write!(f, "IPv6分片重组未完成")
+            }
+            Ipv6Error::ReassemblyTooManyFragments => {
+                write!(f, "IPv6分片数量过多")
+            }
+            Ipv6Error::ReassemblyFragmentOverlap => {
+                write!(f, "IPv6分片重叠")
+            }
+            Ipv6Error::ReassemblyTimeout => {
+                write!(f, "IPv6分片重组超时")
             }
         }
     }
@@ -357,6 +412,13 @@ impl From<Ipv6Error> for CoreError {
             }
             Ipv6Error::JumboPayloadNotSupported => {
                 CoreError::UnsupportedProtocol(err.to_string())
+            }
+            Ipv6Error::ReassemblyError
+            | Ipv6Error::ReassemblyIncomplete
+            | Ipv6Error::ReassemblyTooManyFragments
+            | Ipv6Error::ReassemblyFragmentOverlap
+            | Ipv6Error::ReassemblyTimeout => {
+                CoreError::InvalidPacket(err.to_string())
             }
         }
     }
