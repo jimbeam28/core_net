@@ -262,7 +262,7 @@ impl Scheduler {
 
                     match iface.rxq.dequeue() {
                         Some(mut packet) => {
-                            packet.set_ifindex(iface.index);
+                            packet.ifindex = iface.index;
                             Some(packet)
                         }
                         None => None,
@@ -362,7 +362,7 @@ impl Scheduler {
                 let mut iface_count = 0;
                 while let Some(mut packet) = iface.rxq.dequeue() {
                     // 设置接口索引
-                    packet.set_ifindex(iface.index);
+                    packet.ifindex = iface.index;
 
                     // 根据是否有自定义处理器选择处理方式
                     let result = match &self.processor {
@@ -412,36 +412,6 @@ impl Scheduler {
 
         Ok(total_count)
     }
-}
-
-// --- 便捷函数 ---
-
-/// 使用默认调度器处理接收队列
-///
-/// # 参数
-/// - `rxq`: 接收队列的可变引用
-/// - `txq`: 发送队列的可变引用（用于接收响应报文）
-///
-/// # 返回
-/// - `Ok(count)`: 成功处理的报文数量
-/// - `Err(ScheduleError)`: 调度失败
-pub fn schedule_packets(rxq: &mut RingQueue<Packet>, txq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
-    Scheduler::new("DefaultScheduler".to_string()).run(rxq, txq)
-}
-
-/// 使用详细输出模式调度
-///
-/// # 参数
-/// - `rxq`: 接收队列的可变引用
-/// - `txq`: 发送队列的可变引用（用于接收响应报文）
-///
-/// # 返回
-/// - `Ok(count)`: 成功处理的报文数量
-/// - `Err(ScheduleError)`: 调度失败
-pub fn schedule_packets_verbose(rxq: &mut RingQueue<Packet>, txq: &mut RingQueue<Packet>) -> ScheduleResult<usize> {
-    Scheduler::new("VerboseScheduler".to_string())
-        .with_verbose(true)
-        .run(rxq, txq)
 }
 
 // --- 单元测试 ---
@@ -907,7 +877,7 @@ mod tests {
 
         rxq.enqueue(create_test_packet()).unwrap();
 
-        let result = schedule_packets(&mut rxq, &mut txq);
+        let result = Scheduler::new("DefaultScheduler".to_string()).run(&mut rxq, &mut txq);
         assert!(result.is_ok());
         assert!(rxq.is_empty());
     }
@@ -919,7 +889,9 @@ mod tests {
 
         rxq.enqueue(create_test_packet()).unwrap();
 
-        let result = schedule_packets_verbose(&mut rxq, &mut txq);
+        let result = Scheduler::new("VerboseScheduler".to_string())
+            .with_verbose(true)
+            .run(&mut rxq, &mut txq);
         assert!(result.is_ok());
         assert!(rxq.is_empty());
     }
@@ -929,7 +901,7 @@ mod tests {
         let mut rxq = RingQueue::<Packet>::new(10);
         let mut txq = RingQueue::<Packet>::new(10);
 
-        let result = schedule_packets(&mut rxq, &mut txq);
+        let result = Scheduler::new("DefaultScheduler".to_string()).run(&mut rxq, &mut txq);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -941,11 +913,11 @@ mod tests {
 
         // 第一次调用
         rxq.enqueue(create_test_packet()).unwrap();
-        let result1 = schedule_packets(&mut rxq, &mut txq);
+        let result1 = Scheduler::new("DefaultScheduler".to_string()).run(&mut rxq, &mut txq);
         assert!(result1.is_ok());
 
         // 第二次调用（空队列）
-        let result2 = schedule_packets(&mut rxq, &mut txq);
+        let result2 = Scheduler::new("DefaultScheduler".to_string()).run(&mut rxq, &mut txq);
         assert!(result2.is_ok());
         assert_eq!(result2.unwrap(), 0);
     }

@@ -274,7 +274,7 @@ impl ReassemblyEntry {
                 return false;
             }
             // 计算下一个期望的偏移量（以 8 字节为单位）
-            let data_units = (fragment.data.len() as u16 + 7) / 8;
+            let data_units = (fragment.data.len() as u16).div_ceil(8);
             expected_offset += data_units;
         }
 
@@ -321,30 +321,21 @@ pub struct ReassemblyTable {
     /// 最大条目数
     max_entries: usize,
 
-    /// 每个数据报最大分片数
-    max_fragments_per_datagram: usize,
-
     /// 重组超时时间（秒）
     reassembly_timeout_secs: u64,
-
-    /// 分片重叠处理策略
-    overlap_policy: FragmentOverlapPolicy,
 }
 
 impl ReassemblyTable {
     /// 创建新的重组表
-    pub fn new(
-        max_entries: usize,
-        max_fragments: usize,
-        timeout_secs: u64,
-        overlap_policy: FragmentOverlapPolicy,
-    ) -> Self {
+    ///
+    /// # 参数
+    /// - `max_entries`: 最大重组条目数
+    /// - `timeout_secs`: 重组超时时间（秒）
+    pub fn new(max_entries: usize, timeout_secs: u64) -> Self {
         Self {
             entries: HashMap::new(),
-            max_entries: max_entries,
-            max_fragments_per_datagram: max_fragments,
+            max_entries,
             reassembly_timeout_secs: timeout_secs,
-            overlap_policy,
         }
     }
 
@@ -353,9 +344,7 @@ impl ReassemblyTable {
         Self {
             entries: HashMap::new(),
             max_entries: DEFAULT_MAX_REASSEMBLY_ENTRIES,
-            max_fragments_per_datagram: DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM,
             reassembly_timeout_secs: DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-            overlap_policy: FragmentOverlapPolicy::default(),
         }
     }
 
@@ -610,7 +599,7 @@ mod tests {
 
     #[test]
     fn test_reassembly_table_timeout() {
-        let mut table = ReassemblyTable::new(10, 16, 1, FragmentOverlapPolicy::Drop);
+        let mut table = ReassemblyTable::new(10, 1);
 
         let key1 = ReassemblyKey::new(
             Ipv4Addr::new(192, 168, 1, 1),

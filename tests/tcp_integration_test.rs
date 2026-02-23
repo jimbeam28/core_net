@@ -10,8 +10,7 @@ use core_net::protocols::tcp::{TcpHeader, TcpSegment, encapsulate_tcp_segment, c
 use serial_test::serial;
 
 mod common;
-use common::{create_ip_header, inject_packet_to_context, verify_context_txq_count,
-             create_test_context};
+use common::{inject_packet_to_context, create_test_context};
 
 // 测试环境配置：本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
 
@@ -421,7 +420,7 @@ fn create_tcp_ip_packet(
 #[test]
 #[serial]
 fn test_tcp_three_way_handshake() {
-    use core_net::protocols::tcp::{Tcb, TcpConnectionManager};
+    use core_net::protocols::tcp::Tcb;
 
     let ctx = create_test_context();
 
@@ -492,7 +491,7 @@ fn test_tcp_three_way_handshake() {
 #[test]
 #[serial]
 fn test_tcp_data_transfer() {
-    use core_net::protocols::tcp::{TcpConfig, TCP_CONFIG_DEFAULT, TcpHeader, encapsulate_tcp_segment};
+    use core_net::protocols::tcp::{TcpHeader, encapsulate_tcp_segment};
 
     let ctx = create_test_context();
 
@@ -566,8 +565,6 @@ fn test_tcp_data_transfer() {
 #[test]
 #[serial]
 fn test_tcp_socket_create() {
-    use core_net::protocols::tcp::TcpSocketManager;
-
     let ctx = create_test_context();
 
     // 创建 Socket
@@ -582,7 +579,7 @@ fn test_tcp_socket_create() {
 #[serial]
 fn test_tcp_socket_callback() {
     use std::sync::{Arc, Mutex};
-    use core_net::protocols::tcp::{TcpSocketManager, TcpEvent};
+    use core_net::protocols::tcp::TcpEvent;
 
     let ctx = create_test_context();
 
@@ -605,7 +602,7 @@ fn test_tcp_socket_callback() {
 #[test]
 #[serial]
 fn test_tcp_congestion_control() {
-    use core_net::protocols::tcp::{TcpConfig, TCP_CONFIG_DEFAULT, Tcb, TcpConnectionId, TcpState};
+    use core_net::protocols::tcp::{Tcb, TcpConnectionId, TcpState};
 
     // 创建 TCB 并测试拥塞控制
     let conn_id = TcpConnectionId::new(

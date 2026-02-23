@@ -243,7 +243,7 @@ impl PacketProcessor {
     /// - packet: Packet（已去除以太网头部）
     /// - eth_src: 原始以太网帧的源MAC地址
     fn handle_arp_packet(&self, mut packet: Packet, eth_src: crate::protocols::MacAddr) -> ProcessResult {
-        let ifindex = packet.get_ifindex();
+        let ifindex = packet.ifindex;
 
         // 使用 SystemContext 模式
         let result = arp::process_arp_packet_with_context(&mut packet, eth_src, ifindex, &self.context, self.verbose)
@@ -262,7 +262,7 @@ impl PacketProcessor {
     /// - eth_hdr: 以太网头部
     /// - packet: Packet（已去除以太网头部）
     fn handle_ipv4(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
-        let ifindex = packet.get_ifindex();
+        let ifindex = packet.ifindex;
 
         // 使用 process_ip_packet 处理 IP 数据报（与 IPv6 处理模式一致）
         let result = ip::process_ip_packet(&mut packet, ifindex, &self.context)?;
@@ -297,7 +297,7 @@ impl PacketProcessor {
 
                 // 创建新 Packet 并保留原始 ifindex
                 let mut protocol_packet = Packet::from_bytes(data);
-                protocol_packet.set_ifindex(ifindex);
+                protocol_packet.ifindex = ifindex;
 
                 // 根据 IP 协议字段分发到上层协议
                 match ip_hdr.protocol {
@@ -327,7 +327,7 @@ impl PacketProcessor {
     /// - packet: Packet（已去除以太网头部）
     fn handle_ipv6(&self, eth_hdr: EthernetHeader, mut packet: Packet) -> ProcessResult {
         // 获取接口索引
-        let ifindex = packet.get_ifindex();
+        let ifindex = packet.ifindex;
 
         if self.verbose {
             println!("IPv6: 处理 IPv6 报文");
@@ -384,7 +384,7 @@ impl PacketProcessor {
     /// - packet: Packet（已去除 IPv6 头部）
     fn handle_icmpv6(&self, eth_hdr: EthernetHeader, ipv6_hdr: ipv6::Ipv6Header, packet: Packet) -> ProcessResult {
         // 获取接口索引
-        let ifindex = packet.get_ifindex();
+        let ifindex = packet.ifindex;
 
         // 一次性获取所有需要的接口信息（避免多次锁定）
         let (our_ipv6, our_mac) = {
@@ -451,7 +451,7 @@ impl PacketProcessor {
     /// - packet: Packet（已去除 IP 头部）
     fn handle_icmp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
         // 获取接口索引
-        let ifindex = packet.get_ifindex();
+        let ifindex = packet.ifindex;
 
         // 获取本接口的 IP 地址（用作响应的源地址）
         let our_ip = self.get_interface_ip(ifindex)?;
@@ -521,7 +521,7 @@ impl PacketProcessor {
     /// - packet: Packet（已去除 IP 头部）
     fn handle_udp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
         // 获取接口索引
-        let ifindex = packet.get_ifindex();
+        let ifindex = packet.ifindex;
 
         // 获取本接口的 IP 地址（用作响应的源地址）
         let our_ip = self.get_interface_ip(ifindex)?;
@@ -586,7 +586,7 @@ impl PacketProcessor {
     /// - packet: Packet（已去除 IP 头部）
     fn handle_tcp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
         // 获取接口索引
-        let ifindex = packet.get_ifindex();
+        let ifindex = packet.ifindex;
 
         // 获取本接口的 IP 地址（用作响应的源地址）
         let our_ip = self.get_interface_ip(ifindex)?;
@@ -710,7 +710,7 @@ impl PacketProcessor {
         if self.verbose {
             println!("=== [{}] ===", self.name);
             println!("Length: {} bytes", packet.len());
-            println!("Offset: {} bytes", packet.get_offset());
+            println!("Offset: {} bytes", packet.offset);
             println!("Remaining: {} bytes", packet.remaining());
         } else {
             println!("[{}]: {} bytes", self.name, packet.len());

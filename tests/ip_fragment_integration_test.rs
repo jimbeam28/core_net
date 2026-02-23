@@ -10,15 +10,14 @@ use core_net::protocols::{ETH_P_IP, IP_PROTO_ICMP};
 use core_net::protocols::ip::{
     fragment_datagram,
     ReassemblyKey, ReassemblyTable, ReassemblyEntry, FragmentInfo, FragmentOverlapPolicy,
-    DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM,
+    DEFAULT_REASSEMBLY_TIMEOUT_SECS,
 };
 use core_net::common::Packet;
 
 use serial_test::serial;
 
 mod common;
-use common::{create_echo_request_packet,
-             inject_packet_to_context, verify_context_txq_count, create_test_context};
+use common::{inject_packet_to_context, verify_context_txq_count, create_test_context};
 
 // 测试环境配置：本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100
 
@@ -126,9 +125,7 @@ fn test_reassembly_table_basic() {
 
     let mut table = ReassemblyTable::new(
         64,
-        DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM,
         DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-        FragmentOverlapPolicy::Drop,
     );
 
     let key = ReassemblyKey::new(

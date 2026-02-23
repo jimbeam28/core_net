@@ -67,8 +67,6 @@ pub use scheduler::{
     Scheduler,
     ScheduleError,
     ScheduleResult,
-    schedule_packets,
-    schedule_packets_verbose,
 };
 
 // 导出 ARP 模块

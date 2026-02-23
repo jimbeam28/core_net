@@ -10,7 +10,7 @@ use crate::protocols::icmp::EchoManager;
 use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager};
 use crate::protocols::udp::UdpPortManager;
 use crate::protocols::icmpv6::Icmpv6Context;
-use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_REASSEMBLY_ENTRIES, DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM, FragmentOverlapPolicy};
+use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_REASSEMBLY_ENTRIES};
 use crate::protocols::ipv6::FragmentCache;
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
@@ -72,9 +72,7 @@ impl SystemContext {
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
             ip_reassembly: Arc::new(Mutex::new(ReassemblyTable::new(
                 DEFAULT_MAX_REASSEMBLY_ENTRIES,
-                DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM,
                 DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-                FragmentOverlapPolicy::default(),
             ))),
             ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
         }
@@ -108,9 +106,7 @@ impl SystemContext {
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
             ip_reassembly: Arc::new(Mutex::new(ReassemblyTable::new(
                 DEFAULT_MAX_REASSEMBLY_ENTRIES,
-                DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM,
                 DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-                FragmentOverlapPolicy::default(),
             ))),
             ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
         }
@@ -149,9 +145,7 @@ impl SystemContext {
         // 创建默认的重组表（如果未提供）
         let default_reassembly = || Arc::new(Mutex::new(ReassemblyTable::new(
             DEFAULT_MAX_REASSEMBLY_ENTRIES,
-            DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM,
             DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-            FragmentOverlapPolicy::default(),
         )));
 
         // 创建默认的 IPv6 分片缓存（如果未提供）

@@ -157,7 +157,7 @@ fn test_route_lookup_to_existing_interface() {
 
     assert!(iface.is_ok());
     let iface = iface.unwrap();
-    assert_eq!(iface.name(), "eth0");
+    assert_eq!(iface.name, "eth0");
     assert_eq!(iface.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
 }
 

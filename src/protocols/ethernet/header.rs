@@ -97,7 +97,7 @@ impl EthernetHeader {
                     let vid = u16::from_be_bytes([vlan_tag_bytes[2], vlan_tag_bytes[3]]) & 0x0FFF;
 
                     // 保存 VLAN ID 到 Packet（最内层的 VLAN ID）
-                    packet.set_vlan_id(vid);
+                    packet.vlan_id = vid;
 
                     // 读取实际的协议类型
                     let next_ether_type_bytes = packet.read(2)

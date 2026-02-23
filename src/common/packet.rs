@@ -151,46 +151,6 @@ impl Packet {
     pub fn reset(&mut self) {
         self.offset = 0;
     }
-
-    /// 获取当前读取偏移量
-    ///
-    /// # 返回
-    /// 当前读取位置的字节偏移量
-    pub fn get_offset(&self) -> usize {
-        self.offset
-    }
-
-    /// 设置 VLAN ID
-    ///
-    /// # 参数
-    /// - `vlan_id`: VLAN 标识符（0 表示无 VLAN）
-    pub fn set_vlan_id(&mut self, vlan_id: u16) {
-        self.vlan_id = vlan_id;
-    }
-
-    /// 获取 VLAN ID
-    ///
-    /// # 返回
-    /// VLAN 标识符（0 表示无 VLAN）
-    pub fn get_vlan_id(&self) -> u16 {
-        self.vlan_id
-    }
-
-    /// 设置接口索引
-    ///
-    /// # 参数
-    /// - `ifindex`: 接口索引（0 表示未知）
-    pub fn set_ifindex(&mut self, ifindex: u32) {
-        self.ifindex = ifindex;
-    }
-
-    /// 获取接口索引
-    ///
-    /// # 返回
-    /// 接口索引（0 表示未知）
-    pub fn get_ifindex(&self) -> u32 {
-        self.ifindex
-    }
 }
 
 // ========== 实现Default trait ==========

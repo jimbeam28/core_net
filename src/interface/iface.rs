@@ -102,16 +102,6 @@ impl NetworkInterface {
         }
     }
 
-    /// 获取接口名称
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// 获取接口索引
-    pub fn index(&self) -> u32 {
-        self.index
-    }
-
     /// 设置IP地址
     pub fn set_ip_addr(&mut self, addr: Ipv4Addr) {
         self.ip_addr = addr;
@@ -246,8 +236,8 @@ mod tests {
     fn test_interface_new() {
         let iface = create_test_interface();
 
-        assert_eq!(iface.name(), "eth0");
-        assert_eq!(iface.index(), 0);
+        assert_eq!(iface.name, "eth0");
+        assert_eq!(iface.index, 0);
         assert_eq!(iface.mac_addr, MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
         assert_eq!(iface.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
         assert_eq!(iface.netmask, Ipv4Addr::new(255, 255, 255, 0));
@@ -262,8 +252,8 @@ mod tests {
         let config = create_test_config();
         let iface = NetworkInterface::from_config(config, 0, 256, 256);
 
-        assert_eq!(iface.name(), "eth0");
-        assert_eq!(iface.index(), 0);
+        assert_eq!(iface.name, "eth0");
+        assert_eq!(iface.index, 0);
         assert_eq!(iface.mac_addr, MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
         assert_eq!(iface.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
         assert_eq!(iface.netmask, Ipv4Addr::new(255, 255, 255, 0));

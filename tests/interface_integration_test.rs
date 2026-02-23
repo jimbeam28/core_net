@@ -30,10 +30,10 @@ fn test_boot_initialization_flow() {
     let interfaces = ctx.interfaces.lock().unwrap();
     for iface in interfaces.interfaces() {
         // 验证接口名称不为空
-        assert!(!iface.name().is_empty());
+        assert!(!iface.name.is_empty());
 
         // 验证 IP 地址有效
-        assert!(!iface.ip_addr.is_zero() || iface.name() == "lo");
+        assert!(!iface.ip_addr.is_zero() || iface.name == "lo");
 
         // 验证队列已创建
         assert!(iface.rxq.capacity() > 0);
@@ -65,8 +65,8 @@ fn test_multi_interface_coordination() {
         let name = format!("eth{}", i);
         let iface = manager.get_by_name(&name).unwrap();
 
-        assert_eq!(iface.name(), &name);
-        assert_eq!(iface.index(), i as u32);
+        assert_eq!(iface.name, name);
+        assert_eq!(iface.index, i as u32);
         assert!(iface.is_up());
         let _ = &iface.rxq;
         let _ = &iface.txq;
@@ -74,7 +74,7 @@ fn test_multi_interface_coordination() {
 
     for i in 0..3 {
         let iface = manager.get_by_index(i).unwrap();
-        assert_eq!(iface.index(), i);
+        assert_eq!(iface.index, i);
     }
 }
 
@@ -233,7 +233,7 @@ fn test_interface_iterator() {
     // 遍历所有接口
     let mut count = 0;
     for iface in manager.interfaces() {
-        assert!(iface.name().starts_with("eth"));
+        assert!(iface.name.starts_with("eth"));
         count += 1;
     }
     assert_eq!(count, 5);

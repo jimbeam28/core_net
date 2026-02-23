@@ -73,7 +73,7 @@ pub fn save_config(
     content.push_str("# 网络接口配置\n");
     for iface in manager.interfaces() {
         content.push_str("[[interfaces]]\n");
-        content.push_str(&format!("name = \"{}\"\n", iface.name()));
+        content.push_str(&format!("name = \"{}\"\n", iface.name));
         content.push_str(&format!("mac_addr = \"{}\"\n", iface.mac_addr));
         content.push_str(&format!("ip_addr = \"{}\"\n", iface.ip_addr));
         content.push_str(&format!("netmask = \"{}\"\n", iface.netmask));

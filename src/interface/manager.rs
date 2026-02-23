@@ -257,7 +257,7 @@ mod tests {
         assert_eq!(manager.len(), 1);
 
         let iface = manager.get_by_name("eth0").unwrap();
-        assert_eq!(iface.name(), "eth0");
+        assert_eq!(iface.name, "eth0");
         assert_eq!(iface.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
     }
 
@@ -281,7 +281,7 @@ mod tests {
 
         let iface = manager.get_by_name("eth0");
         assert!(iface.is_ok());
-        assert_eq!(iface.unwrap().name(), "eth0");
+        assert_eq!(iface.unwrap().name, "eth0");
     }
 
     #[test]
@@ -302,11 +302,11 @@ mod tests {
 
         let iface = manager.get_by_index(0);
         assert!(iface.is_ok());
-        assert_eq!(iface.unwrap().name(), "eth0");
+        assert_eq!(iface.unwrap().name, "eth0");
 
         let iface = manager.get_by_index(1);
         assert!(iface.is_ok());
-        assert_eq!(iface.unwrap().name(), "eth1");
+        assert_eq!(iface.unwrap().name, "eth1");
     }
 
     #[test]
@@ -357,9 +357,9 @@ mod tests {
 
         let interfaces = manager.interfaces();
         assert_eq!(interfaces.len(), 3);
-        assert_eq!(interfaces[0].name(), "eth0");
-        assert_eq!(interfaces[1].name(), "eth1");
-        assert_eq!(interfaces[2].name(), "lo");
+        assert_eq!(interfaces[0].name, "eth0");
+        assert_eq!(interfaces[1].name, "eth1");
+        assert_eq!(interfaces[2].name, "lo");
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod tests {
 
         let mut count = 0;
         for iface in manager.interfaces() {
-            assert!(!iface.name().is_empty());
+            assert!(!iface.name.is_empty());
             count += 1;
         }
         assert_eq!(count, 3);

@@ -2,11 +2,9 @@
 //
 // 测试 IPv6 分片和重组功能，包括分片创建、重组、边界情况和安全测试
 
-use core_net::testframework::{TestHarness, GlobalStateManager};
-use core_net::interface::MacAddr;
 use core_net::protocols::Ipv6Addr;
 use core_net::protocols::ipv6::{
-    FragmentHeader, FragmentPacket, create_fragments,
+    FragmentHeader, create_fragments,
     ReassemblyKey, FragmentInfo, FragmentCache,
     DEFAULT_MAX_REASSEMBLY_ENTRIES, DEFAULT_MAX_FRAGMENTS_PER_PACKET,
 };

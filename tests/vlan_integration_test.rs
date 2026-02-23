@@ -671,7 +671,7 @@ fn test_packet_vlan_id_setting() {
     assert!(result.is_ok());
 
     // 验证 VLAN ID 被设置到 packet
-    assert_eq!(parse_packet.get_vlan_id(), 100);
+    assert_eq!(parse_packet.vlan_id, 100);
 }
 
 #[test]
@@ -692,5 +692,5 @@ fn test_packet_vlan_id_qinq() {
     assert!(result.is_ok());
 
     // 验证使用内层 VLAN ID
-    assert_eq!(parse_packet.get_vlan_id(), 200);
+    assert_eq!(parse_packet.vlan_id, 200);
 }

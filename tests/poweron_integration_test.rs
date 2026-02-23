@@ -49,7 +49,7 @@ fn test_complete_lifecycle() {
 
     let guard = context.interfaces.lock().unwrap();
     for iface in guard.interfaces() {
-        assert!(!iface.name().is_empty(), "接口名称不应为空");
+        assert!(!iface.name.is_empty(), "接口名称不应为空");
         assert!(iface.rxq.capacity() > 0, "接收队列容量应大于0");
         assert!(iface.txq.capacity() > 0, "发送队列容量应大于0");
         assert!(iface.rxq.is_empty(), "初始接收队列应为空");
@@ -111,7 +111,7 @@ fn test_context_get_interface() {
     assert!(eth0.is_ok(), "应该能获取到 eth0 接口");
 
     if let Ok(eth0) = eth0 {
-        assert_eq!(eth0.name(), "eth0");
+        assert_eq!(eth0.name, "eth0");
         assert!(eth0.rxq.capacity() > 0);
     }
 
@@ -214,7 +214,7 @@ fn test_context_interface_properties() {
     let guard = context.interfaces.lock().unwrap();
 
     if let Ok(eth0) = guard.get_by_name("eth0") {
-        assert_eq!(eth0.name(), "eth0");
+        assert_eq!(eth0.name, "eth0");
         assert_eq!(eth0.mac_addr, MacAddr::new([0x00, 0x11, 0x22, 0x33, 0x44, 0x55]));
         assert_eq!(eth0.ip_addr, Ipv4Addr::new(192, 168, 1, 100));
         assert_eq!(eth0.netmask, Ipv4Addr::new(255, 255, 255, 0));
@@ -223,7 +223,7 @@ fn test_context_interface_properties() {
     }
 
     if let Ok(lo) = guard.get_by_name("lo") {
-        assert_eq!(lo.name(), "lo");
+        assert_eq!(lo.name, "lo");
         assert_eq!(lo.mac_addr, MacAddr::zero());
         assert_eq!(lo.ip_addr, Ipv4Addr::new(127, 0, 0, 1));
     }
@@ -239,7 +239,7 @@ fn test_context_get_interface_by_index() {
     assert!(iface0.is_ok(), "应该能通过索引0获取接口");
 
     if let Ok(iface) = iface0 {
-        assert_eq!(iface.index(), 0);
+        assert_eq!(iface.index, 0);
     }
 
     let out_of_range = guard.get_by_index(999);

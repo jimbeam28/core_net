@@ -88,7 +88,7 @@ mod tests {
         let guard = context.interfaces.lock().ok()?;
         let iface = guard.get_by_name(name).ok()?;
         Some((
-            iface.name().to_string(),
+            iface.name.clone(),
             iface.mac_addr,
             iface.ip_addr,
             iface.mtu,

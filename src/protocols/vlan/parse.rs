@@ -95,7 +95,7 @@ pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, Vla
     let outer_vlan = VlanTag::parse_from_packet(packet)?;
 
     // 设置外层 VLAN ID 到 packet（对于 QinQ，后续会被内层覆盖）
-    packet.set_vlan_id(outer_vlan.vid);
+    packet.vlan_id = outer_vlan.vid;
 
     // 检测是否有内层 VLAN 标签（QinQ）
     let inner_vlan_opt = if has_vlan_tag(packet).is_some() {
@@ -113,7 +113,7 @@ pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, Vla
 
     // 如果有内层 VLAN，使用内层 VLAN ID（用户 VLAN 更具有业务意义）
     if let Some(ref inner) = inner_vlan_opt {
-        packet.set_vlan_id(inner.vid);
+        packet.vlan_id = inner.vid;
     }
 
     // 读取内层 EtherType
