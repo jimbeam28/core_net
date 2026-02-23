@@ -24,8 +24,10 @@ pub const DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM: usize = 16;
 
 /// 分片重叠处理策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum FragmentOverlapPolicy {
     /// 丢弃重叠分片
+    #[default]
     Drop,
 
     /// 使用先收到的分片
@@ -38,11 +40,6 @@ pub enum FragmentOverlapPolicy {
     LogAndDrop,
 }
 
-impl Default for FragmentOverlapPolicy {
-    fn default() -> Self {
-        Self::Drop
-    }
-}
 
 // ========== 分片信息 ==========
 

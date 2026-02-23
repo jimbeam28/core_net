@@ -172,7 +172,7 @@ fn handle_fragmented_packet(
         // 设置最后一片的偏移（当前偏移 + 当前数据占用的分片单位数）
         // 注意：fragment_offset 指向当前分片在原始数据报中的位置（以 8 字节为单位）
         // 最后一片的结束偏移 = 当前偏移 + 当前数据的分片单位数
-        let data_units = (fragment_data_len + 7) / 8;
+        let data_units = fragment_data_len.div_ceil(8);
         entry.set_last_fragment(ip_hdr.fragment_offset() + data_units as u16);
     }
 
@@ -268,7 +268,7 @@ pub fn fragment_datagram(
     while payload_offset < payload.len() {
         // 计算当前分片的数据长度
         let remaining = payload.len() - payload_offset;
-        let data_len = remaining.min(max_data_per_fragment as usize) as usize;
+        let data_len = remaining.min(max_data_per_fragment as usize);
 
         // 确保数据长度为 8 字节的倍数（最后一片除外）
         let is_last = payload_offset + data_len >= payload.len();

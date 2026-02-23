@@ -35,18 +35,18 @@ impl SocketFd {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressFamily {
     /// IPv4 协议族
-    AF_INET,
+    AfInet,
     /// IPv6 协议族
-    AF_INET6,
+    AfInet6,
 }
 
 /// Socket 类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SocketType {
     /// 流式套接字 (TCP)
-    SOCK_STREAM,
+    SockStream,
     /// 数据报套接字 (UDP)
-    SOCK_DGRAM,
+    SockDgram,
 }
 
 /// Socket 协议

@@ -136,7 +136,7 @@ pub struct SocketEntry {
     /// 是否阻塞模式
     pub blocking: bool,
 
-    /// 监听队列（仅 SOCK_STREAM 且状态为 Listen 时有效）
+    /// 监听队列（仅 SockStream 且状态为 Listen 时有效）
     pub listen_queue: Option<ListenQueue>,
 }
 
@@ -144,8 +144,8 @@ impl SocketEntry {
     /// 创建新的 Socket 表项
     pub fn new(fd: SocketFd, family: AddressFamily, socket_type: SocketType, protocol: SocketProtocol) -> Self {
         let state = match socket_type {
-            SocketType::SOCK_STREAM => SocketState::Tcp(TcpState::Closed),
-            SocketType::SOCK_DGRAM => SocketState::Udp,
+            SocketType::SockStream => SocketState::Tcp(TcpState::Closed),
+            SocketType::SockDgram => SocketState::Udp,
         };
 
         Self {
@@ -249,14 +249,14 @@ mod tests {
         let fd = SocketFd::FIRST_AVAILABLE;
         let entry = SocketEntry::new(
             fd,
-            AddressFamily::AF_INET,
-            SocketType::SOCK_STREAM,
+            AddressFamily::AfInet,
+            SocketType::SockStream,
             SocketProtocol::TCP,
         );
 
         assert_eq!(entry.fd, fd);
-        assert_eq!(entry.family, AddressFamily::AF_INET);
-        assert_eq!(entry.socket_type, SocketType::SOCK_STREAM);
+        assert_eq!(entry.family, AddressFamily::AfInet);
+        assert_eq!(entry.socket_type, SocketType::SockStream);
         assert_eq!(entry.protocol, SocketProtocol::TCP);
         assert!(matches!(entry.state, SocketState::Tcp(TcpState::Closed)));
         assert!(!entry.is_bound());
@@ -268,8 +268,8 @@ mod tests {
     fn test_socket_entry_udp() {
         let entry = SocketEntry::new(
             SocketFd::FIRST_AVAILABLE,
-            AddressFamily::AF_INET,
-            SocketType::SOCK_DGRAM,
+            AddressFamily::AfInet,
+            SocketType::SockDgram,
             SocketProtocol::UDP,
         );
 
@@ -281,8 +281,8 @@ mod tests {
     fn test_socket_entry_buffer_operations() {
         let mut entry = SocketEntry::new(
             SocketFd::FIRST_AVAILABLE,
-            AddressFamily::AF_INET,
-            SocketType::SOCK_DGRAM,
+            AddressFamily::AfInet,
+            SocketType::SockDgram,
             SocketProtocol::UDP,
         );
 
@@ -305,8 +305,8 @@ mod tests {
     fn test_socket_entry_buffer_limit() {
         let mut entry = SocketEntry::new(
             SocketFd::FIRST_AVAILABLE,
-            AddressFamily::AF_INET,
-            SocketType::SOCK_DGRAM,
+            AddressFamily::AfInet,
+            SocketType::SockDgram,
             SocketProtocol::UDP,
         );
         entry.rx_buffer_size = 10;

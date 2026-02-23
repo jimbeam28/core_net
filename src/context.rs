@@ -59,37 +59,61 @@ pub struct SystemContext {
     pub socket_mgr: Arc<Mutex<SocketManager>>,
 }
 
+/// Socket 管理器及其依赖组件
+struct SocketManagers {
+    tcp_sockets: Arc<Mutex<TcpSocketManager>>,
+    udp_ports: Arc<Mutex<UdpPortManager>>,
+    socket_mgr: Arc<Mutex<SocketManager>>,
+}
+
 impl SystemContext {
-    /// 创建新的系统上下文（用于测试）
-    ///
-    /// 创建一个空的系统上下文，所有组件使用默认值。
-    pub fn new() -> Self {
-        // 创建 TCP Socket 管理器和 UDP 端口管理器
+    /// 创建默认的 Socket 管理器及其依赖组件
+    fn create_default_socket_managers() -> SocketManagers {
         let tcp_sockets = Arc::new(Mutex::new(TcpSocketManager::new()));
         let udp_ports = Arc::new(Mutex::new(UdpPortManager::new()));
-
-        // 创建 Socket 管理器
         let socket_mgr = Arc::new(Mutex::new(SocketManager::new(
             tcp_sockets.clone(),
             udp_ports.clone(),
         )));
+        SocketManagers {
+            tcp_sockets,
+            udp_ports,
+            socket_mgr,
+        }
+    }
+
+    /// 创建默认的重组表
+    fn create_default_reassembly() -> Arc<Mutex<ReassemblyTable>> {
+        Arc::new(Mutex::new(ReassemblyTable::new(
+            DEFAULT_MAX_REASSEMBLY_ENTRIES,
+            DEFAULT_REASSEMBLY_TIMEOUT_SECS,
+        )))
+    }
+
+    /// 创建默认的 IPv6 分片缓存
+    fn create_default_ipv6_fragment_cache() -> Arc<Mutex<FragmentCache>> {
+        Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES)))
+    }
+
+    /// 创建新的系统上下文（用于测试）
+    ///
+    /// 创建一个空的系统上下文，所有组件使用默认值。
+    pub fn new() -> Self {
+        let socket_mgrs = Self::create_default_socket_managers();
 
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
-            tcp_sockets,
-            udp_ports,
+            tcp_sockets: socket_mgrs.tcp_sockets,
+            udp_ports: socket_mgrs.udp_ports,
             timers: Arc::new(Mutex::new(TimerHandle::new())),
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
-            ip_reassembly: Arc::new(Mutex::new(ReassemblyTable::new(
-                DEFAULT_MAX_REASSEMBLY_ENTRIES,
-                DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-            ))),
-            ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
-            socket_mgr,
+            ip_reassembly: Self::create_default_reassembly(),
+            ipv6_fragment_cache: Self::create_default_ipv6_fragment_cache(),
+            socket_mgr: socket_mgrs.socket_mgr,
         }
     }
 
@@ -109,32 +133,21 @@ impl SystemContext {
             }
         };
 
-        // 创建 TCP Socket 管理器和 UDP 端口管理器
-        let tcp_sockets = Arc::new(Mutex::new(TcpSocketManager::new()));
-        let udp_ports = Arc::new(Mutex::new(UdpPortManager::new()));
-
-        // 创建 Socket 管理器
-        let socket_mgr = Arc::new(Mutex::new(SocketManager::new(
-            tcp_sockets.clone(),
-            udp_ports.clone(),
-        )));
+        let socket_mgrs = Self::create_default_socket_managers();
 
         Self {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
-            tcp_sockets,
-            udp_ports,
+            tcp_sockets: socket_mgrs.tcp_sockets,
+            udp_ports: socket_mgrs.udp_ports,
             timers: Arc::new(Mutex::new(TimerHandle::new())),
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
-            ip_reassembly: Arc::new(Mutex::new(ReassemblyTable::new(
-                DEFAULT_MAX_REASSEMBLY_ENTRIES,
-                DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-            ))),
-            ipv6_fragment_cache: Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES))),
-            socket_mgr,
+            ip_reassembly: Self::create_default_reassembly(),
+            ipv6_fragment_cache: Self::create_default_ipv6_fragment_cache(),
+            socket_mgr: socket_mgrs.socket_mgr,
         }
     }
 
@@ -170,15 +183,6 @@ impl SystemContext {
         ipv6_fragment_cache: Option<Arc<Mutex<FragmentCache>>>,
         socket_mgr: Option<Arc<Mutex<SocketManager>>>,
     ) -> Self {
-        // 创建默认的重组表（如果未提供）
-        let default_reassembly = || Arc::new(Mutex::new(ReassemblyTable::new(
-            DEFAULT_MAX_REASSEMBLY_ENTRIES,
-            DEFAULT_REASSEMBLY_TIMEOUT_SECS,
-        )));
-
-        // 创建默认的 IPv6 分片缓存（如果未提供）
-        let default_ipv6_fragment_cache = || Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES)));
-
         // 创建 TCP Socket 管理器和 UDP 端口管理器（如果未提供）
         let tcp_sockets = tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
         let udp_ports = udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new())));
@@ -198,8 +202,8 @@ impl SystemContext {
             timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
             route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
             icmpv6_context: icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
-            ip_reassembly: ip_reassembly.unwrap_or_else(default_reassembly),
-            ipv6_fragment_cache: ipv6_fragment_cache.unwrap_or_else(default_ipv6_fragment_cache),
+            ip_reassembly: ip_reassembly.unwrap_or_else(Self::create_default_reassembly),
+            ipv6_fragment_cache: ipv6_fragment_cache.unwrap_or_else(Self::create_default_ipv6_fragment_cache),
             socket_mgr,
         }
     }

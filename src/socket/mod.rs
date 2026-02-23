@@ -25,9 +25,9 @@ pub use crate::common::addr::{Ipv4Addr, Ipv6Addr};
 /// 创建一个新的 Socket
 ///
 /// # 参数
-/// - `domain`: 协议族（AF_INET/AF_INET6）
-/// - `type`: Socket 类型（SOCK_STREAM/SOCK_DGRAM）
-/// - `protocol`: 协议编号（通常为 0 表示自动选择）
+/// - `_domain`: 协议族（AfInet/AfInet6）
+/// - `_socket_type`: Socket 类型（SockStream/SockDgram）
+/// - `_protocol`: 协议编号（通常为 0 表示自动选择）
 ///
 /// # 返回
 /// - 成功：返回 SocketFd
@@ -38,9 +38,9 @@ pub use crate::common::addr::{Ipv4Addr, Ipv6Addr};
 /// 这是一个便利函数，需要先初始化全局 SocketManager。
 /// 推荐直接使用 `SocketManager` 的方法。
 pub fn socket(
-    domain: AddressFamily,
-    socket_type: SocketType,
-    protocol: SocketProtocol,
+    _domain: AddressFamily,
+    _socket_type: SocketType,
+    _protocol: SocketProtocol,
 ) -> Result<SocketFd> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
@@ -49,13 +49,13 @@ pub fn socket(
 /// 绑定 Socket 到本地地址
 ///
 /// # 参数
-/// - `fd`: Socket 文件描述符
-/// - `addr`: 本地地址
+/// - `_fd`: Socket 文件描述符
+/// - `_addr`: 本地地址
 ///
 /// # 返回
 /// - 成功：Ok(())
 /// - 失败：返回 SocketError
-pub fn bind(fd: SocketFd, addr: &SocketAddr) -> Result<()> {
+pub fn bind(_fd: SocketFd, _addr: &SocketAddr) -> Result<()> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
@@ -63,56 +63,56 @@ pub fn bind(fd: SocketFd, addr: &SocketAddr) -> Result<()> {
 /// 将 Socket 置为监听模式（仅面向连接的 Socket）
 ///
 /// # 参数
-/// - `fd`: Socket 文件描述符
-/// - `backlog`: 挂起连接队列的最大长度
-pub fn listen(fd: SocketFd, backlog: usize) -> Result<()> {
+/// - `_fd`: Socket 文件描述符
+/// - `_backlog`: 挂起连接队列的最大长度
+pub fn listen(_fd: SocketFd, _backlog: usize) -> Result<()> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
 
 /// 接受一个挂起的连接（仅面向连接的 Socket）
-pub fn accept(fd: SocketFd) -> Result<SocketFd> {
+pub fn accept(_fd: SocketFd) -> Result<SocketFd> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
 
 /// 发起到对端的连接（仅面向连接的 Socket）
-pub fn connect(fd: SocketFd, addr: &SocketAddr) -> Result<()> {
+pub fn connect(_fd: SocketFd, _addr: &SocketAddr) -> Result<()> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
 
 /// 发送数据（面向连接的 Socket）
-pub fn send(fd: SocketFd, buf: &[u8], flags: SendFlags) -> Result<usize> {
+pub fn send(_fd: SocketFd, _buf: &[u8], _flags: SendFlags) -> Result<usize> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
 
 /// 发送数据（无连接的 Socket）
-pub fn sendto(fd: SocketFd, buf: &[u8], flags: SendFlags, dest_addr: &SocketAddr) -> Result<usize> {
+pub fn sendto(_fd: SocketFd, _buf: &[u8], _flags: SendFlags, _dest_addr: &SocketAddr) -> Result<usize> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
 
 /// 接收数据（面向连接的 Socket）
-pub fn recv(fd: SocketFd, buf: &mut [u8], flags: RecvFlags) -> Result<usize> {
+pub fn recv(_fd: SocketFd, _buf: &mut [u8], _flags: RecvFlags) -> Result<usize> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
 
 /// 接收数据（无连接的 Socket）
 pub fn recvfrom(
-    fd: SocketFd,
-    buf: &mut [u8],
-    flags: RecvFlags,
-    src_addr: &mut Option<SocketAddr>,
+    _fd: SocketFd,
+    _buf: &mut [u8],
+    _flags: RecvFlags,
+    _src_addr: &mut Option<SocketAddr>,
 ) -> Result<usize> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }
 
 /// 关闭 Socket
-pub fn close(fd: SocketFd) -> Result<()> {
+pub fn close(_fd: SocketFd) -> Result<()> {
     // TODO: 实现全局 SocketManager 支持
     Err(SocketError::Other("Global SocketManager not initialized".to_string()))
 }

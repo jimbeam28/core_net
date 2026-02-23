@@ -26,7 +26,7 @@ fn test_socket_create_tcp() {
 
     // 创建 TCP Socket
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
 
     assert_eq!(fd.0, 3); // 第一个可用的 fd
@@ -34,8 +34,8 @@ fn test_socket_create_tcp() {
 
     // 验证 Socket 属性
     let entry = socket_mgr.get_entry(fd).unwrap();
-    assert_eq!(entry.family, AddressFamily::AF_INET);
-    assert_eq!(entry.socket_type, SocketType::SOCK_STREAM);
+    assert_eq!(entry.family, AddressFamily::AfInet);
+    assert_eq!(entry.socket_type, SocketType::SockStream);
     assert_eq!(entry.protocol, SocketProtocol::TCP);
 }
 
@@ -47,13 +47,13 @@ fn test_socket_create_udp() {
 
     // 创建 UDP Socket
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     assert_eq!(socket_mgr.socket_count(), 1);
 
     let entry = socket_mgr.get_entry(fd).unwrap();
-    assert_eq!(entry.socket_type, SocketType::SOCK_DGRAM);
+    assert_eq!(entry.socket_type, SocketType::SockDgram);
     assert_eq!(entry.protocol, SocketProtocol::UDP);
 }
 
@@ -64,10 +64,10 @@ fn test_socket_create_multiple() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd1 = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
     let fd2 = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     assert_eq!(socket_mgr.socket_count(), 2);
@@ -81,7 +81,7 @@ fn test_socket_close() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
 
     assert_eq!(socket_mgr.socket_count(), 1);
@@ -109,7 +109,7 @@ fn test_socket_bind() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(8080);
@@ -127,7 +127,7 @@ fn test_socket_bind_already_bound() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(8080);
@@ -144,10 +144,10 @@ fn test_socket_bind_addr_in_use() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd1 = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
     let fd2 = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(8080);
@@ -177,7 +177,7 @@ fn test_socket_listen() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(8080);
@@ -196,7 +196,7 @@ fn test_socket_listen_not_bound() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
 
     let result = socket_mgr.listen(fd, 128);
@@ -210,7 +210,7 @@ fn test_socket_listen_not_stream() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(8080);
@@ -229,7 +229,7 @@ fn test_socket_send_recv_tcp() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
 
     // 手动设置状态为 Established（模拟已连接）
@@ -266,7 +266,7 @@ fn test_socket_sendto_recvfrom_udp() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(9090);
@@ -304,7 +304,7 @@ fn test_socket_send_not_connected() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
 
     let data = b"Hello";
@@ -319,7 +319,7 @@ fn test_socket_recv_no_data() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(8080);
@@ -339,7 +339,7 @@ fn test_socket_buffer_operations() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     // 手动操作缓冲区
@@ -365,7 +365,7 @@ fn test_socket_buffer_limit() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     // 设置较小的缓冲区限制
@@ -398,7 +398,7 @@ fn test_socket_lookup() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let fd = socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     let addr = test_addr_v4(8080);
@@ -413,7 +413,7 @@ fn test_socket_lookup() {
 #[serial]
 fn test_socket_lookup_not_found() {
     let ctx = GlobalStateManager::create_context();
-    let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
+    let socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     let addr = test_addr_v4(8080);
 
@@ -431,10 +431,10 @@ fn test_socket_clear() {
     let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
 
     socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
         .unwrap();
     socket_mgr
-        .socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default)
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
         .unwrap();
 
     assert_eq!(socket_mgr.socket_count(), 2);

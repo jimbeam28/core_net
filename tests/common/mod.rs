@@ -1,4 +1,5 @@
 // 测试公共模块 - 提供各测试文件共用的辅助函数和配置
+#![allow(dead_code)]
 
 use core_net::testframework::{HarnessError, HarnessResult, GlobalStateManager};
 use core_net::interface::{InterfaceConfig, InterfaceState, MacAddr, Ipv4Addr, NetworkInterface};

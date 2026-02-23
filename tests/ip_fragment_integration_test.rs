@@ -258,8 +258,8 @@ fn test_ip_fragment_rejection_with_reassembly_enabled() {
     let ctx = create_test_context();
 
     let sender_mac = MacAddr::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
-    let sender_ip = Ipv4Addr::new(192, 168, 1, 10);
-    let target_ip = Ipv4Addr::new(192, 168, 1, 100);
+    let _sender_ip = Ipv4Addr::new(192, 168, 1, 10);
+    let _target_ip = Ipv4Addr::new(192, 168, 1, 100);
 
     // 创建第一个分片 (MF=1, Offset=0)
     let mut frame = Vec::new();
@@ -313,19 +313,19 @@ fn test_ip_fragment_reassembly_complete() {
     let identification: u16 = 12345;
 
     // 分片 1: MF=1, Offset=0, 数据 8 字节
-    let mut frame1 = create_fragment_frame(
+    let frame1 = create_fragment_frame(
         sender_mac, sender_ip, target_ip, identification, 1, 0, true,
         &[0x08, 0x00, 0x00, 0x00, 0x12, 0x34, 0x00, 0x01],
     );
 
     // 分片 2: MF=1, Offset=1, 数据 8 字节
-    let mut frame2 = create_fragment_frame(
+    let frame2 = create_fragment_frame(
         sender_mac, sender_ip, target_ip, identification, 1, 1, true,
         &[0x08, 0x00, 0x00, 0x00, 0x56, 0x78, 0x00, 0x02],
     );
 
     // 分片 3: MF=0, Offset=2, 数据 0 字节 (最后一片)
-    let mut frame3 = create_fragment_frame(
+    let frame3 = create_fragment_frame(
         sender_mac, sender_ip, target_ip, identification, 1, 2, false,
         &[],
     );

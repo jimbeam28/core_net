@@ -253,13 +253,13 @@ fn test_fragment_cache_basic() {
 
     // 添加第一个分片
     let frag1 = FragmentInfo::new(0, true, vec![1u8; 16]);
-    let result = cache.add_fragment(key.clone(), frag1).unwrap();
+    let result = cache.add_fragment(key, frag1).unwrap();
     assert!(result.is_none());
     assert_eq!(cache.len(), 1);
 
     // 添加第二个分片（完成）
     let frag2 = FragmentInfo::new(2, false, vec![2u8; 8]);
-    let result = cache.add_fragment(key.clone(), frag2).unwrap();
+    let result = cache.add_fragment(key, frag2).unwrap();
     assert!(result.is_some());
     assert_eq!(cache.len(), 0); // 应该被移除
 }
@@ -279,11 +279,11 @@ fn test_fragment_cache_overlap_rejection() {
 
     // 添加第一个分片
     let frag1 = FragmentInfo::new(0, true, vec![1u8; 16]);
-    cache.add_fragment(key.clone(), frag1).unwrap();
+    cache.add_fragment(key, frag1).unwrap();
 
     // 尝试添加重叠的分片
     let frag2 = FragmentInfo::new(1, true, vec![2u8; 16]); // 重叠
-    let result = cache.add_fragment(key.clone(), frag2);
+    let result = cache.add_fragment(key, frag2);
 
     assert!(result.is_err());
 }
@@ -303,7 +303,7 @@ fn test_fragment_cache_cleanup_expired() {
 
     // 添加不完整的分片
     let frag1 = FragmentInfo::new(0, true, vec![1u8; 16]);
-    cache.add_fragment(key.clone(), frag1).unwrap();
+    cache.add_fragment(key, frag1).unwrap();
 
     // 新创建的条目不应该超时
     cache.cleanup_expired();
@@ -351,8 +351,8 @@ fn test_reassembly_complete() {
     let frag1 = FragmentInfo::new(0, true, vec![1u8; 16]); // 0-15
     let frag2 = FragmentInfo::new(2, false, vec![2u8; 8]);  // 16-23
 
-    cache.add_fragment(key.clone(), frag1).unwrap();
-    let result = cache.add_fragment(key.clone(), frag2).unwrap();
+    cache.add_fragment(key, frag1).unwrap();
+    let result = cache.add_fragment(key, frag2).unwrap();
 
     assert!(result.is_some());
     let reassembled = result.unwrap();
@@ -378,8 +378,8 @@ fn test_reassembly_out_of_order() {
     let frag2 = FragmentInfo::new(2, false, vec![2u8; 8]);
     let frag1 = FragmentInfo::new(0, true, vec![1u8; 16]);
 
-    cache.add_fragment(key.clone(), frag2).unwrap();
-    let result = cache.add_fragment(key.clone(), frag1).unwrap();
+    cache.add_fragment(key, frag2).unwrap();
+    let result = cache.add_fragment(key, frag1).unwrap();
 
     assert!(result.is_some());
 }
@@ -399,7 +399,7 @@ fn test_reassembly_incomplete() {
 
     // 只添加第一个分片
     let frag1 = FragmentInfo::new(0, true, vec![1u8; 16]);
-    let result = cache.add_fragment(key.clone(), frag1).unwrap();
+    let result = cache.add_fragment(key, frag1).unwrap();
 
     assert!(result.is_none());
     assert_eq!(cache.len(), 1);
@@ -516,9 +516,9 @@ fn test_fragment_cache_too_many_fragments() {
     for i in 0..(DEFAULT_MAX_FRAGMENTS_PER_PACKET + 1) {
         let frag = FragmentInfo::new(i as u16, i < DEFAULT_MAX_FRAGMENTS_PER_PACKET, vec![1u8; 8]);
         if i < DEFAULT_MAX_FRAGMENTS_PER_PACKET {
-            cache.add_fragment(key.clone(), frag).unwrap();
+            cache.add_fragment(key, frag).unwrap();
         } else {
-            let result = cache.add_fragment(key.clone(), frag);
+            let result = cache.add_fragment(key, frag);
             assert!(result.is_err());
         }
     }

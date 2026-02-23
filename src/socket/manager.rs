@@ -73,41 +73,60 @@ pub struct SocketManager {
     bound_addresses: HashMap<(AddressFamily, u16), HashSet<SocketFd>>,
 
     /// TCP Socket 管理器引用（用于与 TCP 模块交互）
-    tcp_socket_mgr: Arc<Mutex<TcpSocketManager>>,
+    _tcp_socket_mgr: Arc<Mutex<TcpSocketManager>>,
 
     /// UDP 端口管理器引用（用于与 UDP 模块交互）
-    udp_port_mgr: Arc<Mutex<UdpPortManager>>,
+    _udp_port_mgr: Arc<Mutex<UdpPortManager>>,
 }
 
 impl SocketManager {
     /// 创建新的 Socket 管理器
+    ///
+    /// # 参数
+    ///
+    /// - `_tcp_socket_mgr`: TCP Socket 管理器引用（预留）
+    /// - `_udp_port_mgr`: UDP 端口管理器引用（预留）
+    ///
+    /// # 返回
+    ///
+    /// 返回使用默认配置的 SocketManager 实例
     pub fn new(
-        tcp_socket_mgr: Arc<Mutex<TcpSocketManager>>,
-        udp_port_mgr: Arc<Mutex<UdpPortManager>>,
+        _tcp_socket_mgr: Arc<Mutex<TcpSocketManager>>,
+        _udp_port_mgr: Arc<Mutex<UdpPortManager>>,
     ) -> Self {
         Self {
             config: SocketConfig::default(),
             next_fd: SocketFd::FIRST_AVAILABLE.0,
             sockets: HashMap::new(),
             bound_addresses: HashMap::new(),
-            tcp_socket_mgr,
-            udp_port_mgr,
+            _tcp_socket_mgr,
+            _udp_port_mgr,
         }
     }
 
     /// 使用指定配置创建 Socket 管理器
+    ///
+    /// # 参数
+    ///
+    /// - `config`: Socket 配置
+    /// - `_tcp_socket_mgr`: TCP Socket 管理器引用（预留）
+    /// - `_udp_port_mgr`: UDP 端口管理器引用（预留）
+    ///
+    /// # 返回
+    ///
+    /// 返回使用指定配置的 SocketManager 实例
     pub fn with_config(
         config: SocketConfig,
-        tcp_socket_mgr: Arc<Mutex<TcpSocketManager>>,
-        udp_port_mgr: Arc<Mutex<UdpPortManager>>,
+        _tcp_socket_mgr: Arc<Mutex<TcpSocketManager>>,
+        _udp_port_mgr: Arc<Mutex<UdpPortManager>>,
     ) -> Self {
         Self {
             config,
             next_fd: SocketFd::FIRST_AVAILABLE.0,
             sockets: HashMap::new(),
             bound_addresses: HashMap::new(),
-            tcp_socket_mgr,
-            udp_port_mgr,
+            _tcp_socket_mgr,
+            _udp_port_mgr,
         }
     }
 
@@ -134,6 +153,16 @@ impl SocketManager {
     }
 
     /// 创建 Socket
+    ///
+    /// # 参数
+    ///
+    /// - `domain`: 协议族（AfInet/AfInet6）
+    /// - `socket_type`: Socket 类型（SockStream/SockDgram）
+    /// - `protocol`: 协议编号
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回新分配的 SocketFd，失败时返回 SocketError
     pub fn socket(
         &mut self,
         domain: AddressFamily,
@@ -142,14 +171,14 @@ impl SocketManager {
     ) -> Result<SocketFd> {
         // 验证协议族与 Socket 类型的组合，并确定实际协议
         let actual_protocol = match (domain, socket_type, protocol) {
-            (AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default) => SocketProtocol::TCP,
-            (AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::TCP) => SocketProtocol::TCP,
-            (AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default) => SocketProtocol::UDP,
-            (AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::UDP) => SocketProtocol::UDP,
-            (AddressFamily::AF_INET6, SocketType::SOCK_STREAM, SocketProtocol::Default) => SocketProtocol::TCP,
-            (AddressFamily::AF_INET6, SocketType::SOCK_STREAM, SocketProtocol::TCP) => SocketProtocol::TCP,
-            (AddressFamily::AF_INET6, SocketType::SOCK_DGRAM, SocketProtocol::Default) => SocketProtocol::UDP,
-            (AddressFamily::AF_INET6, SocketType::SOCK_DGRAM, SocketProtocol::UDP) => SocketProtocol::UDP,
+            (AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default) => SocketProtocol::TCP,
+            (AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::TCP) => SocketProtocol::TCP,
+            (AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default) => SocketProtocol::UDP,
+            (AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::UDP) => SocketProtocol::UDP,
+            (AddressFamily::AfInet6, SocketType::SockStream, SocketProtocol::Default) => SocketProtocol::TCP,
+            (AddressFamily::AfInet6, SocketType::SockStream, SocketProtocol::TCP) => SocketProtocol::TCP,
+            (AddressFamily::AfInet6, SocketType::SockDgram, SocketProtocol::Default) => SocketProtocol::UDP,
+            (AddressFamily::AfInet6, SocketType::SockDgram, SocketProtocol::UDP) => SocketProtocol::UDP,
             _ => return Err(SocketError::InvalidProtocol),
         };
 
@@ -164,9 +193,18 @@ impl SocketManager {
     }
 
     /// 绑定地址
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    /// - `addr`: 要绑定的本地地址
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回 Ok(())，失败时返回 SocketError
     pub fn bind(&mut self, fd: SocketFd, addr: &SocketAddr) -> Result<()> {
         // 先检查是否已绑定和获取需要的信息
-        let (family, socket_type, reuse_addr) = {
+        let (family, _socket_type, reuse_addr) = {
             let entry = self.sockets.get(&fd).ok_or(SocketError::InvalidFd)?;
             if entry.is_bound() {
                 return Err(SocketError::AlreadyBound);
@@ -176,8 +214,8 @@ impl SocketManager {
 
         // 验证协议族与地址类型匹配
         match (family, addr) {
-            (AddressFamily::AF_INET, SocketAddr::V4(_)) => {}
-            (AddressFamily::AF_INET6, SocketAddr::V6(_)) => {}
+            (AddressFamily::AfInet, SocketAddr::V4(_)) => {}
+            (AddressFamily::AfInet6, SocketAddr::V6(_)) => {}
             _ => return Err(SocketError::InvalidProtocol),
         }
 
@@ -185,23 +223,21 @@ impl SocketManager {
 
         // 检查端口冲突（除非设置了 SO_REUSEADDR）
         let key = (family, port);
-        if let Some(fds) = self.bound_addresses.get(&key) {
-            if !fds.is_empty() && !reuse_addr {
+        if let Some(fds) = self.bound_addresses.get(&key)
+            && !fds.is_empty() && !reuse_addr {
                 // 检查是否有其他 Socket 绑定了相同端口
                 for &other_fd in fds {
-                    if let Some(other_entry) = self.sockets.get(&other_fd) {
-                        if !other_entry.options.reuse_addr {
+                    if let Some(other_entry) = self.sockets.get(&other_fd)
+                        && !other_entry.options.reuse_addr {
                             return Err(SocketError::AddrInUse);
                         }
-                    }
                 }
             }
-        }
 
         // 更新 bound_addresses
         self.bound_addresses
             .entry(key)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(fd);
 
         // 更新 local_addr
@@ -212,12 +248,21 @@ impl SocketManager {
     }
 
     /// 开始监听
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    /// - `backlog`: 挂起连接队列的最大长度
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回 Ok(())，失败时返回 SocketError
     pub fn listen(&mut self, fd: SocketFd, backlog: usize) -> Result<()> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
 
         // 验证 Socket 类型为 SOCK_STREAM
-        if entry.socket_type != SocketType::SOCK_STREAM {
+        if entry.socket_type != SocketType::SockStream {
             return Err(SocketError::NotStream);
         }
 
@@ -236,6 +281,14 @@ impl SocketManager {
     }
 
     /// 接受连接
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: 监听 Socket 的文件描述符
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回新连接的 SocketFd，失败时返回 SocketError
     pub fn accept(&mut self, fd: SocketFd) -> Result<SocketFd> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
@@ -253,12 +306,21 @@ impl SocketManager {
     }
 
     /// 发起连接
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    /// - `addr`: 对端地址
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回 Ok(())，失败时返回 SocketError
     pub fn connect(&mut self, fd: SocketFd, addr: &SocketAddr) -> Result<()> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
 
         // 验证 Socket 类型为 SOCK_STREAM
-        if entry.socket_type != SocketType::SOCK_STREAM {
+        if entry.socket_type != SocketType::SockStream {
             return Err(SocketError::NotStream);
         }
 
@@ -269,8 +331,8 @@ impl SocketManager {
 
         // 验证协议族与地址类型匹配
         match (entry.family, addr) {
-            (AddressFamily::AF_INET, SocketAddr::V4(_)) => {}
-            (AddressFamily::AF_INET6, SocketAddr::V6(_)) => {}
+            (AddressFamily::AfInet, SocketAddr::V4(_)) => {}
+            (AddressFamily::AfInet6, SocketAddr::V6(_)) => {}
             _ => return Err(SocketError::InvalidProtocol),
         }
 
@@ -290,6 +352,16 @@ impl SocketManager {
     }
 
     /// 发送数据（面向连接）
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    /// - `buf`: 要发送的数据缓冲区
+    /// - `_flags`: 发送标志（预留）
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回发送的字节数，失败时返回 SocketError
     pub fn send(&mut self, fd: SocketFd, buf: &[u8], _flags: SendFlags) -> Result<usize> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
@@ -321,12 +393,23 @@ impl SocketManager {
     }
 
     /// 发送数据（无连接）
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    /// - `buf`: 要发送的数据缓冲区
+    /// - `_flags`: 发送标志（预留）
+    /// - `_dest_addr`: 目标地址（预留）
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回发送的字节数，失败时返回 SocketError
     pub fn sendto(
         &mut self,
         fd: SocketFd,
         buf: &[u8],
         _flags: SendFlags,
-        dest_addr: &SocketAddr,
+        _dest_addr: &SocketAddr,
     ) -> Result<usize> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
@@ -358,12 +441,22 @@ impl SocketManager {
     }
 
     /// 接收数据（面向连接）
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    /// - `buf`: 接收数据缓冲区
+    /// - `_flags`: 接收标志（预留）
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回接收的字节数，失败时返回 SocketError
     pub fn recv(&mut self, fd: SocketFd, buf: &mut [u8], _flags: RecvFlags) -> Result<usize> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
 
         // 验证 Socket 状态
-        if entry.socket_type == SocketType::SOCK_STREAM && !entry.is_connected() {
+        if entry.socket_type == SocketType::SockStream && !entry.is_connected() {
             return Err(SocketError::NotConnected);
         }
 
@@ -382,12 +475,23 @@ impl SocketManager {
     }
 
     /// 接收数据（无连接）
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    /// - `buf`: 接收数据缓冲区
+    /// - `_flags`: 接收标志（预留）
+    /// - `_src_addr`: 源地址输出参数（预留）
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回接收的字节数，失败时返回 SocketError
     pub fn recvfrom(
         &mut self,
         fd: SocketFd,
         buf: &mut [u8],
         _flags: RecvFlags,
-        src_addr: &mut Option<SocketAddr>,
+        _src_addr: &mut Option<SocketAddr>,
     ) -> Result<usize> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
@@ -410,6 +514,14 @@ impl SocketManager {
     }
 
     /// 关闭 Socket
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    ///
+    /// # 返回
+    ///
+    /// 成功时返回 Ok(())，失败时返回 SocketError
     pub fn close(&mut self, fd: SocketFd) -> Result<()> {
         // 查找 SocketEntry
         let entry = self.sockets.remove(&fd).ok_or(SocketError::InvalidFd)?;
@@ -434,35 +546,59 @@ impl SocketManager {
     }
 
     /// 根据 SocketFd 获取 SocketEntry（内部使用）
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    ///
+    /// # 返回
+    ///
+    /// 如果找到则返回 SocketEntry 的引用，否则返回 None
     pub fn get_entry(&self, fd: SocketFd) -> Option<&SocketEntry> {
         self.sockets.get(&fd)
     }
 
     /// 根据 SocketFd 获取可变 SocketEntry（内部使用）
+    ///
+    /// # 参数
+    ///
+    /// - `fd`: Socket 文件描述符
+    ///
+    /// # 返回
+    ///
+    /// 如果找到则返回 SocketEntry 的可变引用，否则返回 None
     pub fn get_entry_mut(&mut self, fd: SocketFd) -> Option<&mut SocketEntry> {
         self.sockets.get_mut(&fd)
     }
 
     /// 根据 IP 和端口查找 Socket（用于接收到数据时分发）
+    ///
+    /// # 参数
+    ///
+    /// - `local_addr`: 本地地址
+    /// - `_peer_addr`: 对端地址（预留）
+    ///
+    /// # 返回
+    ///
+    /// 如果找到则返回 SocketFd，否则返回 None
     pub fn lookup_socket(
         &self,
         local_addr: &SocketAddr,
         _peer_addr: Option<&SocketAddr>,
     ) -> Option<SocketFd> {
         let key = (match local_addr {
-            SocketAddr::V4(_) => AddressFamily::AF_INET,
-            SocketAddr::V6(_) => AddressFamily::AF_INET6,
+            SocketAddr::V4(_) => AddressFamily::AfInet,
+            SocketAddr::V6(_) => AddressFamily::AfInet6,
         }, local_addr.port());
 
         // 查找绑定到该地址的 Socket
         if let Some(fds) = self.bound_addresses.get(&key) {
             // 返回第一个匹配的 Socket（简化处理）
             for fd in fds {
-                if let Some(entry) = self.sockets.get(fd) {
-                    if entry.local_addr.as_ref() == Some(local_addr) {
+                if let Some(entry) = self.sockets.get(fd)
+                    && entry.local_addr.as_ref() == Some(local_addr) {
                         return Some(*fd);
                     }
-                }
             }
         }
 
@@ -470,11 +606,17 @@ impl SocketManager {
     }
 
     /// 获取 Socket 数量
+    ///
+    /// # 返回
+    ///
+    /// 返回当前管理的 Socket 总数
     pub fn socket_count(&self) -> usize {
         self.sockets.len()
     }
 
     /// 清空所有 Socket
+    ///
+    /// 移除所有 Socket 表项和绑定地址
     pub fn clear(&mut self) {
         self.sockets.clear();
         self.bound_addresses.clear();
@@ -503,14 +645,14 @@ mod tests {
     fn test_socket_create_tcp() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default).unwrap();
         assert_eq!(fd.0, SocketFd::FIRST_AVAILABLE.0);
         assert_eq!(mgr.socket_count(), 1);
 
         // 验证 Socket 属性
         let entry = mgr.get_entry(fd).unwrap();
-        assert_eq!(entry.family, AddressFamily::AF_INET);
-        assert_eq!(entry.socket_type, SocketType::SOCK_STREAM);
+        assert_eq!(entry.family, AddressFamily::AfInet);
+        assert_eq!(entry.socket_type, SocketType::SockStream);
         assert!(matches!(entry.state, SocketState::Tcp(TcpState::Closed)));
     }
 
@@ -518,11 +660,11 @@ mod tests {
     fn test_socket_create_udp() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default).unwrap();
         assert_eq!(mgr.socket_count(), 1);
 
         let entry = mgr.get_entry(fd).unwrap();
-        assert_eq!(entry.socket_type, SocketType::SOCK_DGRAM);
+        assert_eq!(entry.socket_type, SocketType::SockDgram);
         assert!(matches!(entry.state, SocketState::Udp));
     }
 
@@ -530,7 +672,7 @@ mod tests {
     fn test_socket_bind() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default).unwrap();
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080));
 
         mgr.bind(fd, &addr).unwrap();
@@ -544,7 +686,7 @@ mod tests {
     fn test_socket_bind_already_bound() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default).unwrap();
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080));
 
         mgr.bind(fd, &addr).unwrap();
@@ -556,8 +698,8 @@ mod tests {
     fn test_socket_bind_addr_in_use() {
         let mut mgr = create_test_manager();
 
-        let fd1 = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default).unwrap();
-        let fd2 = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default).unwrap();
+        let fd1 = mgr.socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default).unwrap();
+        let fd2 = mgr.socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default).unwrap();
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080));
 
         mgr.bind(fd1, &addr).unwrap();
@@ -569,7 +711,7 @@ mod tests {
     fn test_socket_listen() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default).unwrap();
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080));
 
         mgr.bind(fd, &addr).unwrap();
@@ -584,7 +726,7 @@ mod tests {
     fn test_socket_listen_not_bound() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default).unwrap();
         let result = mgr.listen(fd, 128);
         assert!(matches!(result, Err(SocketError::NotBound)));
     }
@@ -593,7 +735,7 @@ mod tests {
     fn test_socket_send_recv() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default).unwrap();
 
         // 手动设置状态为 Established（模拟已连接）
         let entry = mgr.get_entry_mut(fd).unwrap();
@@ -619,7 +761,7 @@ mod tests {
     fn test_socket_close() {
         let mut mgr = create_test_manager();
 
-        let fd = mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default).unwrap();
+        let fd = mgr.socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default).unwrap();
         assert_eq!(mgr.socket_count(), 1);
 
         mgr.close(fd).unwrap();
@@ -638,8 +780,8 @@ mod tests {
     fn test_clear() {
         let mut mgr = create_test_manager();
 
-        mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_STREAM, SocketProtocol::Default).unwrap();
-        mgr.socket(AddressFamily::AF_INET, SocketType::SOCK_DGRAM, SocketProtocol::Default).unwrap();
+        mgr.socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default).unwrap();
+        mgr.socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default).unwrap();
         assert_eq!(mgr.socket_count(), 2);
 
         mgr.clear();

@@ -216,7 +216,7 @@ fn process_fragment(
     // 提取分片数据
     let remaining = packet.remaining();
     let fragment_data = packet.read(remaining)
-        .ok_or_else(|| Ipv6Error::PacketTooShort {
+        .ok_or(Ipv6Error::PacketTooShort {
             expected: remaining,
             found: 0,
         })?
