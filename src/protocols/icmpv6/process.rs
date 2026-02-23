@@ -39,6 +39,8 @@ pub struct Icmpv6Context {
     pub pmtu_cache: PmtuCache,
     /// Echo 管理器
     pub echo_manager: EchoManager,
+    /// Error 消息速率限制器
+    pub error_rate_limiter: ErrorRateLimiter,
     /// 配置
     pub config: Icmpv6Config,
 }
@@ -57,6 +59,7 @@ impl Icmpv6Context {
                 config.max_pending_echoes,
                 config.echo_timeout.as_millis() as u32,
             ),
+            error_rate_limiter: ErrorRateLimiter::new(config.error_rate_limit),
             config,
         }
     }
@@ -68,6 +71,7 @@ impl Icmpv6Context {
         self.prefix_list.remove_expired();
         self.pmtu_cache.remove_expired();
         self.echo_manager.cleanup_timeouts();
+        // ErrorRateLimiter 自动清理旧时间戳，无需手动清理
     }
 }
 
@@ -83,6 +87,8 @@ impl Default for Icmpv6Context {
 /// - packet: ICMPv6 报文（不包含 IPv6 头部）
 /// - source_addr: 发送方 IPv6 地址
 /// - dest_addr: 接收方 IPv6 地址（本接口 IPv6）
+/// - hop_limit: IPv6 头部的 Hop Limit 字段
+/// - our_mac: 本接口的 MAC 地址（用于 NDP 响应）
 /// - context: ICMPv6 处理上下文
 /// - verbose: 是否打印详细信息
 ///
@@ -93,6 +99,8 @@ pub fn process_icmpv6_packet(
     mut packet: Packet,
     source_addr: Ipv6Addr,
     dest_addr: Ipv6Addr,
+    hop_limit: u8,
+    our_mac: Option<crate::protocols::MacAddr>,
     context: &mut Icmpv6Context,
     verbose: bool,
 ) -> Icmpv6Result<Icmpv6ProcessResult> {
@@ -112,8 +120,8 @@ pub fn process_icmpv6_packet(
     let icmpv6_packet = Icmpv6Packet::from_packet(&mut packet)?;
 
     if verbose {
-        println!("ICMPv6: Type={} Source={} Dest={}",
-            icmpv6_packet.get_type(), source_addr, dest_addr);
+        println!("ICMPv6: Type={} Source={} Dest={} HopLimit={}",
+            icmpv6_packet.get_type(), source_addr, dest_addr, hop_limit);
     }
 
     // 根据类型处理
@@ -134,19 +142,19 @@ pub fn process_icmpv6_packet(
             handle_parameter_problem(param_problem, source_addr, context, verbose)
         }
         Icmpv6Packet::RouterSolicitation(rs) => {
-            handle_router_solicitation(rs, source_addr, dest_addr, context, verbose)
+            handle_router_solicitation(rs, source_addr, dest_addr, hop_limit, our_mac, context, verbose)
         }
         Icmpv6Packet::RouterAdvertisement(ra) => {
-            handle_router_advertisement(ra, source_addr, context, verbose)
+            handle_router_advertisement(ra, source_addr, hop_limit, context, verbose)
         }
         Icmpv6Packet::NeighborSolicitation(ns) => {
-            handle_neighbor_solicitation(ns, source_addr, dest_addr, context, verbose)
+            handle_neighbor_solicitation(ns, source_addr, dest_addr, hop_limit, our_mac, context, verbose)
         }
         Icmpv6Packet::NeighborAdvertisement(na) => {
-            handle_neighbor_advertisement(na, source_addr, context, verbose)
+            handle_neighbor_advertisement(na, source_addr, hop_limit, context, verbose)
         }
         Icmpv6Packet::Redirect(redirect) => {
-            handle_redirect(redirect, source_addr, context, verbose)
+            handle_redirect(redirect, source_addr, hop_limit, context, verbose)
         }
     }
 }
@@ -208,6 +216,21 @@ fn handle_icmpv6_echo_packet(
     } else {
         Ok(Icmpv6ProcessResult::NoReply)
     }
+}
+
+/// 检查是否允许发送 ICMPv6 Error 消息
+///
+/// 根据速率限制配置检查是否允许发送 Error 消息
+/// 这是为了防止 ICMPv6 Error 消息泛洪攻击
+///
+/// # 参数
+/// - context: ICMPv6 处理上下文
+///
+/// # 返回
+/// - true: 允许发送
+/// - false: 超过速率限制，应丢弃
+fn check_error_rate_limit(context: &mut Icmpv6Context) -> bool {
+    context.error_rate_limiter.check_and_record()
 }
 
 /// 处理 Destination Unreachable
@@ -274,15 +297,61 @@ fn handle_parameter_problem(
 /// 处理 Router Solicitation
 fn handle_router_solicitation(
     _rs: Icmpv6RouterSolicitation,
-    _source_addr: Ipv6Addr,
+    source_addr: Ipv6Addr,
     _dest_addr: Ipv6Addr,
-    _context: &mut Icmpv6Context,
+    hop_limit: u8,
+    our_mac: Option<crate::protocols::MacAddr>,
+    context: &mut Icmpv6Context,
     verbose: bool,
 ) -> Icmpv6Result<Icmpv6ProcessResult> {
-    if verbose {
-        println!("ICMPv6: 收到 Router Solicitation");
+    // 验证 Hop Limit（RFC 4861 要求 NDP 消息的 Hop Limit 必须为 255）
+    if context.config.verify_hop_limit && hop_limit != 255 {
+        if verbose {
+            println!("ICMPv6: 丢弃 Router Solicitation（Hop Limit={} != 255）", hop_limit);
+        }
+        return Ok(Icmpv6ProcessResult::NoReply);
     }
-    // 当前版本：不发送 Router Advertisement
+
+    if verbose {
+        println!("ICMPv6: 收到 Router Solicitation from {}", source_addr);
+    }
+
+    // 如果配置为路由器，发送 Router Advertisement
+    if context.config.is_router {
+        if verbose {
+            println!("ICMPv6: 配置为路由器，发送 Router Advertisement");
+        }
+
+        // 如果提供了本机 MAC 地址，发送 Router Advertisement
+        if let Some(mac) = our_mac {
+            // 创建 Router Advertisement
+            let mut ra = Icmpv6RouterAdvertisement {
+                type_: 134,       // Router Advertisement
+                code: 0,
+                checksum: 0,
+                cur_hop_limit: 64,
+                flags: 0,         // M=0, O=0
+                lifetime: 1800,   // Router Lifetime (30 分钟)
+                reachable_time: 30000,
+                retrans_timer: 1000,
+                options: Vec::new(),
+            };
+
+            // 添加 Source Link-Layer Address 选项
+            let opt = Icmpv6Option::source_link_layer_addr(&mac.bytes);
+            ra.options.push(opt);
+
+            // 编码报文（校验和字段为 0）
+            let bytes = ra.to_bytes();
+
+            if verbose {
+                println!("ICMPv6: 发送 Router Advertisement to {}", source_addr);
+            }
+
+            return Ok(Icmpv6ProcessResult::Reply(bytes));
+        }
+    }
+
     Ok(Icmpv6ProcessResult::NoReply)
 }
 
@@ -290,9 +359,18 @@ fn handle_router_solicitation(
 fn handle_router_advertisement(
     ra: Icmpv6RouterAdvertisement,
     source_addr: Ipv6Addr,
+    hop_limit: u8,
     context: &mut Icmpv6Context,
     verbose: bool,
 ) -> Icmpv6Result<Icmpv6ProcessResult> {
+    // 验证 Hop Limit（RFC 4861 要求 NDP 消息的 Hop Limit 必须为 255）
+    if context.config.verify_hop_limit && hop_limit != 255 {
+        if verbose {
+            println!("ICMPv6: 丢弃 Router Advertisement（Hop Limit={} != 255）", hop_limit);
+        }
+        return Ok(Icmpv6ProcessResult::NoReply);
+    }
+
     if !context.config.accept_router_advertisements {
         if verbose {
             println!("ICMPv6: 忽略 Router Advertisement（配置禁用）");
@@ -325,19 +403,32 @@ fn handle_router_advertisement(
                 }
             }
             Some(Icmpv6OptionType::PrefixInfo) => {
-                // 解析前缀信息选项（需要至少 30 字节）
+                // 解析前缀信息选项（RFC 4861）
+                // 选项数据格式：
+                // Offset 0-1: Type, Length (已在 Icmpv6Option 中处理)
+                // Offset 2: Prefix Length
+                // Offset 3: Flags (L|A|Reserved)
+                // Offset 4-7: Valid Lifetime
+                // Offset 8-11: Preferred Lifetime
+                // Offset 12-15: Reserved
+                // Offset 16-31: Prefix (16 bytes)
                 if opt.data.len() >= 30 {
                     let prefix_len = opt.data[2];
-                    let mut prefix_bytes = [0u8; 16];
-                    prefix_bytes.copy_from_slice(&opt.data[4..20]);
-                    let prefix = Ipv6Addr::from_bytes(prefix_bytes);
 
+                    // Valid Lifetime: offset 4-7
                     let valid_lifetime = u32::from_be_bytes([
                         opt.data[4], opt.data[5], opt.data[6], opt.data[7]
                     ]);
+
+                    // Preferred Lifetime: offset 8-11
                     let preferred_lifetime = u32::from_be_bytes([
                         opt.data[8], opt.data[9], opt.data[10], opt.data[11]
                     ]);
+
+                    // Prefix: offset 16-31
+                    let mut prefix_bytes = [0u8; 16];
+                    prefix_bytes.copy_from_slice(&opt.data[16..32]);
+                    let prefix = Ipv6Addr::from_bytes(prefix_bytes);
 
                     let prefix_entry = PrefixEntry::new(
                         prefix,
@@ -378,17 +469,23 @@ fn handle_router_advertisement(
 fn handle_neighbor_solicitation(
     ns: Icmpv6NeighborSolicitation,
     source_addr: Ipv6Addr,
-    _dest_addr: Ipv6Addr,
+    dest_addr: Ipv6Addr,
+    hop_limit: u8,
+    our_mac: Option<crate::protocols::MacAddr>,
     context: &mut Icmpv6Context,
     verbose: bool,
 ) -> Icmpv6Result<Icmpv6ProcessResult> {
+    // 验证 Hop Limit（RFC 4861 要求 NDP 消息的 Hop Limit 必须为 255）
+    if context.config.verify_hop_limit && hop_limit != 255 {
+        if verbose {
+            println!("ICMPv6: 丢弃 Neighbor Solicitation（Hop Limit={} != 255）", hop_limit);
+        }
+        return Ok(Icmpv6ProcessResult::NoReply);
+    }
+
     if verbose {
         println!("ICMPv6: 收到 Neighbor Solicitation Target={}", ns.target_address);
     }
-
-    // 检查目标地址是否为本机地址
-    // 这里简化处理，实际需要查询接口地址列表
-    // 如果目标地址是本机地址，发送 Neighbor Advertisement
 
     // 提取源链路层地址选项
     for opt in &ns.options {
@@ -414,7 +511,39 @@ fn handle_neighbor_solicitation(
         }
     }
 
-    // 当前版本：不自动发送 Neighbor Advertisement
+    // 检查目标地址是否为本机地址
+    if ns.target_address == dest_addr {
+        if verbose {
+            println!("ICMPv6: 目标地址为本机地址，发送 Neighbor Advertisement");
+        }
+
+        // 如果提供了本机 MAC 地址，发送 Neighbor Advertisement
+        if let Some(mac) = our_mac {
+            // 创建 Neighbor Advertisement
+            // Router=0 (非路由器), Solicited=1 (响应NS), Override=1 (覆盖缓存)
+            let mut na = Icmpv6NeighborAdvertisement::new(
+                ns.target_address,
+                false,  // router flag
+                true,   // solicited flag
+                true,   // override flag
+            );
+
+            // 添加 Target Link-Layer Address 选项
+            let opt = Icmpv6Option::target_link_layer_addr(&mac.bytes);
+            na.options.push(opt);
+
+            // 编码报文（校验和字段为 0）
+            let bytes = na.to_bytes();
+
+            if verbose {
+                println!("ICMPv6: 发送 Neighbor Advertisement Target={} MAC={}",
+                    ns.target_address, mac);
+            }
+
+            return Ok(Icmpv6ProcessResult::Reply(bytes));
+        }
+    }
+
     Ok(Icmpv6ProcessResult::NoReply)
 }
 
@@ -422,9 +551,18 @@ fn handle_neighbor_solicitation(
 fn handle_neighbor_advertisement(
     na: Icmpv6NeighborAdvertisement,
     _source_addr: Ipv6Addr,
+    hop_limit: u8,
     context: &mut Icmpv6Context,
     verbose: bool,
 ) -> Icmpv6Result<Icmpv6ProcessResult> {
+    // 验证 Hop Limit（RFC 4861 要求 NDP 消息的 Hop Limit 必须为 255）
+    if context.config.verify_hop_limit && hop_limit != 255 {
+        if verbose {
+            println!("ICMPv6: 丢弃 Neighbor Advertisement（Hop Limit={} != 255）", hop_limit);
+        }
+        return Ok(Icmpv6ProcessResult::NoReply);
+    }
+
     if verbose {
         println!("ICMPv6: 收到 Neighbor Advertisement Target={}", na.target_address);
         println!("  Router={} Solicited={} Override={}",
@@ -476,9 +614,18 @@ fn handle_neighbor_advertisement(
 fn handle_redirect(
     _redirect: Icmpv6Redirect,
     _source_addr: Ipv6Addr,
+    hop_limit: u8,
     context: &mut Icmpv6Context,
     verbose: bool,
 ) -> Icmpv6Result<Icmpv6ProcessResult> {
+    // 验证 Hop Limit（RFC 4861 要求 NDP 消息的 Hop Limit 必须为 255）
+    if context.config.verify_hop_limit && hop_limit != 255 {
+        if verbose {
+            println!("ICMPv6: 丢弃 Redirect（Hop Limit={} != 255）", hop_limit);
+        }
+        return Ok(Icmpv6ProcessResult::NoReply);
+    }
+
     if !context.config.accept_redirects {
         if verbose {
             println!("ICMPv6: 忽略 Redirect（配置禁用）");
@@ -636,7 +783,7 @@ mod tests {
         let packet = Packet::from_bytes(echo_bytes);
         let mut context = Icmpv6Context::default();
 
-        let result = process_icmpv6_packet(packet, source, dest, &mut context, false).unwrap();
+        let result = process_icmpv6_packet(packet, source, dest, 64, None, &mut context, false).unwrap();
 
         match result {
             Icmpv6ProcessResult::Reply(reply_bytes) => {

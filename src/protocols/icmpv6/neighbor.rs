@@ -605,6 +605,66 @@ impl Default for EchoManager {
     }
 }
 
+// ========== ICMPv6 Error 消息速率限制 ==========
+
+/// ICMPv6 Error 消息速率限制器
+///
+/// 用于防止 ICMPv6 Error 消息泛洪攻击
+pub struct ErrorRateLimiter {
+    /// Error 消息发送时间戳（滑动窗口）
+    timestamps: Vec<std::time::Instant>,
+    /// 每秒允许的最大消息数
+    rate_limit: u32,
+}
+
+impl ErrorRateLimiter {
+    /// 创建新的速率限制器
+    pub fn new(rate_limit: u32) -> Self {
+        Self {
+            timestamps: Vec::new(),
+            rate_limit,
+        }
+    }
+
+    /// 检查是否允许发送 Error 消息
+    ///
+    /// # 返回
+    /// - true: 允许发送
+    /// - false: 超过速率限制
+    pub fn check_and_record(&mut self) -> bool {
+        let now = std::time::Instant::now();
+
+        // 清理超过 1 秒的时间戳
+        self.timestamps.retain(|ts| {
+            now.duration_since(*ts).as_secs() < 1
+        });
+
+        // 检查是否超过速率限制
+        if self.timestamps.len() >= self.rate_limit as usize {
+            false
+        } else {
+            self.timestamps.push(now);
+            true
+        }
+    }
+
+    /// 清空所有时间戳
+    pub fn clear(&mut self) {
+        self.timestamps.clear();
+    }
+
+    /// 获取当前窗口内的消息计数
+    pub fn count(&self) -> usize {
+        self.timestamps.len()
+    }
+}
+
+impl Default for ErrorRateLimiter {
+    fn default() -> Self {
+        Self::new(10) // 默认每秒 10 个
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

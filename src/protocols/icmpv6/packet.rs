@@ -5,7 +5,6 @@
 
 use crate::common::Packet;
 use crate::protocols::Ipv6Addr;
-use crate::protocols::ip::calculate_checksum;
 
 use super::types::*;
 use super::error::{Icmpv6Error, Icmpv6Result};
@@ -155,26 +154,26 @@ impl Icmpv6Echo {
         })
     }
 
-    /// 编码为字节数组（不含伪头部，需要外部添加伪头部计算校验和）
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部（源地址、目的地址、长度、下一头部），
+    /// 因此调用方需要使用 `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::MIN_LEN + self.data.len());
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&self.checksum.to_be_bytes());
+        bytes.extend_from_slice(&[0u8, 0u8]); // 校验和占位为 0
         bytes.extend_from_slice(&self.identifier.to_be_bytes());
         bytes.extend_from_slice(&self.sequence.to_be_bytes());
         bytes.extend_from_slice(&self.data);
-
-        // 计算校验和（不包含伪头部，调用方需要处理）
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
 
     /// 编码为字节数组（校验和字段设为 0，由外部计算正确的 ICMPv6 校验和）
+    ///
+    /// 此方法已被 `to_bytes()` 取代，保留别名以保持兼容性。
     pub fn to_bytes_without_checksum(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::MIN_LEN + self.data.len());
 
@@ -285,18 +284,18 @@ impl Icmpv6DestUnreachable {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::MIN_LEN + self.original_datagram.len());
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.extend_from_slice(&self.unused.to_be_bytes());
         bytes.extend_from_slice(&self.original_datagram);
-
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -375,18 +374,18 @@ impl Icmpv6PacketTooBig {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::MIN_LEN + self.original_datagram.len());
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.extend_from_slice(&self.mtu.to_be_bytes());
         bytes.extend_from_slice(&self.original_datagram);
-
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -466,18 +465,18 @@ impl Icmpv6TimeExceeded {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::MIN_LEN + self.original_datagram.len());
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.extend_from_slice(&self.unused.to_be_bytes());
         bytes.extend_from_slice(&self.original_datagram);
-
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -557,18 +556,18 @@ impl Icmpv6ParameterProblem {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(Self::MIN_LEN + self.original_datagram.len());
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.extend_from_slice(&self.pointer.to_be_bytes());
         bytes.extend_from_slice(&self.original_datagram);
-
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -652,23 +651,22 @@ impl Icmpv6RouterSolicitation {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.extend_from_slice(&self.reserved.to_be_bytes());
 
         // 添加选项
         for opt in &self.options {
             bytes.extend_from_slice(&opt.to_bytes());
         }
-
-        // 计算校验和
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -767,12 +765,16 @@ impl Icmpv6RouterAdvertisement {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.push(self.cur_hop_limit);
         bytes.push(self.flags);
         bytes.extend_from_slice(&self.lifetime.to_be_bytes());
@@ -783,11 +785,6 @@ impl Icmpv6RouterAdvertisement {
         for opt in &self.options {
             bytes.extend_from_slice(&opt.to_bytes());
         }
-
-        // 计算校验和
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -896,12 +893,16 @@ impl Icmpv6NeighborSolicitation {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.extend_from_slice(&self.reserved.to_be_bytes());
         bytes.extend_from_slice(&self.target_address.bytes);
 
@@ -909,11 +910,6 @@ impl Icmpv6NeighborSolicitation {
         for opt in &self.options {
             bytes.extend_from_slice(&opt.to_bytes());
         }
-
-        // 计算校验和
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -1027,12 +1023,16 @@ impl Icmpv6NeighborAdvertisement {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.push(self.flags);
         bytes.extend_from_slice(&self.reserved);
         bytes.extend_from_slice(&self.target_address.bytes);
@@ -1041,11 +1041,6 @@ impl Icmpv6NeighborAdvertisement {
         for opt in &self.options {
             bytes.extend_from_slice(&opt.to_bytes());
         }
-
-        // 计算校验和
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }
@@ -1152,12 +1147,16 @@ impl Icmpv6Redirect {
         })
     }
 
+    /// 编码为字节数组（校验和字段为 0，由外部计算 ICMPv6 校验和）
+    ///
+    /// ICMPv6 校验和必须包含 IPv6 伪头部，调用方需要使用
+    /// `calculate_icmpv6_checksum()` 计算正确的校验和。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         bytes.push(self.type_);
         bytes.push(self.code);
-        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位为 0
         bytes.extend_from_slice(&self.reserved.to_be_bytes());
         bytes.extend_from_slice(&self.target_address.bytes);
         bytes.extend_from_slice(&self.destination_address.bytes);
@@ -1166,11 +1165,6 @@ impl Icmpv6Redirect {
         for opt in &self.options {
             bytes.extend_from_slice(&opt.to_bytes());
         }
-
-        // 计算校验和
-        let checksum = calculate_checksum(&bytes);
-        bytes[2] = (checksum >> 8) as u8;
-        bytes[3] = (checksum & 0xFF) as u8;
 
         bytes
     }

@@ -18,6 +18,9 @@ pub struct Icmpv6Config {
     pub max_pending_echoes: usize,
 
     // ========== 邻居发现 ==========
+    /// 是否作为路由器运行
+    pub is_router: bool,
+
     /// 是否接受 Router Advertisement
     pub accept_router_advertisements: bool,
 
@@ -87,6 +90,7 @@ impl Default for Icmpv6Config {
             echo_timeout: Duration::from_secs(1),
             max_pending_echoes: 100,
 
+            is_router: false,
             accept_router_advertisements: true,
             send_router_solicitation: true,
             router_solicitation_delay: 1,
@@ -120,6 +124,7 @@ pub const ICMPV6_CONFIG_DEFAULT: Icmpv6Config = Icmpv6Config {
     echo_timeout: Duration::from_secs(1),
     max_pending_echoes: 100,
 
+    is_router: false,
     accept_router_advertisements: true,
     send_router_solicitation: true,
     router_solicitation_delay: 1,

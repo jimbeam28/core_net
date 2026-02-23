@@ -70,9 +70,9 @@ fn test_icmpv6_echo_direct_processing() {
     let echo_bytes = create_icmpv6_echo_request(source, dest, 1234, 1, vec![0x42; 32]);
     let packet = Packet::from_bytes(echo_bytes);
 
-    // 直接处理
+    // 直接处理（Hop Limit 默认为 64）
     let result = core_net::protocols::icmpv6::process_icmpv6_packet(
-        packet, source, dest, &mut context, false
+        packet, source, dest, 64, None, &mut context, false
     );
 
     assert!(result.is_ok());

@@ -349,6 +349,12 @@ impl PacketProcessor {
                 );
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
+            ipv6::Ipv6ProcessResult::NeedsReassembly { .. } => {
+                // 分片重组暂不支持
+                Err(ProcessError::UnsupportedProtocol(
+                    "IPv6 分片重组暂不支持".to_string()
+                ))
+            }
             ipv6::Ipv6ProcessResult::DeliverToProtocol { header, data } => {
                 if self.verbose {
                     println!("IPv6: {} -> {} NextHeader={} HopLimit={}",
@@ -402,6 +408,8 @@ impl PacketProcessor {
             packet,
             ipv6_hdr.source_addr,
             our_ipv6,
+            ipv6_hdr.hop_limit,
+            Some(our_mac),
             &mut icmpv6_ctx,
             self.verbose,
         ).map_err(|e| ProcessError::ParseError(format!("ICMPv6处理失败: {:?}", e)))?;

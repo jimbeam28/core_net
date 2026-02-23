@@ -9,6 +9,8 @@ use crate::context::SystemContext;
 use super::header::Ipv6Header;
 use super::protocol::IpProtocol;
 use super::error::Ipv6Error;
+use super::config::Ipv6Config;
+use super::extension::{parse_extension_chain, ExtensionConfig};
 
 /// IPv6 处理结果
 ///
@@ -23,6 +25,15 @@ pub enum Ipv6ProcessResult {
 
     /// 交付给上层协议（包含 IPv6 头部信息和负载数据）
     DeliverToProtocol { header: Ipv6Header, data: Vec<u8> },
+
+    /// 需要分片重组（包含分片信息）
+    NeedsReassembly {
+        source_addr: Ipv6Addr,
+        dest_addr: Ipv6Addr,
+        identification: u32,
+        fragment_data: Vec<u8>,
+        next_header: u8,
+    },
 }
 
 /// IPv6 处理专用 Result 类型
@@ -40,17 +51,19 @@ pub type Ipv6Result<T> = std::result::Result<T, Ipv6Error>;
 /// - Err(Ipv6Error): 处理失败
 ///
 /// # 处理流程
-/// 1. 解析 IPv6 头部
+/// 1. 解析 IPv6 基本头部
 /// 2. 验证版本号
 /// 3. 检查 Hop Limit
-/// 4. 检查目的地址是否为本机地址
-/// 5. 根据 Next Header 字段分发到上层协议
+/// 4. 检查源地址是否为组播地址（违反规范）
+/// 5. 处理扩展头链（如果启用）
+/// 6. 检查目的地址是否为本机地址
+/// 7. 根据 Next Header 字段分发到上层协议
 pub fn process_ipv6_packet(
     packet: &mut Packet,
     ifindex: u32,
     context: &SystemContext,
 ) -> Ipv6Result<Ipv6ProcessResult> {
-    // 1. 解析 IPv6 头部
+    // 1. 解析 IPv6 基本头部
     let ip_hdr = Ipv6Header::from_packet(packet)
         .map_err(|e| match e {
             CoreError::UnsupportedProtocol(msg) if msg.contains("版本") => {
@@ -72,14 +85,7 @@ pub fn process_ipv6_packet(
         return Err(Ipv6Error::invalid_source_address(ip_hdr.source_addr.to_string()));
     }
 
-    // 4. 检查扩展头（当前版本不支持）
-    if ip_hdr.next_header.is_extension_header() {
-        return Err(Ipv6Error::extension_header_not_supported(
-            u8::from(ip_hdr.next_header)
-        ));
-    }
-
-    // 5. 检查目的地址是否为本机地址
+    // 4. 检查目的地址是否为本机地址
     let is_local = is_local_address(context, ip_hdr.destination_addr, ifindex)?;
 
     if !is_local {
@@ -87,8 +93,25 @@ pub fn process_ipv6_packet(
         return Ok(Ipv6ProcessResult::NoReply);
     }
 
-    // 6. 根据 Next Header 分发
-    match ip_hdr.next_header {
+    // 5. 获取配置
+    let config = get_config(context);
+    let extension_config = config.extension_config();
+
+    // 6. 处理扩展头链（如果启用）
+    let final_next_header = if config.allow_extension_headers {
+        process_extension_chain(packet, ip_hdr.next_header, &extension_config)?
+    } else {
+        // 扩展头未启用，检查 Next Header 是否为扩展头类型
+        if ip_hdr.next_header.is_extension_header() {
+            return Err(Ipv6Error::extension_header_not_supported(
+                u8::from(ip_hdr.next_header)
+            ));
+        }
+        ip_hdr.next_header
+    };
+
+    // 7. 根据 Next Header 分发
+    match final_next_header {
         IpProtocol::IcmpV6 => {
             // 提取数据部分（不含 IPv6 头部）
             let data = extract_payload(packet, ip_hdr.payload_length as usize)?;
@@ -97,9 +120,75 @@ pub fn process_ipv6_packet(
                 data,
             })
         }
+        IpProtocol::Tcp => {
+            // TODO: TCP 支持
+            Err(Ipv6Error::unsupported_protocol(u8::from(final_next_header)))
+        }
+        IpProtocol::Udp => {
+            // TODO: UDP 支持
+            Err(Ipv6Error::unsupported_protocol(u8::from(final_next_header)))
+        }
         _ => {
             // 协议不支持
-            Err(Ipv6Error::unsupported_protocol(u8::from(ip_hdr.next_header)))
+            Err(Ipv6Error::unsupported_protocol(u8::from(final_next_header)))
+        }
+    }
+}
+
+/// 处理扩展头链
+///
+/// 解析扩展头链，返回最终的上层协议类型。
+/// 如果遇到分片头，返回需要重组的处理结果。
+fn process_extension_chain(
+    packet: &mut Packet,
+    initial_next_header: IpProtocol,
+    config: &ExtensionConfig,
+) -> Ipv6Result<IpProtocol> {
+
+    // 尝试解析扩展头链
+    match parse_extension_chain(packet, initial_next_header, config) {
+        Ok(chain_result) => {
+            // 检查是否有分片头
+            for ext_header in &chain_result.headers {
+                if let super::extension::ExtensionHeaderType::Fragment { .. } = ext_header {
+                    // 遇到分片头，需要重组（当前版本暂不支持）
+                    if !config.enable_fragmentation {
+                        return Err(Ipv6Error::unsupported_protocol(44));
+                    }
+                }
+            }
+
+            Ok(chain_result.next_header)
+        }
+        Err(e) => {
+            // 解析失败，转换为 Ipv6Error
+            match e {
+                CoreError::UnsupportedProtocol(msg) => {
+                    if msg.contains("Type 0") {
+                        Err(Ipv6Error::RoutingHeaderType0Deprecated)
+                    } else {
+                        Err(Ipv6Error::unsupported_protocol(0))
+                    }
+                }
+                CoreError::InvalidPacket(msg) => {
+                    if msg.contains("扩展头数量超过限制") {
+                        Err(Ipv6Error::too_many_extension_headers(
+                            0, // 无法提取具体数字
+                            config.max_extension_headers,
+                        ))
+                    } else if msg.contains("扩展头链过长") {
+                        Err(Ipv6Error::extension_chain_too_long(
+                            0,
+                            config.max_extension_headers_length,
+                        ))
+                    } else if msg.contains("原子分片") {
+                        Err(Ipv6Error::atomic_fragment(0))
+                    } else {
+                        Err(Ipv6Error::invalid_header_length_simple())
+                    }
+                }
+                _ => Err(Ipv6Error::invalid_header_length(0)),
+            }
         }
     }
 }
@@ -141,9 +230,7 @@ fn is_local_address(
     ifindex: u32,
 ) -> Ipv6Result<bool> {
     let interfaces = context.interfaces.lock()
-        .map_err(|_| Ipv6Error::DestinationUnreachable {
-            addr: dest_addr.to_string(),
-        })?;
+        .map_err(|_| Ipv6Error::destination_unreachable(dest_addr.to_string()))?;
 
     // 检查是否有接口配置了此地址
     let is_local = interfaces.get_by_index(ifindex)
@@ -189,6 +276,15 @@ fn extract_payload(packet: &Packet, payload_length: usize) -> Ipv6Result<Vec<u8>
     Ok(payload_data.to_vec())
 }
 
+/// 获取 IPv6 配置
+///
+/// 从系统上下文中获取 IPv6 配置，如果没有则返回默认配置。
+fn get_config(_context: &SystemContext) -> Ipv6Config {
+    // TODO: 从 SystemContext 获取配置
+    // 当前返回默认配置
+    Ipv6Config::default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,6 +328,36 @@ mod tests {
         match result {
             Ipv6ProcessResult::DeliverToProtocol { header: _, data: d } => assert_eq!(d, data),
             _ => panic!("Expected DeliverToProtocol"),
+        }
+    }
+
+    #[test]
+    fn test_ipv6_process_result_needs_reassembly() {
+        let src = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+        let dst = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
+        let result = Ipv6ProcessResult::NeedsReassembly {
+            source_addr: src,
+            dest_addr: dst,
+            identification: 12345,
+            fragment_data: vec![0x01, 0x02, 0x03],
+            next_header: 58,
+        };
+
+        match result {
+            Ipv6ProcessResult::NeedsReassembly {
+                source_addr,
+                dest_addr,
+                identification,
+                fragment_data,
+                next_header,
+            } => {
+                assert_eq!(source_addr, src);
+                assert_eq!(dest_addr, dst);
+                assert_eq!(identification, 12345);
+                assert_eq!(fragment_data, vec![0x01, 0x02, 0x03]);
+                assert_eq!(next_header, 58);
+            }
+            _ => panic!("Expected NeedsReassembly"),
         }
     }
 }
