@@ -220,6 +220,14 @@ pub struct Tcb {
     /// 重传次数
     pub retransmit_count: u32,
 
+    // ========== 定时器状态 ==========
+    /// 重传定时器是否启动
+    pub retransmit_timer_active: bool,
+    /// TimeWait 定时器是否启动
+    pub time_wait_timer_active: bool,
+    /// Keepalive 定时器是否启动
+    pub keepalive_timer_active: bool,
+
     // ========== 缓冲区 ==========
     /// 发送缓冲区（环形队列）
     pub send_buffer: Vec<u8>,
@@ -255,6 +263,9 @@ impl Tcb {
             sack_permitted: false,
             timestamps: false,
             retransmit_count: 0,
+            retransmit_timer_active: false,
+            time_wait_timer_active: false,
+            keepalive_timer_active: false,
             send_buffer: Vec::with_capacity(65536),  // 默认 64KB
             recv_buffer: Vec::with_capacity(65536),  // 默认 64KB
             recv_buffer_read: 0,
@@ -493,6 +504,60 @@ impl Tcb {
     /// 重置重传计数
     pub fn reset_retransmit_count(&mut self) {
         self.retransmit_count = 0;
+    }
+
+    // ========== 定时器管理方法 ==========
+
+    /// 启动重传定时器
+    pub fn start_retransmit_timer(&mut self) {
+        self.retransmit_timer_active = true;
+    }
+
+    /// 停止重传定时器
+    pub fn stop_retransmit_timer(&mut self) {
+        self.retransmit_timer_active = false;
+    }
+
+    /// 检查重传定时器是否启动
+    pub fn is_retransmit_timer_active(&self) -> bool {
+        self.retransmit_timer_active
+    }
+
+    /// 启动 TimeWait 定时器
+    pub fn start_time_wait_timer(&mut self) {
+        self.time_wait_timer_active = true;
+    }
+
+    /// 停止 TimeWait 定时器
+    pub fn stop_time_wait_timer(&mut self) {
+        self.time_wait_timer_active = false;
+    }
+
+    /// 检查 TimeWait 定时器是否启动
+    pub fn is_time_wait_timer_active(&self) -> bool {
+        self.time_wait_timer_active
+    }
+
+    /// 启动 Keepalive 定时器
+    pub fn start_keepalive_timer(&mut self) {
+        self.keepalive_timer_active = true;
+    }
+
+    /// 停止 Keepalive 定时器
+    pub fn stop_keepalive_timer(&mut self) {
+        self.keepalive_timer_active = false;
+    }
+
+    /// 检查 Keepalive 定时器是否启动
+    pub fn is_keepalive_timer_active(&self) -> bool {
+        self.keepalive_timer_active
+    }
+
+    /// 停止所有定时器
+    pub fn stop_all_timers(&mut self) {
+        self.retransmit_timer_active = false;
+        self.time_wait_timer_active = false;
+        self.keepalive_timer_active = false;
     }
 
     // ========== 缓冲区管理方法 ==========

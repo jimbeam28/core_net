@@ -16,6 +16,9 @@ pub struct TcpConnectionManager {
     /// 连接表（四元组 -> TCB）
     connections: HashMap<TcpConnectionId, Arc<Mutex<Tcb>>>,
 
+    /// Socket ID 映射（socket_id -> 四元组）
+    socket_id_map: HashMap<u64, TcpConnectionId>,
+
     /// 监听端口表（端口 -> TCB）
     listen_sockets: HashMap<u16, Arc<Mutex<Tcb>>>,
 
@@ -24,6 +27,9 @@ pub struct TcpConnectionManager {
 
     /// 下一个临时端口号
     next_ephemeral_port: u16,
+
+    /// 下一个 socket ID
+    next_socket_id: u64,
 }
 
 impl TcpConnectionManager {
@@ -31,9 +37,11 @@ impl TcpConnectionManager {
     pub fn new(config: TcpConfig) -> Self {
         Self {
             connections: HashMap::new(),
+            socket_id_map: HashMap::new(),
             listen_sockets: HashMap::new(),
             config,
             next_ephemeral_port: 32768, // 临时端口范围起始
+            next_socket_id: 1,
         }
     }
 
@@ -56,8 +64,35 @@ impl TcpConnectionManager {
             return Err(TcpError::BufferFull);
         }
 
+        // 分配 socket_id
+        let socket_id = self.next_socket_id;
+        self.next_socket_id = self.next_socket_id.wrapping_add(1);
+
+        // 存储 socket_id 到连接 ID 的映射
+        self.socket_id_map.insert(socket_id, id.clone());
+
         self.connections.insert(id, Arc::new(Mutex::new(tcb)));
         Ok(())
+    }
+
+    /// 通过 socket ID 查找连接
+    pub fn find_by_socket_id(&self, socket_id: u64) -> Option<Arc<Mutex<Tcb>>> {
+        if let Some(conn_id) = self.socket_id_map.get(&socket_id) {
+            self.connections.get(conn_id).cloned()
+        } else {
+            None
+        }
+    }
+
+    /// 获取连接的 socket ID
+    pub fn get_socket_id(&self, conn_id: &TcpConnectionId) -> Option<u64> {
+        // 反向查找 socket_id
+        for (&socket_id, id) in &self.socket_id_map {
+            if id == conn_id {
+                return Some(socket_id);
+            }
+        }
+        None
     }
 
     /// 添加监听端口
@@ -77,6 +112,12 @@ impl TcpConnectionManager {
     /// 返回被移除连接的 Arc<Mutex<Tcb>>，如果连接不存在则返回 None。
     /// 注意：如果连接仍被其他线程引用，TCB 不会被立即销毁。
     pub fn remove(&mut self, id: &TcpConnectionId) -> Option<Arc<Mutex<Tcb>>> {
+        // 先查找并移除 socket_id 映射
+        let socket_id = self.get_socket_id(id);
+        if let Some(sid) = socket_id {
+            self.socket_id_map.remove(&sid);
+        }
+
         self.connections.remove(id)
     }
 
@@ -127,18 +168,33 @@ impl TcpConnectionManager {
     /// 清理所有连接
     pub fn clear(&mut self) {
         self.connections.clear();
+        self.socket_id_map.clear();
         self.listen_sockets.clear();
     }
 
     /// 清理已关闭的连接
     pub fn cleanup_closed(&mut self) {
-        self.connections.retain(|_id, tcb| {
-            if let Ok(guard) = tcb.lock() {
-                guard.state != TcpState::Closed
-            } else {
-                true // 获取锁失败，保留
+        // 收集需要移除的连接 ID 和 socket ID
+        let mut to_remove = Vec::new();
+        let mut socket_ids_to_remove = Vec::new();
+
+        for (socket_id, conn_id) in &self.socket_id_map {
+            if let Some(tcb) = self.connections.get(conn_id)
+                && let Ok(guard) = tcb.lock()
+                && guard.state == TcpState::Closed
+            {
+                to_remove.push(conn_id.clone());
+                socket_ids_to_remove.push(*socket_id);
             }
-        });
+        }
+
+        // 移除已关闭的连接
+        for conn_id in to_remove {
+            self.connections.remove(&conn_id);
+        }
+        for socket_id in socket_ids_to_remove {
+            self.socket_id_map.remove(&socket_id);
+        }
     }
 
     /// 查找或创建连接（用于被动打开）
@@ -174,6 +230,13 @@ impl TcpConnectionManager {
         tcb.state = TcpState::SynReceived;
         tcb.rcv_wnd = self.config.default_window_size;
         tcb.mss = self.config.max_segment_size;
+
+        // 分配 socket_id
+        let socket_id = self.next_socket_id;
+        self.next_socket_id = self.next_socket_id.wrapping_add(1);
+
+        // 存储 socket_id 到连接 ID 的映射
+        self.socket_id_map.insert(socket_id, id.clone());
 
         let tcb_arc = Arc::new(Mutex::new(tcb));
         self.connections.insert(id, tcb_arc.clone());

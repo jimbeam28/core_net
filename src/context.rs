@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use crate::interface::InterfaceManager;
 use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
-use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager};
+use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager, TcpTimerManager};
 use crate::protocols::udp::UdpPortManager;
 use crate::protocols::icmpv6::Icmpv6Context;
 use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_REASSEMBLY_ENTRIES};
@@ -39,6 +39,9 @@ pub struct SystemContext {
 
     /// UDP 端口管理器
     pub udp_ports: Arc<Mutex<UdpPortManager>>,
+
+    /// TCP 定时器管理器
+    pub tcp_timers: Arc<Mutex<TcpTimerManager>>,
 
     /// 定时器管理器（用于驱动协议状态机）
     pub timers: Arc<Mutex<TimerHandle>>,
@@ -104,6 +107,8 @@ impl SystemContext {
         #[allow(clippy::arc_with_non_send_sync)]
         let timers = Arc::new(Mutex::new(TimerHandle::new()));
 
+        let tcp_timers = Arc::new(Mutex::new(TcpTimerManager::new()));
+
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -111,6 +116,7 @@ impl SystemContext {
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
             tcp_sockets: socket_mgrs.tcp_sockets,
             udp_ports: socket_mgrs.udp_ports,
+            tcp_timers,
             timers,
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
@@ -141,6 +147,8 @@ impl SystemContext {
         #[allow(clippy::arc_with_non_send_sync)]
         let timers = Arc::new(Mutex::new(TimerHandle::new()));
 
+        let tcp_timers = Arc::new(Mutex::new(TcpTimerManager::new()));
+
         Self {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -148,6 +156,7 @@ impl SystemContext {
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
             tcp_sockets: socket_mgrs.tcp_sockets,
             udp_ports: socket_mgrs.udp_ports,
+            tcp_timers,
             timers,
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
@@ -169,6 +178,7 @@ impl SystemContext {
     /// - `tcp_connections`: TCP 连接管理器
     /// - `tcp_sockets`: TCP Socket 管理器（可选，默认为空）
     /// - `udp_ports`: UDP 端口管理器（可选，默认为空）
+    /// - `tcp_timers`: TCP 定时器管理器（可选，默认为空）
     /// - `timers`: 定时器管理器（可选，默认为空）
     /// - `route_table`: 路由表（可选，默认为空）
     /// - `icmpv6_context`: ICMPv6 上下文（可选，默认为空）
@@ -183,6 +193,7 @@ impl SystemContext {
         tcp_connections: Arc<Mutex<TcpConnectionManager>>,
         tcp_sockets: Option<Arc<Mutex<TcpSocketManager>>>,
         udp_ports: Option<Arc<Mutex<UdpPortManager>>>,
+        tcp_timers: Option<Arc<Mutex<TcpTimerManager>>>,
         timers: Option<Arc<Mutex<TimerHandle>>>,
         route_table: Option<Arc<Mutex<RouteTable>>>,
         icmpv6_context: Option<Arc<Mutex<Icmpv6Context>>>,
@@ -200,6 +211,9 @@ impl SystemContext {
         });
 
         #[allow(clippy::arc_with_non_send_sync)]
+        let tcp_timers = tcp_timers.unwrap_or_else(|| Arc::new(Mutex::new(TcpTimerManager::new())));
+
+        #[allow(clippy::arc_with_non_send_sync)]
         let timers = timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new())));
 
         Self {
@@ -209,6 +223,7 @@ impl SystemContext {
             tcp_connections,
             tcp_sockets,
             udp_ports,
+            tcp_timers,
             timers,
             route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
             icmpv6_context: icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
@@ -310,8 +325,9 @@ mod tests {
             Arc::new(Mutex::new(tcp_mgr)),
             Some(Arc::new(Mutex::new(tcp_sockets))),
             Some(Arc::new(Mutex::new(udp_mgr))),
-            None,
-            None,
+            None, // tcp_timers
+            None, // timers
+            None, // route_table
             None, // icmpv6_context
             None, // ip_reassembly
             None, // ipv6_fragment_cache

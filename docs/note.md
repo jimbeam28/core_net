@@ -22,12 +22,12 @@
 | 7 | VLAN 过滤功能 | ✅ 已修复 | 添加 `VlanFilter` 结构体，支持允许/拒绝列表和帧过滤 |
 | 8 | TCP 状态机缺失 4 个状态 | ✅ 已修复 | 实现 SynSent, FinWait2, Closing, TimeWait 状态处理，支持完整连接生命周期 |
 | 9 | Clippy 警告 | ✅ 已修复 | 引入 `VlanEncapParams` 和 `QinQEncapParams` 参数结构体，消除 `too_many_arguments` 警告 |
+| 10 | TCP 定时器未实现 | ✅ 已修复 | 添加 `TcpTimerManager`、定时器配置、定时器处理函数，支持重传、TimeWait、Keepalive 定时器 |
 
 ### 未修复问题（优先级排序）
 
 | # | 问题 | 优先级 | 预估工作量 |
 |---|------|--------|------------|
-| 10 | TCP 定时器未实现 | P0 | 大 |
 | 11 | 测试代码混入生产文件 | P2 | 中 |
 
 ---
@@ -91,6 +91,26 @@ pub struct TcpTimers {
 ```
 
 **影响**: 无法实现重传、TimeWait 等关键功能
+
+**状态**: ✅ 已修复（2025-02-24）
+
+**修复内容**:
+- 创建 `TcpTimerManager` 结构体，支持定时器队列管理
+- 添加 `TcpTimerConfig` 配置结构体，包含 RTO、TimeWait、Keepalive 参数
+- 实现定时器处理函数：`handle_timer_event`, `handle_retransmission_timeout`, `handle_time_wait_timeout`, `handle_keepalive_timeout`
+- 添加定时器启动/停止辅助函数
+- 在 TCB 中添加定时器状态跟踪字段（`retransmit_timer_active`, `time_wait_timer_active`, `keepalive_timer_active`）
+- 在 TcpConnectionManager 中添加 socket_id 到连接 ID 的映射
+- 在 SystemContext 中集成 `tcp_timers` 字段
+
+**修复文件**:
+- `src/protocols/tcp/timers.rs`: 新建文件，完整实现定时器管理器
+- `src/protocols/tcp/tcb.rs`: 添加定时器状态字段和管理方法
+- `src/protocols/tcp/connection.rs`: 添加 socket_id 映射和查找方法
+- `src/protocols/tcp/process.rs`: 添加定时器事件处理函数
+- `src/context.rs`: 集成 tcp_timers 到 SystemContext
+
+**功能提升**: 支持完整的 TCP 定时器功能，包括数据包重传、TimeWait 状态管理和 Keepalive 探测
 
 ### 1.3 ISN 生成安全性问题 ✅ 已修复
 
@@ -385,7 +405,7 @@ Ok(UdpProcessResult::PortUnreachable(payload))
 | 5 | VLAN | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 封装功能已完整实现 | 封装功能已修复 |
 | 6 | UDP | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 测试代码混入 | ICMP 响应已修复 |
 | 7 | 以太网 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 封装已与 VLAN 集成 | 封装已修复 |
-| 8 | TCP | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 状态机已完整，定时器未实现 | 状态机、四元组路由、ISN 已修复 |
+| 8 | TCP | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 状态机、定时器已完整实现 | 状态机、四元组路由、ISN、定时器已修复 |
 
 ---
 
@@ -396,7 +416,7 @@ Ok(UdpProcessResult::PortUnreachable(payload))
 | 优先级 | 问题 | 影响模块 | 状态 | 预估工作量 |
 |--------|------|----------|------|------------|
 | 1 | TCP 状态机补全 | TCP | ✅ 已完成 | 大 |
-| 2 | TCP 定时器实现 | TCP | ⏳ 待完成 | 大 |
+| 2 | TCP 定时器实现 | TCP | ✅ 已完成 | 大 |
 | 3 | VLAN 封装功能 | VLAN | ✅ 已完成 | 中 |
 
 ### P1 - 安全和合规性
@@ -421,8 +441,8 @@ Ok(UdpProcessResult::PortUnreachable(payload))
 
 ### TCP 相关
 - 状态机: `src/protocols/tcp/process.rs`
-- 定时器: `src/protocols/tcp/tcb.rs:175-198`
-- ISN 生成: `src/protocols/tcp/tcb.rs:209-212`
+- 定时器: `src/protocols/tcp/timers.rs` ✅ 新增
+- ISN 生成: `src/protocols/tcp/tcb.rs`
 - Socket 管理: `src/protocols/tcp/socket_manager.rs`
 
 ### UDP 相关

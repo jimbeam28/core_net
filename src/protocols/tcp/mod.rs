@@ -13,6 +13,7 @@ mod connection;
 mod process;
 mod socket;
 mod socket_manager;
+mod timers;
 
 pub use constant::*;
 pub use config::{TcpConfig, TCP_CONFIG_DEFAULT};
@@ -32,3 +33,6 @@ pub use process::{
 };
 pub use socket::{TcpSocket, TcpEvent, TcpCallback};
 pub use socket_manager::{TcpSocketManager, ConnectionTuple};
+pub use timers::{
+    TcpTimerManager, TimerType, TimerEvent, TcpTimerConfig,
+};
