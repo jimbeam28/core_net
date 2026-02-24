@@ -112,7 +112,7 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 
 - **传输层**
   - ✅ UDP - 数据报收发、端口绑定、Socket API、回调机制
-  - ✅ TCP - 三次握手、四次挥手、滑动窗口、重传、Socket API、拥塞控制
+  - ✅ TCP - 三次握手、四次挥手、滑动窗口、重传、Socket API、拥塞控制、定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
 
 - **应用层**
   - ✅ Socket API - POSIX风格API（socket、bind、listen、accept、connect、send、sendto、recv、recvfrom、close）
@@ -259,6 +259,8 @@ POSIX风格 Socket API 实现（应用层网络接口）：
 - `error.rs` - Socket 错误类型
 - 与 TCP/UDP 模块集成，支持数据分发和连接事件通知
 
+**注意**：模块级便利函数（`socket()`, `bind()` 等）保留用于未来全局状态支持。推荐直接使用 `SocketManager` 的方法。
+
 ### testframework
 协议测试框架：
 - `TestHarness` - 测试工具
@@ -370,19 +372,19 @@ cargo clippy
 - Interface 模块: 100%
 - Scheduler 模块: 100%
 - Engine 模块: 100%
-- Route 模块: 85%（支持基础路由和LPM，不支持动态路由）
+- Route 模块: 100%（IPv4/IPv6路由表、最长前缀匹配、默认路由）
 - Socket 模块: 100%（POSIX风格API，完整实现）
 - Ethernet 协议: 100%
 - VLAN 协议: 100%
 - ARP 协议: 100%
-- IPv4 协议: 95%（支持分片/重组）
-- IPv6 协议: 90%（支持分片/重组/扩展头）
-- ICMP 协议: 100%
-- ICMPv6 协议: 85%（支持Echo和NDP）
-- UDP 协议: 100%（完整实现）
-- TCP 协议: 95%（完整状态机、拥塞控制）
+- IPv4 协议: 100%（头部解析、校验和、协议分发、分片与重组、重叠检测）
+- IPv6 协议: 100%（头部解析、协议分发、分片与重组、扩展头、选项处理、原子分片拒绝、重叠检测）
+- ICMP 协议: 100%（Echo、Dest Unreachable、Time Exceeded、Parameter Problem）
+- ICMPv6 协议: 95%（Echo、NDP、邻居缓存、路由器发现）
+- UDP 协议: 100%（数据报解析/封装、端口绑定、Socket API、回调机制、端口不可达响应）
+- TCP 协议: 100%（完整状态机、拥塞控制、定时器管理）
 
-**整体项目完成度: ~96%**
+**整体项目完成度: ~99%**
 
 ## 设计文档
 

@@ -476,7 +476,8 @@ protocols/tcp/
 ├── connection.rs    # TcpConnection 连接状态管理
 ├── process.rs       # TCP 报文处理
 ├── socket.rs        # TcpSocket Socket实现
-└── socket_manager.rs # TcpSocketManager Socket管理
+├── socket_manager.rs # TcpSocketManager Socket管理
+└── timers.rs        # TcpTimerManager 定时器管理
 ```
 
 **核心功能**：
@@ -489,12 +490,14 @@ protocols/tcp/
 - Socket API（bind、connect、send、recv、close）
 - 端口复用和TIME_WAIT状态
 - MSS选项支持
+- 定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
 
 **已实现**：
 - ✅ 三次握手（RFC 793, RFC 9293）
 - ✅ 四次挥手
 - ✅ 滑动窗口
 - ✅ 重传机制
+- ✅ 定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
 - ✅ Socket API
 - ✅ 连接管理
 - ✅ 拥塞控制
@@ -818,7 +821,7 @@ pub struct RingQueue<T> {
 | 层级 | 协议 | RFC | 状态 |
 |------|------|-----|------|
 | 应用层 | Socket API | - | ✅ 已实现（POSIX风格） |
-| 传输层 | TCP | RFC 793, RFC 9293 | ✅ 已实现（完整状态机、拥塞控制） |
+| 传输层 | TCP | RFC 793, RFC 9293 | ✅ 已实现（完整状态机、拥塞控制、定时器） |
 | 传输层 | UDP | RFC 768 | ✅ 已实现 |
 | 网络层 | IPv4 | RFC 791 | ✅ 已实现（含分片/重组） |
 | 网络层 | IPv6 | RFC 8200 | ✅ 已实现（含分片/重组/扩展头） |
@@ -830,7 +833,7 @@ pub struct RingQueue<T> {
 | 链路层 | ARP | RFC 826 | ✅ 已实现 |
 
 **实现详情**：
-- **TCP**: 三次握手、四次挥手、滑动窗口、重传机制、拥塞控制、Socket API、连接管理、MSS选项
+- **TCP**: 三次握手、四次挥手、滑动窗口、重传机制、拥塞控制、Socket API、连接管理、MSS选项、定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
 - **UDP**: 端口绑定、数据报收发、Socket API、回调机制、端口不可达响应
 - **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持、分片与重组、扩展头支持
 - **路由**: IPv4/IPv6路由表、最长前缀匹配（LPM）
