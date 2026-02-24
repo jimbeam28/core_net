@@ -15,6 +15,46 @@ pub const TPID_QINQ: u16 = 0x9100;
 /// 802.1ad Provider Bridge TPID
 pub const TPID_8021AD: u16 = 0x88A8;
 
+// ========== 封装参数结构体 ==========
+
+/// VLAN 封装参数
+///
+/// 用于封装单标签 VLAN 帧。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlanEncapParams {
+    /// 目标 MAC 地址
+    pub dst_mac: MacAddr,
+    /// 源 MAC 地址
+    pub src_mac: MacAddr,
+    /// VLAN 标签
+    pub vlan_tag: VlanTag,
+    /// TPID（标签协议标识符，通常 0x8100）
+    pub tpid: u16,
+    /// 内层协议类型（如 0x0800 表示 IPv4）
+    pub inner_type: u16,
+}
+
+/// QinQ 封装参数
+///
+/// 用于封装双标签 VLAN 帧（Q-in-Q）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QinQEncapParams {
+    /// 目标 MAC 地址
+    pub dst_mac: MacAddr,
+    /// 源 MAC 地址
+    pub src_mac: MacAddr,
+    /// 外层 VLAN 标签（服务 VLAN）
+    pub outer_tag: VlanTag,
+    /// 外层 TPID（通常 0x9100 或 0x88A8）
+    pub outer_tpid: u16,
+    /// 内层 VLAN 标签（用户 VLAN）
+    pub inner_tag: VlanTag,
+    /// 内层 TPID（通常 0x8100）
+    pub inner_tpid: u16,
+    /// 内层协议类型（如 0x0800 表示 IPv4）
+    pub inner_type: u16,
+}
+
 /// VLAN 处理结果
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VlanProcessResult {
@@ -163,10 +203,57 @@ pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, Vla
 /// - Vec<u8>: 完整的 VLAN 标记以太网帧
 ///
 /// # 帧格式
-/// ```
+/// 注：本实现不包含 FCS（由硬件添加）
+/// ```text
 /// | DA(6) | SA(6) | TPID(2) | TCI(2) | Type(2) | Payload | FCS(4) |
 /// ```
+///
+/// # 参数
+/// - params: VLAN 封装参数
+/// - payload: 负载数据
+pub fn encapsulate_vlan_frame_with_params(params: VlanEncapParams, payload: &[u8]) -> Vec<u8> {
+    // 计算总长度：以太网头部(14) + VLAN标签(4) + 负载
+    let total_len = 14 + 4 + payload.len();
+    let mut frame = Vec::with_capacity(total_len);
+
+    // 以太网头部
+    frame.extend_from_slice(&params.dst_mac.bytes);
+    frame.extend_from_slice(&params.src_mac.bytes);
+
+    // VLAN 标签：TPID + TCI
+    frame.extend_from_slice(&params.tpid.to_be_bytes());
+    frame.extend_from_slice(&params.vlan_tag.to_bytes());
+
+    // 内层协议类型
+    frame.extend_from_slice(&params.inner_type.to_be_bytes());
+
+    // 负载
+    frame.extend_from_slice(payload);
+
+    frame
+}
+
+/// 封装 VLAN 帧（单标签）- 便捷函数
+///
+/// 构造带单个 VLAN 标签的以太网帧。
+///
+/// # 参数
+/// - dst_mac: 目标 MAC 地址
+/// - src_mac: 源 MAC 地址
+/// - vlan_tag: VLAN 标签
+/// - tpid: 标签协议标识符（默认 0x8100）
+/// - inner_type: 内层协议类型（如 0x0800 表示 IPv4）
+/// - payload: 负载数据
+///
+/// # 返回
+/// - Vec<u8>: 完整的 VLAN 标记以太网帧
+///
+/// # 帧格式
 /// 注：本实现不包含 FCS（由硬件添加）
+/// ```text
+/// | DA(6) | SA(6) | TPID(2) | TCI(2) | Type(2) | Payload | FCS(4) |
+/// ```
+#[allow(clippy::too_many_arguments)]
 pub fn encapsulate_vlan_frame(
     dst_mac: MacAddr,
     src_mac: MacAddr,
@@ -175,20 +262,50 @@ pub fn encapsulate_vlan_frame(
     inner_type: u16,
     payload: &[u8],
 ) -> Vec<u8> {
-    // 计算总长度：以太网头部(14) + VLAN标签(4) + 负载
-    let total_len = 14 + 4 + payload.len();
+    let params = VlanEncapParams {
+        dst_mac,
+        src_mac,
+        vlan_tag,
+        tpid,
+        inner_type,
+    };
+    encapsulate_vlan_frame_with_params(params, payload)
+}
+
+/// 封装 QinQ 帧（双标签）- 使用参数结构体版本
+///
+/// 构造带双层 VLAN 标签的以太网帧（Q-in-Q）。
+///
+/// # 参数
+/// - params: QinQ 封装参数
+/// - payload: 负载数据
+///
+/// # 返回
+/// - Vec<u8>: 完整的 QinQ 标记以太网帧
+///
+/// # 帧格式
+/// ```text
+/// | DA(6) | SA(6) | OuterTPID(2) | OuterTCI(2) | InnerTPID(2) | InnerTCI(2) | Type(2) | Payload | FCS(4) |
+/// ```
+pub fn encapsulate_qinq_frame_with_params(params: QinQEncapParams, payload: &[u8]) -> Vec<u8> {
+    // 计算总长度：以太网头部(14) + 双VLAN标签(8) + 负载
+    let total_len = 14 + 8 + payload.len();
     let mut frame = Vec::with_capacity(total_len);
 
     // 以太网头部
-    frame.extend_from_slice(&dst_mac.bytes);
-    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&params.dst_mac.bytes);
+    frame.extend_from_slice(&params.src_mac.bytes);
 
-    // VLAN 标签：TPID + TCI
-    frame.extend_from_slice(&tpid.to_be_bytes());
-    frame.extend_from_slice(&vlan_tag.to_bytes());
+    // 外层 VLAN 标签
+    frame.extend_from_slice(&params.outer_tpid.to_be_bytes());
+    frame.extend_from_slice(&params.outer_tag.to_bytes());
+
+    // 内层 VLAN 标签
+    frame.extend_from_slice(&params.inner_tpid.to_be_bytes());
+    frame.extend_from_slice(&params.inner_tag.to_bytes());
 
     // 内层协议类型
-    frame.extend_from_slice(&inner_type.to_be_bytes());
+    frame.extend_from_slice(&params.inner_type.to_be_bytes());
 
     // 负载
     frame.extend_from_slice(payload);
@@ -196,7 +313,7 @@ pub fn encapsulate_vlan_frame(
     frame
 }
 
-/// 封装 QinQ 帧（双标签）
+/// 封装 QinQ 帧（双标签）- 便捷函数
 ///
 /// 构造带双层 VLAN 标签的以太网帧（Q-in-Q）。
 ///
@@ -214,9 +331,10 @@ pub fn encapsulate_vlan_frame(
 /// - Vec<u8>: 完整的 QinQ 标记以太网帧
 ///
 /// # 帧格式
-/// ```
+/// ```text
 /// | DA(6) | SA(6) | OuterTPID(2) | OuterTCI(2) | InnerTPID(2) | InnerTCI(2) | Type(2) | Payload | FCS(4) |
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub fn encapsulate_qinq_frame(
     dst_mac: MacAddr,
     src_mac: MacAddr,
@@ -227,29 +345,16 @@ pub fn encapsulate_qinq_frame(
     inner_type: u16,
     payload: &[u8],
 ) -> Vec<u8> {
-    // 计算总长度：以太网头部(14) + 双VLAN标签(8) + 负载
-    let total_len = 14 + 8 + payload.len();
-    let mut frame = Vec::with_capacity(total_len);
-
-    // 以太网头部
-    frame.extend_from_slice(&dst_mac.bytes);
-    frame.extend_from_slice(&src_mac.bytes);
-
-    // 外层 VLAN 标签
-    frame.extend_from_slice(&outer_tpid.to_be_bytes());
-    frame.extend_from_slice(&outer_tag.to_bytes());
-
-    // 内层 VLAN 标签
-    frame.extend_from_slice(&inner_tpid.to_be_bytes());
-    frame.extend_from_slice(&inner_tag.to_bytes());
-
-    // 内层协议类型
-    frame.extend_from_slice(&inner_type.to_be_bytes());
-
-    // 负载
-    frame.extend_from_slice(payload);
-
-    frame
+    let params = QinQEncapParams {
+        dst_mac,
+        src_mac,
+        outer_tag,
+        outer_tpid,
+        inner_tag,
+        inner_tpid,
+        inner_type,
+    };
+    encapsulate_qinq_frame_with_params(params, payload)
 }
 
 /// 为现有以太网帧添加 VLAN 标签

@@ -89,35 +89,14 @@ pub fn build_vlan_frame(
 /// 创建一个带双层 VLAN 标签的以太网帧。
 ///
 /// # 参数
-/// - `dst_mac`: 目标 MAC 地址
-/// - `src_mac`: 源 MAC 地址
-/// - `outer_tag`: 外层 VLAN 标签（服务 VLAN）
-/// - `outer_tpid`: 外层 TPID（通常 0x9100 或 0x88A8）
-/// - `inner_tag`: 内层 VLAN 标签（用户 VLAN）
-/// - `inner_tpid`: 内层 TPID（通常 0x8100）
-/// - `inner_type`: 内层协议类型
+/// - `params`: QinQ 封装参数
 /// - `payload`: 负载数据
 ///
 /// # 返回
 /// 完整的 QinQ 标记以太网帧
 pub fn build_qinq_frame(
-    dst_mac: MacAddr,
-    src_mac: MacAddr,
-    outer_tag: VlanTag,
-    outer_tpid: u16,
-    inner_tag: VlanTag,
-    inner_tpid: u16,
-    inner_type: u16,
+    params: crate::protocols::vlan::QinQEncapParams,
     payload: &[u8],
 ) -> Vec<u8> {
-    crate::protocols::vlan::encapsulate_qinq_frame(
-        dst_mac,
-        src_mac,
-        outer_tag,
-        outer_tpid,
-        inner_tag,
-        inner_tpid,
-        inner_type,
-        payload,
-    )
+    crate::protocols::vlan::encapsulate_qinq_frame_with_params(params, payload)
 }

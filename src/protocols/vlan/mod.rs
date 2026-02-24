@@ -23,8 +23,12 @@ pub use parse::{
     TPID_8021Q,
     TPID_QINQ,
     TPID_8021AD,
+    VlanEncapParams,
+    QinQEncapParams,
     encapsulate_vlan_frame,
+    encapsulate_vlan_frame_with_params,
     encapsulate_qinq_frame,
+    encapsulate_qinq_frame_with_params,
     add_vlan_tag,
     remove_vlan_tag,
 };

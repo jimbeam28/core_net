@@ -176,6 +176,37 @@ fn process_segment_with_tcb(
                 return Ok(TcpProcessResult::ConnectionEstablished(tcb.id.clone()));
             }
         }
+        TcpState::SynSent => {
+            // 主动连接发起状态，等待 SYN-ACK
+            if header.is_syn() && header.is_ack() {
+                // 收到 SYN-ACK，验证 ACK 号
+                if header.acknowledgment_number == tcb.iss.wrapping_add(1) {
+                    // 记录对方的初始序列号
+                    tcb.irs = header.sequence_number;
+                    tcb.rcv_nxt = tcb.irs.wrapping_add(1);
+
+                    // 发送 ACK 完成三次握手
+                    let ack_header = TcpHeader::ack(
+                        tcb.id.local_port,
+                        tcb.id.remote_port,
+                        tcb.snd_nxt,
+                        tcb.rcv_nxt,
+                        tcb.rcv_wnd,
+                    );
+                    let response = encapsulate_tcp_segment(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
+
+                    tcb.state = TcpState::Established;
+                    return Ok(TcpProcessResult::Reply(response));
+                }
+            } else if header.is_syn() {
+                // 同时打开场景（双方同时发送 SYN）
+                tcb.irs = header.sequence_number;
+                tcb.rcv_nxt = tcb.irs.wrapping_add(1);
+                tcb.state = TcpState::SynReceived;
+                // 需要发送 SYN-ACK 响应
+                // 这种情况较罕见，暂时只更新状态
+            }
+        }
         TcpState::Established => {
             // 处理 ACK（在数据处理之前，因为 ACK 可能更新拥塞窗口）
             if header.is_ack() {
@@ -247,20 +278,93 @@ fn process_segment_with_tcb(
             }
         }
         TcpState::FinWait1 => {
+            // 主动关闭方发送 FIN 后的第一个状态
             if header.is_ack() && header.acknowledgment_number == tcb.snd_nxt.wrapping_add(1) {
-                tcb.state = TcpState::FinWait2;
+                // FIN 被确认
+                if header.is_fin() {
+                    // 对方也发送了 FIN（同时关闭）
+                    tcb.rcv_nxt = header.sequence_number.wrapping_add(1);
+                    tcb.state = TcpState::Closing;
+
+                    // 发送 ACK 确认对方的 FIN
+                    let ack_header = TcpHeader::ack(
+                        tcb.id.local_port,
+                        tcb.id.remote_port,
+                        tcb.snd_nxt,
+                        tcb.rcv_nxt,
+                        tcb.rcv_wnd,
+                    );
+                    let response = encapsulate_tcp_segment(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
+                    return Ok(TcpProcessResult::Reply(response));
+                } else {
+                    // 只有 ACK，进入 FIN_WAIT_2
+                    tcb.state = TcpState::FinWait2;
+                }
+            } else if header.is_fin() {
+                // 收到对方的 FIN，但我们的 FIN 还没被确认（同时关闭）
+                tcb.rcv_nxt = header.sequence_number.wrapping_add(1);
+                tcb.state = TcpState::Closing;
+
+                // 发送 ACK 确认对方的 FIN
+                let ack_header = TcpHeader::ack(
+                    tcb.id.local_port,
+                    tcb.id.remote_port,
+                    tcb.snd_nxt,
+                    tcb.rcv_nxt,
+                    tcb.rcv_wnd,
+                );
+                let response = encapsulate_tcp_segment(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
+                return Ok(TcpProcessResult::Reply(response));
             }
         }
+        TcpState::FinWait2 => {
+            // 主动关闭方的 FIN 已被确认，等待对方的 FIN
+            if header.is_fin() {
+                tcb.rcv_nxt = header.sequence_number.wrapping_add(1);
+                tcb.state = TcpState::TimeWait;
+
+                // 发送 ACK 确认对方的 FIN
+                let ack_header = TcpHeader::ack(
+                    tcb.id.local_port,
+                    tcb.id.remote_port,
+                    tcb.snd_nxt,
+                    tcb.rcv_nxt,
+                    tcb.rcv_wnd,
+                );
+                let response = encapsulate_tcp_segment(&ack_header, &[], tcb.id.local_ip, tcb.id.remote_ip);
+                return Ok(TcpProcessResult::Reply(response));
+            }
+        }
+        TcpState::Closing => {
+            // 双方同时关闭，等待我们的 FIN 被确认
+            if header.is_ack() && header.acknowledgment_number == tcb.snd_nxt.wrapping_add(1) {
+                // FIN 被确认，进入 TIME_WAIT
+                tcb.state = TcpState::TimeWait;
+                // 注意：实际实现中需要启动 2MSL 定时器
+                return Ok(TcpProcessResult::ConnectionClosed(tcb.id.clone()));
+            }
+        }
+        TcpState::TimeWait => {
+            // 主动关闭的最终状态
+            // 实际实现中应该在此等待 2MSL 后才完全关闭
+            // 这里简化处理，收到任何报文都保持状态
+            // RST 标志已在函数开头处理
+        }
         TcpState::CloseWait => {
-            // 等待应用层关闭
+            // 被动关闭方等待应用层关闭
+            // 实际关闭由应用层调用 close() 触发
         }
         TcpState::LastAck => {
+            // 被动关闭方发送 FIN 后等待最后的 ACK
             if header.is_ack() {
                 tcb.state = TcpState::Closed;
                 return Ok(TcpProcessResult::ConnectionClosed(tcb.id.clone()));
             }
         }
-        _ => {}
+        TcpState::Closed | TcpState::Listen => {
+            // 这些状态在连接管理器中处理，不应到达此处
+            // 静默忽略，不应返回错误
+        }
     }
 
     Ok(TcpProcessResult::NoReply)
