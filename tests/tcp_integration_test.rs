@@ -311,6 +311,7 @@ fn test_tcp_zero_window() {
 // ========== 三次握手测试组 ==========
 
 /// 创建完整的 TCP/IP 数据包（用于测试）
+#[allow(clippy::too_many_arguments)]
 fn create_tcp_ip_packet(
     src_mac: MacAddr,
     dst_mac: MacAddr,

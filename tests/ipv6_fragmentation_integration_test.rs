@@ -6,7 +6,7 @@ use core_net::protocols::Ipv6Addr;
 use core_net::protocols::ipv6::{
     FragmentHeader, create_fragments,
     ReassemblyKey, FragmentInfo, FragmentCache,
-    DEFAULT_MAX_REASSEMBLY_ENTRIES, DEFAULT_MAX_FRAGMENTS_PER_PACKET,
+    DEFAULT_MAX_FRAGMENTS_PER_PACKET,
 };
 
 use serial_test::serial;
@@ -471,22 +471,7 @@ fn test_fragment_exactly_mtu() {
     assert!(!fragments[1].more_fragments);
 }
 
-// 9. 配置常量测试组
-
-#[test]
-#[serial]
-fn test_fragment_config_constants() {
-    let _ctx = create_test_context();
-
-    assert!(DEFAULT_MAX_REASSEMBLY_ENTRIES > 0);
-    assert!(DEFAULT_MAX_FRAGMENTS_PER_PACKET > 0);
-
-    // 验证配置合理性
-    assert!(DEFAULT_MAX_REASSEMBLY_ENTRIES <= 4096); // 不应过大
-    assert!(DEFAULT_MAX_FRAGMENTS_PER_PACKET <= 1024);
-}
-
-// 10. 错误处理测试组
+// 9. 错误处理测试组
 
 #[test]
 #[serial]

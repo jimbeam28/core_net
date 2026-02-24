@@ -359,6 +359,7 @@ fn test_ip_fragment_reassembly_complete() {
 // ========== 辅助函数 ==========
 
 /// 创建分片以太网帧
+#[allow(clippy::too_many_arguments)]
 fn create_fragment_frame(
     src_mac: MacAddr,
     src_ip: Ipv4Addr,

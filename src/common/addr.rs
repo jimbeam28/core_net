@@ -210,6 +210,7 @@ pub struct Ipv6Addr {
 
 impl Ipv6Addr {
     /// 从 8 个 16 位段创建 IPv6 地址
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(a: u16, b: u16, c: u16, d: u16,
                      e: u16, f: u16, g: u16, h: u16) -> Self {
         Ipv6Addr {

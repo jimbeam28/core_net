@@ -101,6 +101,9 @@ impl SystemContext {
     pub fn new() -> Self {
         let socket_mgrs = Self::create_default_socket_managers();
 
+        #[allow(clippy::arc_with_non_send_sync)]
+        let timers = Arc::new(Mutex::new(TimerHandle::new()));
+
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -108,7 +111,7 @@ impl SystemContext {
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
             tcp_sockets: socket_mgrs.tcp_sockets,
             udp_ports: socket_mgrs.udp_ports,
-            timers: Arc::new(Mutex::new(TimerHandle::new())),
+            timers,
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
             ip_reassembly: Self::create_default_reassembly(),
@@ -135,6 +138,9 @@ impl SystemContext {
 
         let socket_mgrs = Self::create_default_socket_managers();
 
+        #[allow(clippy::arc_with_non_send_sync)]
+        let timers = Arc::new(Mutex::new(TimerHandle::new()));
+
         Self {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -142,7 +148,7 @@ impl SystemContext {
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
             tcp_sockets: socket_mgrs.tcp_sockets,
             udp_ports: socket_mgrs.udp_ports,
-            timers: Arc::new(Mutex::new(TimerHandle::new())),
+            timers,
             route_table: Arc::new(Mutex::new(RouteTable::new())),
             icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
             ip_reassembly: Self::create_default_reassembly(),
@@ -169,6 +175,7 @@ impl SystemContext {
     /// - `ip_reassembly`: IPv4 重组表（可选，默认为空）
     /// - `ipv6_fragment_cache`: IPv6 分片缓存（可选，默认为空）
     /// - `socket_mgr`: Socket 管理器（可选，默认为空）
+    #[allow(clippy::too_many_arguments)]
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
         arp_cache: Arc<Mutex<ArpCache>>,
@@ -192,6 +199,9 @@ impl SystemContext {
             Arc::new(Mutex::new(SocketManager::new(tcp_sockets.clone(), udp_ports.clone())))
         });
 
+        #[allow(clippy::arc_with_non_send_sync)]
+        let timers = timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new())));
+
         Self {
             interfaces,
             arp_cache,
@@ -199,7 +209,7 @@ impl SystemContext {
             tcp_connections,
             tcp_sockets,
             udp_ports,
-            timers: timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new()))),
+            timers,
             route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
             icmpv6_context: icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
             ip_reassembly: ip_reassembly.unwrap_or_else(Self::create_default_reassembly),

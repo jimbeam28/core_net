@@ -679,11 +679,10 @@ impl SocketManager {
             conn_id.local_ip, conn_id.local_port,
             conn_id.remote_ip, conn_id.remote_port);
 
-        if let Some(fd) = self.tcp_connection_map.get(&conn_key) {
-            if let Some(entry) = self.sockets.get_mut(fd) {
+        if let Some(fd) = self.tcp_connection_map.get(&conn_key)
+            && let Some(entry) = self.sockets.get_mut(fd) {
                 entry.push_rx(data);
                 return Ok(());
-            }
         }
 
         // 未找到对应的 Socket，数据丢失
@@ -714,13 +713,12 @@ impl SocketManager {
 
         if let Some(fds) = self.bound_addresses.get(&key) {
             // 简化处理：取第一个匹配的 Socket
-            if let Some(&fd) = fds.iter().next() {
-                if let Some(entry) = self.sockets.get_mut(&fd) {
+            if let Some(&fd) = fds.iter().next()
+                && let Some(entry) = self.sockets.get_mut(&fd) {
                     // 将数据和源地址信息推送到接收缓冲区
                     entry.push_rx(data);
                     // TODO: 需要记录源地址信息以便 recvfrom 返回
                     return Ok(());
-                }
             }
         }
 
