@@ -8,8 +8,9 @@ use super::error::{Result, SocketError};
 use super::types::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use crate::protocols::tcp::TcpSocketManager;
+use crate::protocols::tcp::{TcpSocketManager, TcpConnectionId};
 use crate::protocols::udp::UdpPortManager;
+use crate::protocols::Ipv4Addr;
 
 /// Socket 配置
 pub struct SocketConfig {
@@ -72,6 +73,16 @@ pub struct SocketManager {
     /// Value: SocketFd 集合（支持 SO_REUSEADDR）
     bound_addresses: HashMap<(AddressFamily, u16), HashSet<SocketFd>>,
 
+    /// TCP 连接到 Socket 的映射
+    /// Key: TcpConnectionId (String 表示)
+    /// Value: SocketFd
+    tcp_connection_map: HashMap<String, SocketFd>,
+
+    /// Socket 到连接信息的反向映射
+    /// Key: SocketFd
+    /// Value: Option<TcpConnectionId> (String 表示)
+    socket_connection_map: HashMap<SocketFd, Option<String>>,
+
     /// TCP Socket 管理器引用（用于与 TCP 模块交互）
     _tcp_socket_mgr: Arc<Mutex<TcpSocketManager>>,
 
@@ -99,6 +110,8 @@ impl SocketManager {
             next_fd: SocketFd::FIRST_AVAILABLE.0,
             sockets: HashMap::new(),
             bound_addresses: HashMap::new(),
+            tcp_connection_map: HashMap::new(),
+            socket_connection_map: HashMap::new(),
             _tcp_socket_mgr,
             _udp_port_mgr,
         }
@@ -125,6 +138,8 @@ impl SocketManager {
             next_fd: SocketFd::FIRST_AVAILABLE.0,
             sockets: HashMap::new(),
             bound_addresses: HashMap::new(),
+            tcp_connection_map: HashMap::new(),
+            socket_connection_map: HashMap::new(),
             _tcp_socket_mgr,
             _udp_port_mgr,
         }
@@ -399,17 +414,24 @@ impl SocketManager {
     /// - `fd`: Socket 文件描述符
     /// - `buf`: 要发送的数据缓冲区
     /// - `_flags`: 发送标志（预留）
-    /// - `_dest_addr`: 目标地址（预留）
+    /// - `dest_addr`: 目标地址
     ///
     /// # 返回
     ///
     /// 成功时返回发送的字节数，失败时返回 SocketError
+    ///
+    /// # 注意
+    ///
+    /// 当前实现：将数据放入发送缓冲区，实际封装和发送需要：
+    /// 1. 从 local_addr 和 dest_addr 提取 IP 和端口
+    /// 2. 调用 udp::encapsulate_udp_datagram() 封装数据报
+    /// 3. 通过 IP 层发送（需要访问 SystemContext 和路由功能）
     pub fn sendto(
         &mut self,
         fd: SocketFd,
         buf: &[u8],
         _flags: SendFlags,
-        _dest_addr: &SocketAddr,
+        dest_addr: &SocketAddr,
     ) -> Result<usize> {
         // 查找 SocketEntry
         let entry = self.sockets.get_mut(&fd).ok_or(SocketError::InvalidFd)?;
@@ -417,6 +439,13 @@ impl SocketManager {
         // 验证 Socket 已绑定
         if !entry.is_bound() {
             return Err(SocketError::NotBound);
+        }
+
+        // 验证协议族与地址类型匹配
+        match (entry.family, dest_addr) {
+            (AddressFamily::AfInet, SocketAddr::V4(_)) => {}
+            (AddressFamily::AfInet6, SocketAddr::V6(_)) => {}
+            _ => return Err(SocketError::InvalidProtocol),
         }
 
         // 检查发送缓冲区空间
@@ -435,7 +464,24 @@ impl SocketManager {
             return Err(SocketError::NoBufferSpace);
         }
 
-        // TODO: 触发 UDP 层封装和发送
+        // TODO: 实际实现中，这里需要调用 UDP 层封装并发送
+        // 1. 获取本地 IP 和端口（从 entry.local_addr）
+        // 2. 解析目标地址获取目标 IP 和端口
+        // 3. 调用 udp::encapsulate_udp_datagram() 封装数据报
+        // 4. 通过 IP 层发送（需要访问 SystemContext 和路由表）
+        //
+        // 示例代码：
+        // let (local_ip, local_port) = match entry.local_addr {
+        //     Some(SocketAddr::V4(addr)) => (addr.ip, addr.port),
+        //     _ => return Err(SocketError::NotBound),
+        // };
+        // let (dest_ip, dest_port) = match dest_addr {
+        //     SocketAddr::V4(addr) => (addr.ip, addr.port),
+        //     _ => return Err(SocketError::InvalidProtocol),
+        // };
+        // let udp_datagram = udp::encapsulate_udp_datagram(
+        //     local_port, dest_port, local_ip, dest_ip, buf, true,
+        // );
 
         Ok(len)
     }
@@ -537,10 +583,14 @@ impl SocketManager {
             }
         }
 
-        // TODO: TCP 关闭流程
-        if matches!(entry.state, SocketState::Tcp(TcpState::Established | TcpState::Listen)) {
-            // 发送 FIN
+        // 从连接映射中移除
+        if let Some(Some(conn_id)) = self.socket_connection_map.remove(&fd) {
+            self.tcp_connection_map.remove(&conn_id);
         }
+
+        // TODO: TCP 关闭流程（发送 FIN）
+        // 当前版本：仅清理状态，不发送 FIN 报文
+        // 实际实现需要调用 TCP 层创建并发送 FIN 报文
 
         Ok(())
     }
@@ -614,12 +664,140 @@ impl SocketManager {
         self.sockets.len()
     }
 
+    /// 分发 TCP 数据到 Socket
+    ///
+    /// 当 TCP 层接收到数据时，调用此方法将数据分发到对应的 Socket。
+    ///
+    /// # 参数
+    /// - `conn_id`: TCP 连接 ID
+    /// - `data`: 接收到的数据
+    ///
+    /// # 返回
+    /// 成功时返回 Ok(())，失败时返回 SocketError
+    pub fn deliver_tcp_data(&mut self, conn_id: &TcpConnectionId, data: Vec<u8>) -> Result<()> {
+        let conn_key = format!("{}:{}->{}:{}",
+            conn_id.local_ip, conn_id.local_port,
+            conn_id.remote_ip, conn_id.remote_port);
+
+        if let Some(fd) = self.tcp_connection_map.get(&conn_key) {
+            if let Some(entry) = self.sockets.get_mut(fd) {
+                entry.push_rx(data);
+                return Ok(());
+            }
+        }
+
+        // 未找到对应的 Socket，数据丢失
+        Err(SocketError::Other("TCP data: No matching socket".to_string()))
+    }
+
+    /// 分发 UDP 数据到 Socket
+    ///
+    /// 当 UDP 层接收到数据时，调用此方法将数据分发到对应的 Socket。
+    ///
+    /// # 参数
+    /// - `local_port`: 本地端口
+    /// - `data`: 接收到的数据
+    /// - `src_addr`: 源 IP 地址
+    /// - `src_port`: 源端口
+    ///
+    /// # 返回
+    /// 成功时返回 Ok(())，失败时返回 SocketError
+    pub fn deliver_udp_data(
+        &mut self,
+        local_port: u16,
+        data: Vec<u8>,
+        _src_addr: Ipv4Addr,
+        _src_port: u16,
+    ) -> Result<()> {
+        // 查找绑定到该端口的 Socket
+        let key = (AddressFamily::AfInet, local_port);
+
+        if let Some(fds) = self.bound_addresses.get(&key) {
+            // 简化处理：取第一个匹配的 Socket
+            if let Some(&fd) = fds.iter().next() {
+                if let Some(entry) = self.sockets.get_mut(&fd) {
+                    // 将数据和源地址信息推送到接收缓冲区
+                    entry.push_rx(data);
+                    // TODO: 需要记录源地址信息以便 recvfrom 返回
+                    return Ok(());
+                }
+            }
+        }
+
+        // 未找到对应的 Socket，数据丢失
+        Err(SocketError::Other("UDP data: No matching socket".to_string()))
+    }
+
+    /// 通知 TCP 连接事件
+    ///
+    /// 当 TCP 连接状态发生变化时，调用此方法通知 Socket 层。
+    ///
+    /// # 参数
+    /// - `conn_id`: TCP 连接 ID
+    /// - `event`: 事件类型 ("established", "closed", "reset")
+    ///
+    /// # 返回
+    /// 成功时返回 Ok(())，失败时返回 SocketError
+    pub fn notify_tcp_event(&mut self, conn_id: &TcpConnectionId, event: &str) -> Result<()> {
+        let conn_key = format!("{}:{}->{}:{}",
+            conn_id.local_ip, conn_id.local_port,
+            conn_id.remote_ip, conn_id.remote_port);
+
+        let fd = if let Some(fd) = self.tcp_connection_map.get(&conn_key) {
+            *fd
+        } else {
+            return Err(SocketError::Other("TCP event: No matching socket".to_string()));
+        };
+
+        if let Some(entry) = self.sockets.get_mut(&fd) {
+            match event {
+                "established" => {
+                    entry.state = SocketState::Tcp(TcpState::Established);
+                }
+                "closed" | "reset" => {
+                    entry.state = SocketState::Tcp(TcpState::Closed);
+                    // 移除连接映射
+                    self.tcp_connection_map.remove(&conn_key);
+                    self.socket_connection_map.remove(&fd);
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
+        Err(SocketError::Other("TCP event: No matching socket".to_string()))
+    }
+
+    /// 建立 TCP 连接映射
+    ///
+    /// 当 TCP 连接建立时，调用此方法建立连接 ID 到 Socket 的映射。
+    ///
+    /// # 参数
+    /// - `fd`: Socket 文件描述符
+    /// - `conn_id`: TCP 连接 ID
+    pub fn map_tcp_connection(&mut self, fd: SocketFd, conn_id: &TcpConnectionId) -> Result<()> {
+        if !self.sockets.contains_key(&fd) {
+            return Err(SocketError::InvalidFd);
+        }
+
+        let conn_key = format!("{}:{}->{}:{}",
+            conn_id.local_ip, conn_id.local_port,
+            conn_id.remote_ip, conn_id.remote_port);
+
+        self.tcp_connection_map.insert(conn_key.clone(), fd);
+        self.socket_connection_map.insert(fd, Some(conn_key));
+
+        Ok(())
+    }
+
     /// 清空所有 Socket
     ///
     /// 移除所有 Socket 表项和绑定地址
     pub fn clear(&mut self) {
         self.sockets.clear();
         self.bound_addresses.clear();
+        self.tcp_connection_map.clear();
+        self.socket_connection_map.clear();
     }
 }
 

@@ -657,9 +657,9 @@ pub enum SocketError {
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
 │   Common 模块    │  │  Interface 模块  │  │  Protocol 模块  │
-│ - error.rs      │  │ - iface.rs      │  │ - tcp.rs        │
-│ - addr.rs       │  │ - manager.rs    │  │ - udp.rs        │
-│ - queue.rs      │  │                 │  │ - ip.rs         │
+│ - error.rs      │  │ - iface.rs      │  │ - tcp/          │
+│ - addr.rs       │  │ - manager.rs    │  │   udp/          │
+│ - queue.rs      │  │                 │  │   ip/           │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
          │                    │                    │
          └────────────────────┼────────────────────┘
@@ -668,25 +668,206 @@ pub enum SocketError {
                     ┌─────────────────┐
                     │  SystemContext  │
                     │  - socket_mgr   │
+                    │  - tcp_connections│
+                    │  - tcp_sockets   │
+                    │  - udp_ports     │
                     └─────────────────┘
 ```
 
-### 6.2 与 SystemContext 的集成
+### 6.2 协议层集成架构
+
+#### 6.2.1 数据流向总览
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Socket API 层                                │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
+│  │socket() │  │ bind()  │  │connect()│  │ send()  │ ...         │
+│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘              │
+└───────┼────────────┼────────────┼────────────┼──────────────────┘
+        │            │            │            │
+        ▼            ▼            ▼            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       SocketManager                               │
+│  - Socket 表管理 (HashMap<SocketFd, SocketEntry>)               │
+│  - 地址绑定表 (HashMap<(Family, Port), HashSet<SocketFd>>)      │
+│  - TCP 连接映射 (HashMap<TcpConnectionId, SocketFd>)            │
+│  - UDP 端口绑定 (UdpPortManager)                                  │
+└───────┬───────────────────────────────┬───────────────────────────┘
+        │                               │
+        │ 发送路径                       │ 接收路径
+        ▼                               ▼
+┌───────────────────────┐     ┌─────────────────────────────────────┐
+│   TCP/UDP 协议层       │     │   TCP/UDP 协议层                     │
+│  - tcp::process.rs    │     │  - tcp::process_tcp_packet()         │
+│  - udp::process.rs    │     │  - udp::process_udp_packet()        │
+│  - 封装数据报         │     │  - 解析数据报                        │
+└───────┬───────────────┘     │  - 查找目标 Socket                   │
+        │                       │  - 推送数据到 rx_buffer              │
+        ▼                       └─────────────────────────────────────┘
+┌───────────────────────┐
+│   IP 层               │
+│  - ipv4/ipv6 封装     │
+└───────┬───────────────┘
+        ▼
+┌───────────────────────┐
+│   接口层              │
+│  - Scheduler 调度     │
+└───────────────────────┘
+```
+
+#### 6.2.2 发送路径详解
+
+**TCP 发送流程：**
+```
+应用调用
+    │
+    ▼
+SocketManager::send(fd, data)
+    │ 1. 查找 SocketEntry
+    │ 2. 检查状态 (Established)
+    │ 3. 写入 tx_buffer
+    │ 4. 调用 TCP 层发送
+    ▼
+TcpConnectionManager::send_data(conn_id, data)
+    │ 1. 查找 TCB
+    │ 2. 分段 (MSS)
+    │ 3. 分配序列号
+    │ 4. 封装 TCP 报文
+    ▼
+IP 层封装 → 接口发送
+```
+
+**UDP 发送流程：**
+```
+应用调用
+    │
+    ▼
+SocketManager::sendto(fd, data, dest_addr)
+    │ 1. 查找 SocketEntry
+    │ 2. 检查绑定状态
+    │ 3. 写入 tx_buffer
+    │ 4. 调用 UDP 层封装
+    ▼
+udp::encapsulate_udp_datagram(src_port, dst_port, data)
+    │ 1. 构建 UDP 头部
+    │ 2. 计算校验和
+    ▼
+IP 层封装 → 接口发送
+```
+
+#### 6.2.3 接收路径详解
+
+**TCP 接收流程：**
+```
+网络接收 → IP 层解封装
+    │
+    ▼
+tcp::process_tcp_packet(packet, src_addr, dst_addr, context)
+    │ 1. 解析 TCP 报文
+    │ 2. 查找 TcpConnectionId 对应的连接
+    │ 3. 更新 TCB 状态
+    │ 4. 提取数据载荷
+    │ 5. 查找对应的 SocketFd
+    ▼
+SocketManager::deliver_tcp_data(conn_id, data, src_addr)
+    │ 1. 查找 SocketEntry
+    │ 2. 写入 rx_buffer
+    ▼
+应用调用 recv() 读取数据
+```
+
+**UDP 接收流程：**
+```
+网络接收 → IP 层解封装
+    │
+    ▼
+udp::process_udp_packet(packet, src_addr, dst_addr, context)
+    │ 1. 解析 UDP 数据报
+    │ 2. 查找目标端口
+    │ 3. 查找对应的 SocketFd
+    ▼
+SocketManager::deliver_udp_data(socket_fd, data, src_addr, src_port)
+    │ 1. 查找 SocketEntry
+    │ 2. 写入 rx_buffer
+    │ 3. 记录源地址信息
+    ▼
+应用调用 recvfrom() 读取数据和源地址
+```
+
+### 6.3 与 SystemContext 的集成
 
 ```rust
-// src/context.rs 中添加：
+// src/context.rs
 pub struct SystemContext {
     // ... 现有字段 ...
 
     /// Socket 管理器
     pub socket_mgr: Arc<Mutex<SocketManager>>,
+
+    /// TCP 连接管理器
+    pub tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+
+    /// TCP Socket 管理器
+    pub tcp_sockets: Arc<Mutex<TcpSocketManager>>,
+
+    /// UDP 端口管理器
+    pub udp_ports: Arc<Mutex<UdpPortManager>>,
+}
+```
+
+### 6.4 Socket-连接映射机制
+
+为了将接收到的协议数据分发到正确的 Socket，需要维护以下映射关系：
+
+```rust
+// SocketManager 中的映射表
+pub struct SocketManager {
+    // ... 现有字段 ...
+
+    /// TCP 连接到 Socket 的映射
+    /// Key: TcpConnectionId, Value: SocketFd
+    tcp_connection_map: HashMap<TcpConnectionId, SocketFd>,
+
+    /// SocketFd 到连接信息的反向映射
+    /// Key: SocketFd, Value: Option<TcpConnectionId>
+    socket_connection_map: HashMap<SocketFd, Option<TcpConnectionId>>,
+}
+```
+
+**映射操作：**
+- **connect() 成功后**：建立 `TcpConnectionId → SocketFd` 映射
+- **accept() 返回后**：建立新连接的映射
+- **数据接收时**：通过 `TcpConnectionId` 查找 `SocketFd`
+- **close() 时**：清理映射关系
+
+### 6.5 事件通知机制
+
+Socket 层需要监听协议层的事件以更新状态：
+
+```rust
+// 协议层定义的事件类型
+pub enum SocketEvent {
+    /// TCP 连接已建立
+    TcpConnected { conn_id: TcpConnectionId },
+    /// TCP 连接已关闭
+    TcpClosed { conn_id: TcpConnectionId },
+    /// 接收到数据
+    DataReceived { data: Vec<u8>, src_addr: SocketAddr },
 }
 
-impl SystemContext {
-    pub fn new() -> Self {
-        Self {
-            // ... 现有字段 ...
-            socket_mgr: Arc::new(Mutex::new(SocketManager::new())),
+// SocketManager 处理事件
+impl SocketManager {
+    pub fn handle_tcp_event(&mut self, event: SocketEvent) {
+        match event {
+            SocketEvent::TcpConnected { conn_id } => {
+                if let Some(fd) = self.tcp_connection_map.get(&conn_id) {
+                    if let Some(entry) = self.sockets.get_mut(fd) {
+                        entry.state = SocketState::Tcp(TcpState::Established);
+                    }
+                }
+            }
+            // ... 其他事件处理
         }
     }
 }

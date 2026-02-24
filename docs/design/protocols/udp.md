@@ -511,6 +511,267 @@ Scheduler 负责将数据报从 RxQ 传递到 Processor，Processor 完成协议
 3. Engine/Processor 初始化
 4. UDP 处理器准备就绪（无需状态初始化）
 
+### 6.7 与 Socket API 的交互
+
+UDP 层需要与 Socket API 层集成，以支持应用程序的 `sendto()` 和 `recvfrom()` 调用。
+
+#### 6.7.1 端口绑定与 Socket 的关系
+
+UDP 端口绑定由 Socket API 的 `bind()` 调用触发：
+
+```rust
+// SocketManager::bind() 实现
+pub fn bind(&mut self, fd: SocketFd, addr: &SocketAddr) -> Result<()> {
+    let entry = self.sockets.get_mut(&fd)?;
+
+    match addr {
+        SocketAddr::V4(v4_addr) => {
+            let port = v4_addr.port;
+
+            // 调用 UDP 端口管理器绑定端口
+            let mut port_mgr = self.context.udp_ports.lock()
+                .map_err(|e| SocketError::Other(e.to_string()))?;
+
+            port_mgr.bind(port)?;
+
+            // 更新 Socket 状态
+            entry.local_addr = Some(addr.clone());
+            entry.state = SocketState::Udp(UdpState::Bound);
+        }
+        // IPv6 类似处理
+    }
+
+    Ok(())
+}
+```
+
+#### 6.7.2 数据接收分发流程
+
+当 UDP 层接收到数据报时，需要根据目标端口分发到对应的 Socket：
+
+```
+UDP: process_udp_packet()
+    │
+    ▼
+解析 UDP 数据报
+    │
+    ▼
+提取目标端口 (dst_port)
+    │
+    ▼
+查找 UdpPortManager 中绑定的端口
+    │
+    ├─── 端口已绑定且有回调 → 调用回调函数
+    │                          │
+    │                          ▼
+    │                     PortEntry.invoke_callback()
+    │                          │
+    │                          ▼
+    │                     SocketEntry.push_rx(data, src_addr)
+    │                          │
+    │                          ▼
+    │                     应用调用 recvfrom() 读取
+    │
+    └─── 端口未绑定 → 丢弃 + 发送 ICMP 端口不可达
+```
+
+**实现要点：**
+1. `UdpProcessResult::Delivered(data)` 返回时，携带端口信息
+2. 端口管理器查找对应的 SocketFd
+3. 将数据和源地址信息推送到 Socket 的接收缓冲区
+4. 应用程序调用 `recvfrom()` 时从缓冲区读取数据和源地址
+
+#### 6.7.3 Socket API 到 UDP 层的调用
+
+**sendto() 实现：**
+```rust
+// SocketManager::sendto()
+pub fn sendto(
+    &mut self,
+    fd: SocketFd,
+    buf: &[u8],
+    flags: SendFlags,
+    dest_addr: &SocketAddr,
+) -> Result<usize> {
+    // 1. 验证 Socket 状态
+    let entry = self.sockets.get(&fd)?;
+    if !entry.is_bound() {
+        return Err(SocketError::NotBound);
+    }
+
+    // 2. 从地址中解析目标 IP 和端口
+    let (dest_ip, dest_port) = match dest_addr {
+        SocketAddr::V4(v4_addr) => (v4_addr.ip, v4_addr.port),
+        // ...
+    };
+
+    // 3. 获取本地 IP 和端口
+    let local_ip = /* 从接口获取 */;
+    let local_port = entry.local_port()
+        .ok_or(SocketError::NotBound)?;
+
+    // 4. 调用 UDP 层封装数据报
+    let udp_datagram = udp::encapsulate_udp_datagram(
+        local_port,
+        dest_port,
+        local_ip,
+        dest_ip,
+        buf,
+        true,  // 计算校验和
+    );
+
+    // 5. 通过 IP 层发送
+    // （需要调用 IP 层封装并通过接口发送）
+    // ...
+
+    Ok(buf.len())
+}
+```
+
+**recvfrom() 实现：**
+```rust
+// SocketManager::recvfrom()
+pub fn recvfrom(
+    &mut self,
+    fd: SocketFd,
+    buf: &mut [u8],
+    flags: RecvFlags,
+) -> Result<(usize, SocketAddr)> {
+    // 1. 验证 Socket 状态
+    let entry = self.sockets.get_mut(&fd)?;
+
+    // 2. 从接收缓冲区读取数据
+    let (data, src_addr) = entry.read_from_rx_buffer(buf.len())?;
+
+    // 3. 将数据复制到用户缓冲区
+    buf[..data.len()].copy_from_slice(&data);
+
+    // 4. 返回接收的字节数和源地址
+    Ok((data.len(), src_addr))
+}
+```
+
+#### 6.7.4 接收缓冲区管理
+
+UDP Socket 需要维护接收缓冲区和源地址信息：
+
+```rust
+// SocketEntry 中的 UDP 接收队列
+pub struct SocketEntry {
+    /// UDP 接收队列：(数据, 源地址, 源端口)
+    pub udp_rx_queue: VecDeque<(Vec<u8>, Ipv4Addr, u16)>,
+    // ...
+}
+
+impl SocketEntry {
+    /// UDP 数据推送到接收队列
+    pub fn push_udp_data(&mut self, data: Vec<u8>, src_addr: Ipv4Addr, src_port: u16) {
+        self.udp_rx_queue.push_back((data, src_addr, src_port));
+    }
+
+    /// 从接收队列读取数据
+    pub fn read_from_rx_buffer(&mut self, max_len: usize) -> Result<(Vec<u8>, SocketAddr)> {
+        if let Some((data, src_ip, src_port)) = self.udp_rx_queue.pop_front() {
+            let len = data.len().min(max_len);
+            let truncated_data = data[..len].to_vec();
+            let addr = SocketAddr::V4(SocketAddrV4::new(src_ip, src_port));
+            Ok((truncated_data, addr))
+        } else {
+            Err(SocketError::WouldBlock)
+        }
+    }
+}
+```
+
+#### 6.7.5 SystemContext 集成
+
+```rust
+// src/context.rs
+pub struct SystemContext {
+    // ... 现有字段 ...
+
+    /// Socket 管理器
+    pub socket_mgr: Arc<Mutex<SocketManager>>,
+
+    /// UDP 端口管理器
+    pub udp_ports: Arc<Mutex<UdpPortManager>>,
+}
+
+// UDP 层需要能够访问 Socket 管理器来分发数据
+impl SystemContext {
+    /// 分发 UDP 数据到 Socket
+    pub fn deliver_udp_to_socket(
+        &self,
+        port: u16,
+        data: Vec<u8>,
+        src_addr: Ipv4Addr,
+        src_port: u16,
+    ) -> Result<(), SocketError> {
+        // 1. 查找端口对应的 Socket
+        let port_mgr = self.udp_ports.lock()
+            .map_err(|e| SocketError::Other(e.to_string()))?;
+
+        let port_entry = port_mgr.lookup(port)
+            .ok_or(SocketError::PortNotBound)?;
+
+        // 2. 如果有回调，直接调用
+        if port_entry.has_callback() {
+            port_entry.invoke_callback(src_addr, src_port, data);
+            return Ok(());
+        }
+
+        // 3. 否则查找对应的 Socket
+        let mut socket_mgr = self.socket_mgr.lock()
+            .map_err(|e| SocketError::Other(e.to_string()))?;
+
+        let fd = socket_mgr.find_socket_by_port(port)
+            .ok_or(SocketError::PortNotBound)?;
+
+        socket_mgr.deliver_udp_data(fd, data, src_addr, src_port)
+    }
+}
+```
+
+#### 6.7.6 多 Socket 共享端口
+
+UDP 支持多播，可能需要多个 Socket 绑定同一端口：
+
+```rust
+// UdpPortManager 支持 Socket 列表
+pub struct PortEntry {
+    pub port: u16,
+    pub is_well_known: bool,
+    pub callback: Arc<Mutex<Option<UdpReceiveCallback>>>,
+    /// 绑定到此端口的 Socket 列表
+    pub socket_fds: Arc<Mutex<Vec<SocketFd>>>,
+}
+
+impl PortEntry {
+    /// 添加 Socket 到端口
+    pub fn add_socket(&self, fd: SocketFd) {
+        let mut sockets = self.socket_fds.lock().unwrap();
+        if !sockets.contains(&fd) {
+            sockets.push(fd);
+        }
+    }
+
+    /// 移除 Socket
+    pub fn remove_socket(&self, fd: SocketFd) {
+        let mut sockets = self.socket_fds.lock().unwrap();
+        sockets.retain(|&s| s != fd);
+    }
+
+    /// 分发数据到所有 Socket
+    pub fn deliver_to_all_sockets(&self, data: Vec<u8>, src_addr: Ipv4Addr, src_port: u16) {
+        let sockets = self.socket_fds.lock().unwrap();
+        for fd in sockets.iter() {
+            // 调用 SocketManager 分发数据
+            // ...
+        }
+    }
+}
+```
+
 ---
 
 ## 7. 安全考虑

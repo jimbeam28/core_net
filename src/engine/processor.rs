@@ -567,9 +567,11 @@ impl PacketProcessor {
 
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
-            udp::UdpProcessResult::Delivered(_data) => {
-                // 当前版本：数据已交付给应用层，不发送响应
-                // 在实际实现中，这里应该根据应用层的处理决定是否响应
+            udp::UdpProcessResult::Delivered(local_port, src_addr, src_port, data) => {
+                // 尝试将数据分发到 Socket
+                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
+                    let _ = socket_mgr.deliver_udp_data(local_port, data, src_addr, src_port);
+                }
                 if self.verbose {
                     println!("UDP: 数据已交付给应用层");
                 }
@@ -632,16 +634,26 @@ impl PacketProcessor {
 
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
-            tcp::TcpProcessResult::Delivered(_data) => {
+            tcp::TcpProcessResult::Delivered(conn_id, data) => {
                 if self.verbose {
                     println!("TCP: 数据已交付给应用层");
                 }
+                // 尝试将数据分发到 Socket
+                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
+                    let _ = socket_mgr.deliver_tcp_data(&conn_id, data);
+                }
                 Ok(None)
             }
-            tcp::TcpProcessResult::ReplyAndDelivered(tcp_bytes, _data) => {
+            tcp::TcpProcessResult::ReplyAndDelivered(conn_id, tcp_bytes, data) => {
                 if self.verbose {
                     println!("TCP: 发送响应并将数据交付给应用层");
                 }
+
+                // 尝试将数据分发到 Socket
+                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
+                    let _ = socket_mgr.deliver_tcp_data(&conn_id, data);
+                }
+
                 // 获取本接口的 MAC 地址
                 let our_mac = self.get_interface_mac(ifindex)?;
 
@@ -669,11 +681,19 @@ impl PacketProcessor {
                 if self.verbose {
                     println!("TCP: 连接已建立 {:?}", id);
                 }
+                // 通知 Socket 层连接已建立
+                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
+                    let _ = socket_mgr.notify_tcp_event(&id, "established");
+                }
                 Ok(None)
             }
             tcp::TcpProcessResult::ConnectionClosed(id) => {
                 if self.verbose {
                     println!("TCP: 连接已关闭 {:?}", id);
+                }
+                // 通知 Socket 层连接已关闭
+                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
+                    let _ = socket_mgr.notify_tcp_event(&id, "closed");
                 }
                 Ok(None)
             }

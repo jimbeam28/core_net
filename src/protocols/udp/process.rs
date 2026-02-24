@@ -23,8 +23,8 @@ pub enum UdpProcessResult {
     /// 需要发送 ICMP 端口不可达响应
     PortUnreachable(Vec<u8>),
 
-    /// 数据已交付给应用层
-    Delivered(Vec<u8>),
+    /// 数据已交付给应用层（本地端口, 源 IP, 源端口, 数据）
+    Delivered(u16, Ipv4Addr, u16, Vec<u8>),
 }
 
 /// 处理接收到的 UDP 数据报
@@ -92,7 +92,7 @@ pub fn process_udp_packet(
             if entry.has_callback() {
                 // 调用应用层回调
                 entry.invoke_callback(source_addr, datagram.header.source_port, payload.clone());
-                Ok(UdpProcessResult::Delivered(payload))
+                Ok(UdpProcessResult::Delivered(dest_port, source_addr, datagram.header.source_port, payload))
             } else {
                 // 端口已绑定但没有回调（端口预留状态）
                 Ok(UdpProcessResult::NoReply)
@@ -182,7 +182,7 @@ mod tests {
         let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config).unwrap();
 
         match result {
-            UdpProcessResult::Delivered(data) => {
+            UdpProcessResult::Delivered(_local_port, _src_addr, _src_port, data) => {
                 assert_eq!(data, b"Hello");
             }
             _ => panic!("Expected Delivered result"),
@@ -310,7 +310,7 @@ mod tests {
         let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config).unwrap();
 
         match result {
-            UdpProcessResult::Delivered(data) => {
+            UdpProcessResult::Delivered(_local_port, _src_addr, _src_port, data) => {
                 assert!(data.is_empty());
             }
             _ => panic!("Expected Delivered result"),

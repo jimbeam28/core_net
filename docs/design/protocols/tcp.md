@@ -1341,7 +1341,258 @@ pub struct SocketAddr {
                └── Scheduler::transmit()
 ```
 
-### 6.6 数据流示例
+### 6.5 模块初始化顺序
+
+```
+1. SystemContext::new()
+   ├── InterfaceManager::new()
+   └── TcpConnectionManager::new()
+
+2. 绑定端口
+   └── TcpConnectionManager::bind(port) → 创建 LISTEN 状态的 TCB
+
+3. 接收数据包
+   └── Scheduler::receive_packet()
+       └── Processor::process()
+           └── IP 层 (Protocol=6)
+               └── TcpHandler::handle_packet()
+
+4. 发送数据包
+   └── TcpConnectionManager::send_data()
+       └── 封装 TCP 报文
+           └── IP 层封装
+               └── Scheduler::transmit()
+```
+
+### 6.6 与 Socket API 的交互
+
+TCP 层需要与 Socket API 层紧密集成，以支持应用程序的 Socket 调用。
+
+#### 6.6.1 Socket-TCP 连接映射
+
+Socket API 使用 `SocketFd` 标识 Socket，而 TCP 层使用 `TcpConnectionId` 标识连接。需要维护两者之间的映射：
+
+```rust
+// SocketManager 中的映射
+pub struct SocketManager {
+    /// TCP 连接到 Socket 的映射
+    tcp_connection_map: HashMap<TcpConnectionId, SocketFd>,
+
+    /// Socket 到连接的反向映射
+    socket_connection_map: HashMap<SocketFd, Option<TcpConnectionId>>,
+}
+
+// SocketEntry 中的连接引用
+pub struct SocketEntry {
+    /// 关联的 TCP 连接 ID
+    pub tcp_connection_id: Option<TcpConnectionId>,
+    // ...
+}
+```
+
+**映射建立时机：**
+- **主动连接**：`socket()` → `connect()` → TCP 三次握手完成 → 建立 `TcpConnectionId → SocketFd` 映射
+- **被动连接**：`listen()` → 接受 SYN → 三次握手完成 → 创建新 SocketFd → 建立映射
+
+#### 6.6.2 数据接收分发流程
+
+当 TCP 层接收到数据时，需要分发到对应的 Socket：
+
+```
+TCP: process_tcp_packet()
+    │
+    ▼
+解析 TCP 报文段
+    │
+    ▼
+查找 TcpConnectionId 对应的连接
+    │
+    ├─── 找到连接 → 提取数据载荷
+    │              │
+    │              ▼
+    │         查找对应的 SocketFd
+    │              │
+    │              ▼
+    │         SocketEntry.push_rx(data)
+    │              │
+    │              ▼
+    │         应用调用 recv() 读取
+    │
+    └─── 未找到连接 → 丢弃（或发送 RST）
+```
+
+**实现要点：**
+1. `TcpProcessResult::Delivered(data)` 返回时，携带连接 ID
+2. SocketManager 根据连接 ID 查找 SocketFd
+3. 将数据推送到 Socket 的接收缓冲区
+4. 应用程序调用 `recv()` 时从缓冲区读取
+
+#### 6.6.3 连接状态事件通知
+
+TCP 连接状态变化时需要通知 Socket 层更新状态：
+
+```rust
+// TCP 层定义的连接事件
+pub enum TcpConnectionEvent {
+    /// 连接已建立
+    Established(TcpConnectionId),
+    /// 连接已关闭
+    Closed(TcpConnectionId),
+    /// 连接被重置
+    Reset(TcpConnectionId),
+}
+
+// SocketManager 处理 TCP 事件
+impl SocketManager {
+    pub fn handle_tcp_event(&mut self, event: TcpConnectionEvent) {
+        match event {
+            TcpConnectionEvent::Established(conn_id) => {
+                if let Some(fd) = self.tcp_connection_map.get(&conn_id) {
+                    if let Some(entry) = self.sockets.get_mut(fd) {
+                        entry.state = SocketState::Tcp(TcpState::Established);
+                        entry.tcp_connection_id = Some(conn_id.clone());
+                    }
+                }
+            }
+            TcpConnectionEvent::Closed(conn_id) => {
+                if let Some(fd) = self.tcp_connection_map.remove(&conn_id) {
+                    if let Some(entry) = self.sockets.get_mut(fd) {
+                        entry.state = SocketState::Tcp(TcpState::Closed);
+                        entry.tcp_connection_id = None;
+                    }
+                }
+            }
+            TcpConnectionEvent::Reset(conn_id) => {
+                // 类似 Closed 处理
+            }
+        }
+    }
+}
+```
+
+#### 6.6.4 Socket API 到 TCP 层的调用
+
+**connect() 实现：**
+```rust
+// SocketManager::connect()
+pub fn connect(&mut self, fd: SocketFd, addr: &SocketAddr) -> Result<()> {
+    // 1. 验证 Socket 状态
+    let entry = self.sockets.get_mut(&fd)?;
+    if entry.is_connected() {
+        return Err(SocketError::AlreadyConnected);
+    }
+
+    // 2. 从地址中解析 IP 和端口
+    let (remote_ip, remote_port) = match addr {
+        SocketAddr::V4(v4_addr) => (v4_addr.ip, v4_addr.port),
+        // ...
+    };
+
+    // 3. 获取本地 IP 和端口
+    let local_ip = /* 从接口获取 */;
+    let local_port = /* 自动分配或使用绑定端口 */;
+
+    // 4. 创建 TCP 连接 ID
+    let conn_id = TcpConnectionId::new(local_ip, local_port, remote_ip, remote_port);
+
+    // 5. 调用 TCP 层发起连接
+    let syn_packet = tcp::create_syn(
+        local_port, remote_port,
+        local_ip, remote_ip,
+        /* iss */, /* window */
+    );
+
+    // 6. 发送 SYN 并更新状态
+    entry.state = SocketState::Tcp(TcpState::SynSent);
+    entry.peer_addr = Some(addr.clone());
+    entry.tcp_connection_id = Some(conn_id.clone());
+
+    // 7. 建立映射
+    self.tcp_connection_map.insert(conn_id, fd);
+
+    // 8. 发送 SYN 报文（通过 IP 层）
+    // ...
+
+    Ok(())
+}
+```
+
+**send() 实现：**
+```rust
+// SocketManager::send()
+pub fn send(&mut self, fd: SocketFd, buf: &[u8], flags: SendFlags) -> Result<usize> {
+    // 1. 验证 Socket 状态
+    let entry = self.sockets.get(&fd)?;
+    if !entry.is_connected() {
+        return Err(SocketError::NotConnected);
+    }
+
+    // 2. 获取 TCP 连接 ID
+    let conn_id = entry.tcp_connection_id
+        .ok_or(SocketError::NotConnected)?;
+
+    // 3. 调用 TCP 层发送数据
+    // （实际实现中需要访问 context.tcp_connections）
+    let tcb = context.tcp_connections.lock()
+        .map_err(|e| SocketError::Other(e.to_string()))?
+        .get(&conn_id)
+        .ok_or(SocketError::NotConnected)?;
+
+    // 4. 写入 TCB 发送缓冲区
+    tcb.write_to_send_buffer(buf.to_vec())?;
+
+    // 5. 触发 TCP 层发送
+    // TCP 层会封装报文并发送
+
+    Ok(buf.len())
+}
+```
+
+#### 6.6.5 SystemContext 集成
+
+```rust
+// src/context.rs
+pub struct SystemContext {
+    // ... 现有字段 ...
+
+    /// Socket 管理器
+    pub socket_mgr: Arc<Mutex<SocketManager>>,
+
+    /// TCP 连接管理器
+    pub tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+
+    /// TCP Socket 管理器
+    pub tcp_sockets: Arc<Mutex<TcpSocketManager>>,
+}
+
+// TCP 层需要能够访问 Socket 管理器来分发数据
+impl SystemContext {
+    /// 分发 TCP 数据到 Socket
+    pub fn deliver_tcp_to_socket(
+        &self,
+        conn_id: TcpConnectionId,
+        data: Vec<u8>,
+    ) -> Result<(), SocketError> {
+        let mut socket_mgr = self.socket_mgr.lock()
+            .map_err(|e| SocketError::Other(e.to_string()))?;
+
+        socket_mgr.deliver_tcp_data(conn_id, data)
+    }
+
+    /// 通知 TCP 连接事件
+    pub fn notify_tcp_event(
+        &self,
+        event: TcpConnectionEvent,
+    ) -> Result<(), SocketError> {
+        let mut socket_mgr = self.socket_mgr.lock()
+            .map_err(|e| SocketError::Other(e.to_string()))?;
+
+        socket_mgr.handle_tcp_event(event)
+    }
+}
+```
+
+### 6.7 数据流示例
 
 **连接建立流程：**
 

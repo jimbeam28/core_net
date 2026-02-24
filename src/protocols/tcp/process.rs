@@ -24,11 +24,11 @@ pub enum TcpProcessResult {
     /// 需要发送 TCP 响应
     Reply(Vec<u8>),
 
-    /// 数据已交付给应用层（仅数据，无需回复）
-    Delivered(Vec<u8>),
+    /// 数据已交付给应用层（连接 ID, 数据，无需回复）
+    Delivered(TcpConnectionId, Vec<u8>),
 
-    /// 需要发送 TCP 响应，同时数据已交付给应用层
-    ReplyAndDelivered(Vec<u8>, Vec<u8>),
+    /// 需要发送 TCP 响应，同时数据已交付给应用层（连接 ID, 响应, 数据）
+    ReplyAndDelivered(TcpConnectionId, Vec<u8>, Vec<u8>),
 
     /// 连接已建立
     ConnectionEstablished(TcpConnectionId),
@@ -240,7 +240,8 @@ fn process_segment_with_tcb(
 
                     // 返回数据（Delivered）
                     let data = segment.payload.to_vec();
-                    return Ok(TcpProcessResult::ReplyAndDelivered(response, data));
+                    let conn_id = tcb.id.clone();
+                    return Ok(TcpProcessResult::ReplyAndDelivered(conn_id, response, data));
                 }
             }
         }

@@ -442,3 +442,160 @@ fn test_socket_clear() {
     socket_mgr.clear();
     assert_eq!(socket_mgr.socket_count(), 0);
 }
+
+// ========== TCP 数据分发测试组 ==========
+
+#[test]
+#[serial]
+fn test_tcp_data_delivery() {
+    use core_net::protocols::tcp::TcpConnectionId;
+    use core_net::socket::{SocketState, TcpState};
+
+    let ctx = GlobalStateManager::create_context();
+    let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
+
+    // 创建 TCP Socket 并绑定
+    let fd = socket_mgr
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
+        .unwrap();
+
+    let addr = test_addr_v4(8080);
+    socket_mgr.bind(fd, &addr).unwrap();
+
+    // 设置为 Established 状态
+    {
+        let entry = socket_mgr.get_entry_mut(fd).unwrap();
+        entry.state = SocketState::Tcp(TcpState::Established);
+    }
+
+    // 创建 TCP 连接 ID 并建立映射
+    let conn_id = TcpConnectionId::new(
+        Ipv4Addr::new(127, 0, 0, 1),
+        8080,
+        Ipv4Addr::new(192, 168, 1, 100),
+        12345,
+    );
+    socket_mgr.map_tcp_connection(fd, &conn_id).unwrap();
+
+    // 模拟 TCP 层接收到数据并分发
+    let data = b"Hello from TCP!".to_vec();
+    socket_mgr.deliver_tcp_data(&conn_id, data.clone()).unwrap();
+
+    // 验证数据已到达接收缓冲区
+    let mut buf = [0u8; 64];
+    let recv_len = socket_mgr.recv(fd, &mut buf, RecvFlags::NONE).unwrap();
+    assert_eq!(recv_len, data.len());
+    assert_eq!(&buf[..data.len()], data.as_slice());
+}
+
+#[test]
+#[serial]
+fn test_tcp_connection_event_established() {
+    use core_net::protocols::tcp::TcpConnectionId;
+    use core_net::socket::{SocketState, TcpState};
+
+    let ctx = GlobalStateManager::create_context();
+    let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
+
+    // 创建 TCP Socket 并绑定
+    let fd = socket_mgr
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
+        .unwrap();
+
+    let addr = test_addr_v4(8080);
+    socket_mgr.bind(fd, &addr).unwrap();
+    socket_mgr.listen(fd, 128).unwrap();
+
+    // 创建 TCP 连接 ID 并建立映射
+    let conn_id = TcpConnectionId::new(
+        Ipv4Addr::new(127, 0, 0, 1),
+        8080,
+        Ipv4Addr::new(192, 168, 1, 100),
+        12345,
+    );
+    socket_mgr.map_tcp_connection(fd, &conn_id).unwrap();
+
+    // 通知连接已建立
+    socket_mgr.notify_tcp_event(&conn_id, "established").unwrap();
+
+    // 验证 Socket 状态
+    let entry = socket_mgr.get_entry(fd).unwrap();
+    assert!(matches!(entry.state, SocketState::Tcp(TcpState::Established)));
+}
+
+// ========== UDP 数据分发测试组 ==========
+
+#[test]
+#[serial]
+fn test_udp_data_delivery() {
+    let ctx = GlobalStateManager::create_context();
+    let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
+
+    // 创建 UDP Socket 并绑定
+    let fd = socket_mgr
+        .socket(AddressFamily::AfInet, SocketType::SockDgram, SocketProtocol::Default)
+        .unwrap();
+
+    let addr = test_addr_v4(9090);
+    socket_mgr.bind(fd, &addr).unwrap();
+
+    // 模拟 UDP 层接收到数据并分发
+    let data = b"Hello from UDP!".to_vec();
+    let src_addr = Ipv4Addr::new(192, 168, 1, 100);
+    let src_port = 12345;
+    socket_mgr.deliver_udp_data(9090, data.clone(), src_addr, src_port).unwrap();
+
+    // 验证数据已到达接收缓冲区
+    let mut buf = [0u8; 64];
+    let recv_len = socket_mgr.recv(fd, &mut buf, RecvFlags::NONE).unwrap();
+    assert_eq!(recv_len, data.len());
+    assert_eq!(&buf[..data.len()], data.as_slice());
+}
+
+// ========== 完整流程测试组 ==========
+
+#[test]
+#[serial]
+fn test_tcp_send_recv_via_protocol_layer() {
+    use core_net::protocols::tcp::TcpConnectionId;
+    use core_net::socket::{SocketState, TcpState};
+
+    let ctx = GlobalStateManager::create_context();
+    let mut socket_mgr = ctx.socket_mgr.lock().unwrap();
+
+    // 创建两个 Socket 模拟通信
+    let fd1 = socket_mgr
+        .socket(AddressFamily::AfInet, SocketType::SockStream, SocketProtocol::Default)
+        .unwrap();
+
+    let addr1 = test_addr_v4(8080);
+    socket_mgr.bind(fd1, &addr1).unwrap();
+
+    // 模拟建立连接后的状态
+    {
+        let entry = socket_mgr.get_entry_mut(fd1).unwrap();
+        entry.state = SocketState::Tcp(TcpState::Established);
+    }
+
+    // 创建连接 ID 并建立映射
+    let conn_id = TcpConnectionId::new(
+        Ipv4Addr::new(127, 0, 0, 1),
+        8080,
+        Ipv4Addr::new(127, 0, 0, 1),
+        9090,
+    );
+    socket_mgr.map_tcp_connection(fd1, &conn_id).unwrap();
+
+    // Socket 1 发送数据
+    let send_data = b"Hello TCP!";
+    socket_mgr.send(fd1, send_data, SendFlags::NONE).unwrap();
+
+    // 模拟 TCP 层将数据分发回 Socket（回环测试）
+    socket_mgr.deliver_tcp_data(&conn_id, send_data.to_vec()).unwrap();
+
+    // Socket 1 接收数据
+    let mut buf = [0u8; 64];
+    let recv_len = socket_mgr.recv(fd1, &mut buf, RecvFlags::NONE).unwrap();
+    assert_eq!(recv_len, send_data.len());
+    assert_eq!(&buf[..recv_len], send_data);
+}
