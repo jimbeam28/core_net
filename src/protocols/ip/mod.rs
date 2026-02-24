@@ -11,7 +11,15 @@ mod config;
 mod packet;
 pub mod fragment;
 
-pub use checksum::{calculate_checksum, verify_checksum, add_ipv4_pseudo_header, fold_carry};
+pub use checksum::{
+    calculate_checksum,
+    verify_checksum,
+    add_ipv4_pseudo_header,
+    add_ipv6_pseudo_header,
+    fold_carry,
+    calculate_icmpv6_checksum,
+    verify_icmpv6_checksum,
+};
 pub use header::{
     Ipv4Header,
     IP_VERSION,

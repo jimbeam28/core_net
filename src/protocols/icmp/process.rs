@@ -4,7 +4,7 @@
 
 use crate::common::{CoreError, Packet, Result};
 use crate::protocols::{Ipv4Addr, Ipv6Addr};
-use crate::protocols::ip::verify_checksum;
+use crate::protocols::ip::{verify_checksum, verify_icmpv6_checksum};
 use crate::context::SystemContext;
 
 use super::packet::{IcmpPacket, IcmpEcho, IcmpV6Packet, IcmpV6Echo, is_broadcast_addr, is_multicast_addr};
@@ -239,6 +239,13 @@ pub fn create_time_exceeded(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
 /// # 返回
 /// - Ok(IcmpProcessResult): 处理结果
 /// - Err(CoreError): 处理失败
+///
+/// # ICMPv6 校验和
+/// ICMPv6 校验和计算需要包含 IPv6 伪头部（RFC 4443, RFC 8200）：
+/// - 源 IPv6 地址（16 字节）
+/// - 目的 IPv6 地址（16 字节）
+/// - 上层包长度（4 字节）
+/// - 下一头部值：58（ICMPv6）
 pub fn process_icmpv6_packet(
     mut packet: Packet,
     source_addr: Ipv6Addr,
@@ -249,8 +256,8 @@ pub fn process_icmpv6_packet(
     // 读取数据用于校验和验证
     let data = packet.peek(packet.remaining()).unwrap_or(&[]);
 
-    // 验证校验和 - 校验和错误时静默丢弃
-    if !verify_checksum(data, 2) {
+    // 验证 ICMPv6 校验和（需要包含 IPv6 伪头部）
+    if !verify_icmpv6_checksum(source_addr, dest_addr, data) {
         if verbose {
             println!("ICMPv6: 校验和错误，静默丢弃");
         }
@@ -287,14 +294,19 @@ fn handle_icmpv6_echo_packet(
                 echo.identifier, echo.sequence, source_addr, dest_addr);
         }
 
-        // 创建 Echo Reply
+        // 创建 Echo Reply（交换源地址和目的地址）
         let reply = echo.make_reply();
 
         if verbose {
             println!("ICMPv6: 发送 Echo Reply ID={} Seq={}",
                 reply.identifier, reply.sequence);
         }
-        Ok(IcmpProcessResult::Reply(reply.to_bytes()))
+
+        // 使用正确的 ICMPv6 校验和（包含伪头部）
+        // 注意：响应报文的源地址是请求的目的地址，目的地址是请求的源地址
+        Ok(IcmpProcessResult::Reply(
+            reply.to_bytes_with_addrs(dest_addr, source_addr)
+        ))
     } else if echo.is_reply() {
         // 处理 Echo Reply
         if verbose {
@@ -313,12 +325,20 @@ fn handle_icmpv6_echo_packet(
 /// - identifier: 标识符
 /// - sequence: 序列号
 /// - data: 负载数据
+/// - source_addr: 源 IPv6 地址
+/// - dest_addr: 目的 IPv6 地址
 ///
 /// # 返回
-/// - Vec<u8>: 编码后的 ICMPv6 报文
-pub fn create_icmpv6_echo_request(identifier: u16, sequence: u16, data: Vec<u8>) -> Vec<u8> {
+/// - Vec<u8>: 编码后的 ICMPv6 报文（包含正确的伪头部校验和）
+pub fn create_icmpv6_echo_request(
+    identifier: u16,
+    sequence: u16,
+    data: Vec<u8>,
+    source_addr: Ipv6Addr,
+    dest_addr: Ipv6Addr,
+) -> Vec<u8> {
     let echo = IcmpV6Echo::new_request(identifier, sequence, data);
-    echo.to_bytes()
+    echo.to_bytes_with_addrs(source_addr, dest_addr)
 }
 
 /// 创建 ICMPv6 Echo Reply
@@ -327,12 +347,20 @@ pub fn create_icmpv6_echo_request(identifier: u16, sequence: u16, data: Vec<u8>)
 /// - identifier: 标识符
 /// - sequence: 序列号
 /// - data: 负载数据
+/// - source_addr: 源 IPv6 地址
+/// - dest_addr: 目的 IPv6 地址
 ///
 /// # 返回
-/// - Vec<u8>: 编码后的 ICMPv6 报文
-pub fn create_icmpv6_echo_reply(identifier: u16, sequence: u16, data: Vec<u8>) -> Vec<u8> {
+/// - Vec<u8>: 编码后的 ICMPv6 报文（包含正确的伪头部校验和）
+pub fn create_icmpv6_echo_reply(
+    identifier: u16,
+    sequence: u16,
+    data: Vec<u8>,
+    source_addr: Ipv6Addr,
+    dest_addr: Ipv6Addr,
+) -> Vec<u8> {
     let echo = IcmpV6Echo::new_reply(identifier, sequence, data);
-    echo.to_bytes()
+    echo.to_bytes_with_addrs(source_addr, dest_addr)
 }
 
 #[cfg(test)]

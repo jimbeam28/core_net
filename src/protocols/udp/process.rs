@@ -20,7 +20,8 @@ pub enum UdpProcessResult {
     /// 无需响应（数据报被静默处理）
     NoReply,
 
-    /// 需要发送 ICMP 端口不可达响应
+    /// 需要发送 ICMP 端口不可达响应（完整 IP 数据报）
+    /// 包含原始 IP 数据报，用于构造 ICMP Destination Unreachable 消息
     PortUnreachable(Vec<u8>),
 
     /// 数据已交付给应用层（本地端口, 源 IP, 源端口, 数据）
@@ -33,6 +34,7 @@ pub enum UdpProcessResult {
 /// - packet: UDP 数据报（不包含 IP 头部）
 /// - source_addr: 发送方 IP 地址
 /// - dest_addr: 接收方 IP 地址（本接口 IP）
+/// - original_ip_datagram: 原始 IP 数据报（包含 IP 头部），用于构造 ICMP 响应
 /// - context: 系统上下文
 /// - config: UDP 配置
 ///
@@ -46,11 +48,12 @@ pub enum UdpProcessResult {
 /// 3. 验证校验和（如果配置要求）
 /// 4. 查找端口入口
 /// 5. 如果端口已绑定且有回调，调用回调
-/// 6. 如果端口未绑定且配置要求，返回 PortUnreachable
+/// 6. 如果端口未绑定且配置要求，返回 PortUnreachable（包含原始 IP 数据报）
 pub fn process_udp_packet(
     packet: Packet,
     source_addr: Ipv4Addr,
     dest_addr: Ipv4Addr,
+    original_ip_datagram: &[u8],
     context: &SystemContext,
     config: &UdpConfig,
 ) -> Result<UdpProcessResult> {
@@ -101,10 +104,10 @@ pub fn process_udp_packet(
         None => {
             // 端口未绑定
             if config.send_icmp_unreachable {
-                // 构造原始 IP 数据报用于 ICMP 响应
-                // 注意：这里需要完整的 IP 数据报，但当前只有 UDP 部分
-                // 实际实现中，IP 层应该传递原始数据报
-                Ok(UdpProcessResult::PortUnreachable(payload))
+                // 返回完整 IP 数据报用于 ICMP 响应
+                // 根据 RFC 792，ICMP Destination Unreachable 需要包含原始 IP 数据报
+                // 的 IP 头部加上前 8 字节数据
+                Ok(UdpProcessResult::PortUnreachable(original_ip_datagram.to_vec()))
             } else {
                 Ok(UdpProcessResult::NoReply)
             }
@@ -179,7 +182,7 @@ mod tests {
         socket.bind(5678).unwrap();
         socket.set_callback(|_src_addr, _src_port, _data| {}).unwrap();
 
-        let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config).unwrap();
+        let result = process_udp_packet(packet, src_ip, dst_ip, &[], &ctx, &config).unwrap();
 
         match result {
             UdpProcessResult::Delivered(_local_port, _src_addr, _src_port, data) => {
@@ -208,7 +211,7 @@ mod tests {
         let ctx = SystemContext::new();
         let config = UdpConfig::new().with_enforce_checksum(true);
 
-        let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config);
+        let result = process_udp_packet(packet, src_ip, dst_ip, &[], &ctx, &config);
         assert!(result.is_ok());
     }
 
@@ -235,7 +238,7 @@ mod tests {
         let ctx = SystemContext::new();
         let config = UdpConfig::new().with_enforce_checksum(true);
 
-        let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config);
+        let result = process_udp_packet(packet, src_ip, dst_ip, &[], &ctx, &config);
         assert!(result.is_err());
     }
 
@@ -307,7 +310,7 @@ mod tests {
         socket.bind(5678).unwrap();
         socket.set_callback(|_src_addr, _src_port, _data| {}).unwrap();
 
-        let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config).unwrap();
+        let result = process_udp_packet(packet, src_ip, dst_ip, &[], &ctx, &config).unwrap();
 
         match result {
             UdpProcessResult::Delivered(_local_port, _src_addr, _src_port, data) => {
@@ -336,7 +339,7 @@ mod tests {
         let ctx = SystemContext::new();
         let config = UdpConfig::new();
 
-        let result = process_udp_packet(packet, src_ip, dst_ip, &ctx, &config);
+        let result = process_udp_packet(packet, src_ip, dst_ip, &[], &ctx, &config);
         assert!(result.is_err());
     }
 

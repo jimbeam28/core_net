@@ -531,11 +531,25 @@ impl PacketProcessor {
                 ip_hdr.source_addr, ip_hdr.dest_addr);
         }
 
+        // 构造原始 IP 数据报用于 ICMP 响应
+        // IP 头部 + UDP 头部(8字节) 作为 ICMP 错误消息的原始数据
+        let original_ip_datagram = {
+            let ip_header_bytes = ip_hdr.to_bytes();
+            let udp_data = packet.peek(packet.remaining()).unwrap_or(&[]);
+            // IP 头部 + UDP 头部(至少8字节) 或实际数据
+            let udp_len = udp_data.len().min(8);
+            let mut full_datagram = Vec::with_capacity(ip_header_bytes.len() + udp_len);
+            full_datagram.extend_from_slice(&ip_header_bytes);
+            full_datagram.extend_from_slice(&udp_data[..udp_len]);
+            full_datagram
+        };
+
         // 处理 UDP 报文
         let result = udp::process_udp_packet(
             packet,
             ip_hdr.source_addr,
             our_ip,
+            &original_ip_datagram,
             &self.context,
             &udp::UDP_CONFIG_DEFAULT,
         ).map_err(|e| ProcessError::ParseError(format!("UDP处理失败: {}", e)))?;
@@ -543,19 +557,23 @@ impl PacketProcessor {
         // 根据处理结果返回
         match result {
             udp::UdpProcessResult::NoReply => Ok(None),
-            udp::UdpProcessResult::PortUnreachable(icmp_bytes) => {
+            udp::UdpProcessResult::PortUnreachable(original_ip) => {
                 // 获取本接口的 MAC 地址
                 let our_mac = self.get_interface_mac(ifindex)?;
+
+                // 使用原始 IP 数据报构造 ICMP 端口不可达消息
+                // ICMP Type=3 (Destination Unreachable), Code=3 (Port Unreachable)
+                let icmp_msg = udp::create_port_unreachable(&original_ip);
 
                 // 封装为 IP 数据报
                 let ip_reply = ip::Ipv4Header::new(
                     our_ip,
                     ip_hdr.source_addr,
                     ip::IP_PROTO_ICMP,
-                    icmp_bytes.len(),
+                    icmp_msg.len(),
                 );
                 let mut ip_packet = ip_reply.to_bytes();
-                ip_packet.extend_from_slice(&icmp_bytes);
+                ip_packet.extend_from_slice(&icmp_msg);
 
                 // 封装为以太网帧
                 let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(

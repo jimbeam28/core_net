@@ -31,4 +31,4 @@ pub use process::{
     create_rst,
 };
 pub use socket::{TcpSocket, TcpEvent, TcpCallback};
-pub use socket_manager::TcpSocketManager;
+pub use socket_manager::{TcpSocketManager, ConnectionTuple};

@@ -4,7 +4,8 @@
 
 use crate::common::{CoreError, Packet, Result};
 use super::types::*;
-use crate::protocols::ip::{calculate_checksum, IP_MIN_HEADER_LEN};
+use crate::protocols::ip::{calculate_checksum, calculate_icmpv6_checksum, IP_MIN_HEADER_LEN};
+use crate::protocols::Ipv6Addr;
 
 // ========== 辅助常量 ==========
 
@@ -585,6 +586,9 @@ impl IcmpV6Echo {
     }
 
     /// 编码为字节数组
+    ///
+    /// 注意：此方法不包含 ICMPv6 伪头部校验和计算。
+    /// 对于 ICMPv6，应使用 `to_bytes_with_addrs` 方法。
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(8 + self.data.len());
 
@@ -595,8 +599,36 @@ impl IcmpV6Echo {
         bytes.extend_from_slice(&self.sequence.to_be_bytes());
         bytes.extend_from_slice(&self.data);
 
-        // 计算校验和
+        // 计算校验和（不包含伪头部，不适用于 ICMPv6）
         let checksum = calculate_checksum(&bytes);
+        bytes[2] = (checksum >> 8) as u8;
+        bytes[3] = (checksum & 0xFF) as u8;
+
+        bytes
+    }
+
+    /// 编码为字节数组（使用 ICMPv6 伪头部校验和）
+    ///
+    /// ICMPv6 校验和需要包含伪头部（RFC 4443, RFC 8200）。
+    ///
+    /// # 参数
+    /// - source_addr: 源 IPv6 地址
+    /// - dest_addr: 目的 IPv6 地址
+    ///
+    /// # 返回
+    /// - Vec<u8>: 包含正确校验和的 ICMPv6 报文字节数组
+    pub fn to_bytes_with_addrs(&self, source_addr: Ipv6Addr, dest_addr: Ipv6Addr) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + self.data.len());
+
+        bytes.push(self.type_);
+        bytes.push(self.code);
+        bytes.extend_from_slice(&[0, 0]); // 校验和先置为 0
+        bytes.extend_from_slice(&self.identifier.to_be_bytes());
+        bytes.extend_from_slice(&self.sequence.to_be_bytes());
+        bytes.extend_from_slice(&self.data);
+
+        // 计算 ICMPv6 校验和（包含伪头部）
+        let checksum = calculate_icmpv6_checksum(source_addr, dest_addr, &bytes);
         bytes[2] = (checksum >> 8) as u8;
         bytes[3] = (checksum & 0xFF) as u8;
 

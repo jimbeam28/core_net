@@ -17,4 +17,12 @@ pub use parse::{
     is_vlan_tpid,
     process_vlan_packet,
     VlanProcessResult,
+    // 封装相关
+    TPID_8021Q,
+    TPID_QINQ,
+    TPID_8021AD,
+    encapsulate_vlan_frame,
+    encapsulate_qinq_frame,
+    add_vlan_tag,
+    remove_vlan_tag,
 };
