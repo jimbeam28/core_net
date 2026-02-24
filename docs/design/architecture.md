@@ -558,29 +558,58 @@ route/
 ```
 socket/
 ├── mod.rs       # 模块入口
-├── types.rs     # Socket类型定义（AddressFamily, SocketType, SocketProtocol等）
-├── entry.rs     # SocketEntry（状态管理、缓冲区、监听队列）
-├── manager.rs   # SocketManager（socket, bind, listen, accept, connect, send, recv, close）
+├── types.rs     # Socket类型定义（AddressFamily, SocketType, SocketProtocol, SocketAddr等）
+├── entry.rs     # SocketEntry（状态管理、缓冲区、监听队列、Socket选项）
+├── manager.rs   # SocketManager（socket, bind, listen, accept, connect, send, sendto, recv, recvfrom, close）
 └── error.rs     # SocketError 错误类型
 ```
 
 **核心功能**：
 - POSIX风格Socket API
-- Socket生命周期管理
-- TCP/UDP Socket支持
+- Socket生命周期管理（fd分配、创建、销毁）
+- TCP/UDP Socket支持（IPv4/IPv6）
 - 绑定、监听、接受、连接操作
-- 发送/接收缓冲区
+- 发送/接收缓冲区管理
 - Socket文件描述符管理
+- Socket选项支持（SO_REUSEADDR等）
+- 地址冲突检测和端口复用
+- TCP连接映射和事件通知
+- 数据分发（TCP/UDP）
 
 **已实现**：
-- ✅ socket() - 创建Socket
-- ✅ bind() - 绑定地址
-- ✅ listen() - 监听连接
-- ✅ accept() - 接受连接
-- ✅ connect() - 发起连接
-- ✅ send() - 发送数据
-- ✅ recv() - 接收数据
-- ✅ close() - 关闭Socket
+- ✅ socket() - 创建Socket（支持TCP/UDP、IPv4/IPv6）
+- ✅ bind() - 绑定地址（含地址冲突检测）
+- ✅ listen() - 监听连接（支持backlog配置）
+- ✅ accept() - 接受连接（从监听队列取连接）
+- ✅ connect() - 发起连接（TCP三次握手）
+- ✅ send() - 发送数据（面向连接）
+- ✅ sendto() - 发送数据（无连接）
+- ✅ recv() - 接收数据（面向连接）
+- ✅ recvfrom() - 接收数据（无连接）
+- ✅ close() - 关闭Socket（含资源清理）
+
+**类型定义**：
+- `SocketFd` - Socket文件描述符（保留0-2，从3开始分配）
+- `AddressFamily` - 协议族（AF_INET/AF_INET6）
+- `SocketType` - Socket类型（SOCK_STREAM/SOCK_DGRAM）
+- `SocketProtocol` - 协议（Default/ICMP/TCP/UDP）
+- `SocketAddr` - Socket地址（IPv4/IPv6）
+- `TcpState` - TCP连接状态（11种状态）
+- `SendFlags/RecvFlags` - 发送/接收标志
+
+**Socket选项**：
+- `SO_REUSEADDR` - 地址复用
+- `SO_REUSEPORT` - 端口复用
+- `SO_BROADCAST` - 广播
+- `SO_KEEPALIVE` - 保活
+- `SO_RCVBUF/SO_SNDBUF` - 缓冲区大小
+
+**与其他模块的集成**：
+- 与TCP模块通过 `TcpSocketManager` 交互
+- 与UDP模块通过 `UdpPortManager` 交互
+- 提供数据分发接口 `deliver_tcp_data()` 和 `deliver_udp_data()`
+- 提供连接事件通知接口 `notify_tcp_event()`
+- 支持TCP连接映射 `map_tcp_connection()`
 
 ---
 

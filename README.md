@@ -112,7 +112,10 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 
 - **传输层**
   - ✅ UDP - 数据报收发、端口绑定、Socket API、回调机制
-  - ✅ TCP - 三次握手、四次挥手、滑动窗口、重传、Socket API
+  - ✅ TCP - 三次握手、四次挥手、滑动窗口、重传、Socket API、拥塞控制
+
+- **应用层**
+  - ✅ Socket API - POSIX风格API（socket、bind、listen、accept、connect、send、sendto、recv、recvfrom、close）
 
 ### 计划中 ⏳
 - **网络层**
@@ -184,7 +187,12 @@ core_net/
 │   │   ├── icmpv6/            # ICMPv6 协议 ✅
 │   │   ├── udp/               # UDP 协议 ✅
 │   │   └── tcp/               # TCP 协议 ✅
-│   ├── socket/                # Socket API ✅
+│   ├── socket/                # Socket API ✅（完整 POSIX 实现）
+│   │   ├── types.rs           # Socket 类型定义
+│   │   ├── entry.rs           # Socket 表项
+│   │   ├── manager.rs         # Socket 管理器
+│   │   ├── error.rs           # Socket 错误
+│   │   └── mod.rs             # 模块入口
 │   └── testframework/         # 测试框架
 │       ├── harness.rs         # TestHarness
 │       ├── injector.rs        # PacketInjector
@@ -240,15 +248,16 @@ core_net/
 - `ipv6` - IPv6 协议、分片与重组、扩展头（RFC 8200）
 - `icmp` - ICMP 协议（Echo、Dest Unreachable、Time Exceeded）
 - `icmpv6` - ICMPv6 协议（Echo、NDP、错误报告）
-- `udp` - UDP 协议和 Socket（RFC 768）
-- `tcp` - TCP 协议、连接管理、拥塞控制、Socket（RFC 793, RFC 9293）
+- `udp` - UDP 协议、UdpSocket、UdpPortManager（RFC 768）
+- `tcp` - TCP 协议、TcpSocket、连接管理、拥塞控制（RFC 793, RFC 9293）
 
 ### socket
-POSIX风格 Socket API 实现：
-- `types.rs` - Socket 类型定义
-- `entry.rs` - Socket 入口（状态管理、缓冲区）
-- `manager.rs` - Socket 管理器（完整 API）
+POSIX风格 Socket API 实现（应用层网络接口）：
+- `types.rs` - Socket 类型定义（SocketFd、AddressFamily、SocketType、SocketAddr、TcpState等）
+- `entry.rs` - Socket 表项（状态管理、缓冲区、监听队列、Socket选项）
+- `manager.rs` - Socket 管理器（完整 POSIX API：socket/bind/listen/accept/connect/send/sendto/recv/recvfrom/close）
 - `error.rs` - Socket 错误类型
+- 与 TCP/UDP 模块集成，支持数据分发和连接事件通知
 
 ### testframework
 协议测试框架：
@@ -335,8 +344,18 @@ cargo clippy
 - [x] IPv6 扩展头（逐跳选项、路由、分片、目的选项）
 - [x] ND (Neighbor Discovery)
 - [x] Socket API（完整实现）
+  - [x] socket() - 创建 Socket
+  - [x] bind() - 绑定地址
+  - [x] listen() - 监听连接
+  - [x] accept() - 接受连接
+  - [x] connect() - 发起连接
+  - [x] send()/sendto() - 发送数据
+  - [x] recv()/recvfrom() - 接收数据
+  - [x] close() - 关闭 Socket
+  - [x] Socket 选项支持
+  - [x] TCP/UDP 数据分发
 
-**目标**：支持完整的 IP 分片重组和 IPv6 扩展头 ✅ 已实现
+**目标**：支持完整的 IP 分片重组、IPv6 扩展头和 Socket API ✅ 已实现
 
 ### 阶段六：高级网络功能（计划中）
 - [ ] IPSec 支持（ESP/AH扩展头）
@@ -352,7 +371,7 @@ cargo clippy
 - Scheduler 模块: 100%
 - Engine 模块: 100%
 - Route 模块: 85%（支持基础路由和LPM，不支持动态路由）
-- Socket 模块: 95%（POSIX风格API，完整实现）
+- Socket 模块: 100%（POSIX风格API，完整实现）
 - Ethernet 协议: 100%
 - VLAN 协议: 100%
 - ARP 协议: 100%
@@ -363,7 +382,7 @@ cargo clippy
 - UDP 协议: 100%（完整实现）
 - TCP 协议: 95%（完整状态机、拥塞控制）
 
-**整体项目完成度: ~95%**
+**整体项目完成度: ~96%**
 
 ## 设计文档
 
@@ -393,6 +412,7 @@ cargo clippy
 - [ICMPv6 协议设计](docs/design/protocols/icmpv6.md) - ICMPv6 协议实现
 - [TCP 协议设计](docs/design/protocols/tcp.md) - TCP 协议实现
 - [UDP 协议设计](docs/design/protocols/udp.md) - UDP 协议实现
+- [Socket API 设计](docs/design/socket.md) - Socket API 实现
 
 ## 参考资料
 
@@ -407,8 +427,9 @@ cargo clippy
 | IPv6 | RFC 8200 | 互联网协议第 6 版 | ✅ 已实现（含分片/重组/扩展头） |
 | ICMP | RFC 792 | 互联网控制报文协议 | ✅ 已实现 |
 | ICMPv6 | RFC 4443 | ICMPv6 | ✅ 已实现（Echo、NDP） |
-| TCP | RFC 793, RFC 9293 | 传输控制协议 | ✅ 已实现（完整状态机、拥塞控制） |
-| UDP | RFC 768 | 用户数据报协议 | ✅ 已实现 |
+| TCP | RFC 793, RFC 9293 | 传输控制协议 | ✅ 已实现（完整状态机、拥塞控制、Socket API） |
+| UDP | RFC 768 | 用户数据报协议 | ✅ 已实现（Socket API、回调机制） |
+| Socket API | POSIX | Socket API | ✅ 已实现（完整 POSIX 风格 API） |
 
 ## 开发日志
 
