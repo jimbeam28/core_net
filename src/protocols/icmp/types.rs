@@ -19,6 +19,9 @@ pub const ICMP_TYPE_ECHO_REQUEST: u8 = 8;
 /// ICMP 类型：Time Exceeded
 pub const ICMP_TYPE_TIME_EXCEEDED: u8 = 11;
 
+/// ICMP 类型：Parameter Problem
+pub const ICMP_TYPE_PARAMETER_PROBLEM: u8 = 12;
+
 // ========== ICMP 类型枚举 ==========
 
 /// ICMP 消息类型
@@ -35,6 +38,9 @@ pub enum IcmpType {
 
     /// Time Exceeded (超时)
     TimeExceeded = 11,
+
+    /// Parameter Problem (参数问题)
+    ParameterProblem = 12,
 }
 
 impl IcmpType {
@@ -45,6 +51,7 @@ impl IcmpType {
             3 => Some(IcmpType::DestinationUnreachable),
             8 => Some(IcmpType::EchoRequest),
             11 => Some(IcmpType::TimeExceeded),
+            12 => Some(IcmpType::ParameterProblem),
             _ => None,
         }
     }
@@ -52,6 +59,16 @@ impl IcmpType {
     /// 获取类型的 u8 值
     pub fn as_u8(self) -> u8 {
         self as u8
+    }
+
+    /// 判断是否为错误消息
+    pub fn is_error_message(self) -> bool {
+        matches!(
+            self,
+            IcmpType::DestinationUnreachable
+                | IcmpType::TimeExceeded
+                | IcmpType::ParameterProblem
+        )
     }
 }
 
@@ -62,6 +79,7 @@ impl fmt::Display for IcmpType {
             IcmpType::DestinationUnreachable => write!(f, "Destination Unreachable"),
             IcmpType::EchoRequest => write!(f, "Echo Request"),
             IcmpType::TimeExceeded => write!(f, "Time Exceeded"),
+            IcmpType::ParameterProblem => write!(f, "Parameter Problem"),
         }
     }
 }
@@ -128,6 +146,38 @@ impl TimeExceededCode {
         match value {
             0 => Some(TimeExceededCode::TtlExpired),
             1 => Some(TimeExceededCode::FragmentReassemblyTimeout),
+            _ => None,
+        }
+    }
+
+    /// 获取代码的 u8 值
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+// ========== Parameter Problem 代码 ==========
+
+/// Parameter Problem 代码
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParameterProblemCode {
+    /// 指针指示错误
+    PointerIndicatesError = 0,
+
+    /// 缺少必需选项
+    MissingRequiredOption = 1,
+
+    /// 错误长度
+    BadLength = 2,
+}
+
+impl ParameterProblemCode {
+    /// 从 u8 解析 Parameter Problem 代码
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(ParameterProblemCode::PointerIndicatesError),
+            1 => Some(ParameterProblemCode::MissingRequiredOption),
+            2 => Some(ParameterProblemCode::BadLength),
             _ => None,
         }
     }

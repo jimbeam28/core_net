@@ -229,6 +229,122 @@ impl IcmpTimeExceeded {
     }
 }
 
+// ========== Parameter Problem ==========
+
+/// Parameter Problem 报文
+///
+/// RFC 792: IP 头部参数错误时发送此消息
+#[derive(Debug, Clone, PartialEq)]
+pub struct IcmpParameterProblem {
+    /// 类型 (12)
+    pub type_: u8,
+
+    /// 代码 (0=指针指示错误, 1=缺少必需选项, 2=错误长度)
+    pub code: u8,
+
+    /// 校验和
+    pub checksum: u16,
+
+    /// 指针：指向原始数据报中错误的字节
+    pub pointer: u8,
+
+    /// 原始 IP 数据报头部 + 8 字节数据
+    pub original_datagram: Vec<u8>,
+}
+
+impl IcmpParameterProblem {
+    /// Parameter Problem 最小长度（头部 8 字节）
+    pub const MIN_LEN: usize = 8;
+
+    /// 创建新的 Parameter Problem 报文
+    ///
+    /// # 参数
+    /// - code: 错误代码
+    /// - pointer: 指向错误字节的指针
+    /// - original_datagram: 原始 IP 数据报
+    pub fn new(code: u8, pointer: u8, original_datagram: Vec<u8>) -> Self {
+        IcmpParameterProblem {
+            type_: ICMP_TYPE_PARAMETER_PROBLEM,
+            code,
+            checksum: 0,
+            pointer,
+            original_datagram,
+        }
+    }
+
+    /// 从 Packet 解析 Parameter Problem 报文
+    pub fn from_packet(packet: &mut Packet) -> Result<Self> {
+        const MIN_LEN: usize = 8;
+
+        if packet.remaining() < MIN_LEN {
+            return Err(CoreError::invalid_packet(format!(
+                "Parameter Problem报文长度不足：{} < {}",
+                packet.remaining(),
+                MIN_LEN
+            )));
+        }
+
+        let type_ = packet.read(1)
+            .ok_or_else(|| CoreError::parse_error("读取类型失败"))?[0];
+        let code = packet.read(1)
+            .ok_or_else(|| CoreError::parse_error("读取代码失败"))?[0];
+
+        // 验证 Code 字段是否合法
+        if code > 2 {
+            return Err(CoreError::invalid_packet(format!(
+                "Parameter Problem Code无效：{}",
+                code
+            )));
+        }
+
+        let checksum_bytes = packet.read(2)
+            .ok_or_else(|| CoreError::parse_error("读取校验和失败"))?;
+        let checksum = u16::from_be_bytes([checksum_bytes[0], checksum_bytes[1]]);
+
+        // 读取指针
+        let pointer = packet.read(1)
+            .ok_or_else(|| CoreError::parse_error("读取指针失败"))?[0];
+
+        // 跳过 3 字节的保留字段
+        packet.read(3)
+            .ok_or_else(|| CoreError::parse_error("读取保留字段失败"))?;
+
+        // 读取原始数据报
+        let mut original_datagram = Vec::new();
+        while packet.remaining() > 0 {
+            if let Some(byte) = packet.read(1) {
+                original_datagram.push(byte[0]);
+            }
+        }
+
+        // 验证原始数据报长度
+        validate_original_datagram(&original_datagram, "Parameter Problem")?;
+
+        Ok(IcmpParameterProblem {
+            type_, code, checksum, pointer, original_datagram
+        })
+    }
+
+    /// 编码为字节数组
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + self.original_datagram.len());
+
+        bytes.push(self.type_);
+        bytes.push(self.code);
+        bytes.extend_from_slice(&[0, 0]); // 校验和占位
+        bytes.push(self.pointer);
+        bytes.extend_from_slice(&[0, 0, 0]); // 保留字段填充为 0
+        bytes.extend_from_slice(&self.original_datagram);
+
+        // 计算校验和
+        let checksum = calculate_checksum(&bytes);
+        bytes[2] = (checksum >> 8) as u8;
+        bytes[3] = (checksum & 0xFF) as u8;
+
+        bytes
+    }
+}
+
 // ========== 辅助函数 ==========
 
 /// 从原始数据报中提取 IP 头部加上前 8 字节数据
@@ -399,6 +515,15 @@ fn validate_error_code(type_: u8, code: u8) -> Result<()> {
                 )));
             }
         }
+        ICMP_TYPE_PARAMETER_PROBLEM => {
+            // Parameter Problem Code 范围：0-2
+            if code > 2 {
+                return Err(CoreError::invalid_packet(format!(
+                    "Parameter Problem Code无效：{}",
+                    code
+                )));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -434,6 +559,7 @@ pub enum IcmpPacket {
     Echo(IcmpEcho),
     DestUnreachable(IcmpDestUnreachable),
     TimeExceeded(IcmpTimeExceeded),
+    ParameterProblem(IcmpParameterProblem),
 }
 
 impl IcmpPacket {
@@ -453,6 +579,9 @@ impl IcmpPacket {
             ICMP_TYPE_TIME_EXCEEDED => {
                 Ok(IcmpPacket::TimeExceeded(IcmpTimeExceeded::from_packet(packet)?))
             }
+            ICMP_TYPE_PARAMETER_PROBLEM => {
+                Ok(IcmpPacket::ParameterProblem(IcmpParameterProblem::from_packet(packet)?))
+            }
             _ => Err(CoreError::UnsupportedProtocol(format!(
                 "不支持的ICMP类型: {}", type_
             ))),
@@ -465,6 +594,7 @@ impl IcmpPacket {
             IcmpPacket::Echo(echo) => echo.type_,
             IcmpPacket::DestUnreachable(dest) => dest.type_,
             IcmpPacket::TimeExceeded(time) => time.type_,
+            IcmpPacket::ParameterProblem(param) => param.type_,
         }
     }
 
@@ -474,6 +604,7 @@ impl IcmpPacket {
             IcmpPacket::Echo(echo) => echo.to_bytes(),
             IcmpPacket::DestUnreachable(dest) => dest.to_bytes(),
             IcmpPacket::TimeExceeded(time) => time.to_bytes(),
+            IcmpPacket::ParameterProblem(param) => param.to_bytes(),
         }
     }
 }
@@ -789,6 +920,40 @@ mod tests {
 
         assert_eq!(decoded.type_, ICMP_TYPE_TIME_EXCEEDED);
         assert_eq!(decoded.code, 0);
+        assert_eq!(decoded.original_datagram, original);
+    }
+
+    #[test]
+    fn test_parameter_problem_encode_decode() {
+        // Need at least IP header (20 bytes) + 8 bytes data
+        let original = vec![
+            0x45, 0x00, 0x00, 0x1c,  // Version/IHL, TOS, Total Length
+            0x00, 0x00, 0x00, 0x00,  // ID, Flags/Fragment
+            0x40, 0x01, 0x00, 0x00,  // TTL, Protocol, Checksum
+            0xc0, 0xa8, 0x01, 0x01,  // Source IP
+            0xc0, 0xa8, 0x01, 0x02,  // Dest IP
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 8 bytes data
+        ];
+        let param = IcmpParameterProblem {
+            type_: ICMP_TYPE_PARAMETER_PROBLEM,
+            code: 0,
+            checksum: 0,
+            pointer: 8,
+            original_datagram: original.clone(),
+        };
+
+        let bytes = param.to_bytes();
+        assert_eq!(bytes[0], ICMP_TYPE_PARAMETER_PROBLEM);
+        assert_eq!(bytes[1], 0);
+        assert_eq!(bytes[4], 8); // Pointer
+
+        // Parse
+        let mut packet = Packet::from_bytes(bytes);
+        let decoded = IcmpParameterProblem::from_packet(&mut packet).unwrap();
+
+        assert_eq!(decoded.type_, ICMP_TYPE_PARAMETER_PROBLEM);
+        assert_eq!(decoded.code, 0);
+        assert_eq!(decoded.pointer, 8);
         assert_eq!(decoded.original_datagram, original);
     }
 }

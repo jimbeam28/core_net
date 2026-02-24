@@ -9,7 +9,7 @@
 
 ## 项目完成状态（2025-02-24）
 
-**所有 P0/P1 优先级问题已完成修复 ✅**
+**所有 P0/P1/P2 优先级问题已完成修复 ✅**
 
 | 优先级 | 类别 | 问题 | 状态 |
 |--------|------|------|------|
@@ -22,6 +22,8 @@
 | P2 | 代码质量 | TCP 四元组路由查找 | ✅ 已完成 |
 | P2 | 代码质量 | Clippy 警告修复 | ✅ 已完成 |
 | P2 | 代码质量 | VLAN 过滤功能 | ✅ 已完成 |
+| P2 | 代码质量 | TCP 选项解析 | ✅ 已完成 |
+| P2 | 代码质量 | ICMP 错误报文响应完善 | ✅ 已完成 |
 | - | 架构 | 测试代码组织 | ✅ 符合惯用 |
 
 ---
@@ -42,6 +44,8 @@
 | 8 | TCP 状态机缺失 4 个状态 | ✅ 已修复 | 实现 SynSent, FinWait2, Closing, TimeWait 状态处理，支持完整连接生命周期 |
 | 9 | Clippy 警告 | ✅ 已修复 | 引入 `VlanEncapParams` 和 `QinQEncapParams` 参数结构体，消除 `too_many_arguments` 警告 |
 | 10 | TCP 定时器未实现 | ✅ 已修复 | 添加 `TcpTimerManager`、定时器配置、定时器处理函数，支持重传、TimeWait、Keepalive 定时器 |
+| 11 | TCP 选项解析 | ✅ 已修复 | 在 `TcpSegment` 添加选项解析方法，支持 MSS、Window Scale、SACK、Timestamps 等选项 |
+| 12 | ICMP 错误报文响应不完整 | ✅ 已修复 | 添加 ICMPv4 Parameter Problem (Type 12) 支持，完善错误报文响应机制 |
 
 ### 未修复问题
 
@@ -163,7 +167,7 @@ pub fn generate_isn() -> u32 {
 
 **安全性提升**: 防止序列号预测攻击，提高 TCP 连接安全性
 
-### 1.4 TCP 选项解析未集成
+### 1.4 TCP 选项解析未集成 ✅ 已修复
 
 **位置**: `src/protocols/tcp/segment.rs`
 
@@ -171,7 +175,20 @@ pub fn generate_isn() -> u32 {
 
 **影响**: 无法进行窗口扩大、SACK 等高级特性协商
 
-### 1.5 连接元组查找缺失
+**状态**: ✅ 已修复（2025-02-24）
+
+**修复内容**:
+- 在 `TcpSegment` 中添加 `parse_options()` 方法，调用 `TcpOption::parse_options()` 解析选项
+- 添加 `get_option_by_kind()` 方法，按类型查找选项
+- 添加便捷方法：`get_mss()`, `get_window_scale()`, `has_sack_permitted()`, `get_timestamps()`
+- 添加完整的单元测试覆盖
+
+**修复文件**:
+- `src/protocols/tcp/segment.rs`: 添加选项解析方法和便捷查询接口
+
+**功能提升**: 支持完整的 TCP 选项解析和查询，为高级特性（窗口扩大、SACK、时间戳）奠定基础
+
+### 1.5 连接元组查找缺失 ✅ 已修复
 
 **位置**: `src/protocols/tcp/socket_manager.rs`
 
@@ -255,24 +272,29 @@ Ok(UdpProcessResult::PortUnreachable(payload))
 
 ---
 
-## 4. ICMP 协议 - 实现较完整
+## 4. ICMP 协议 - 实现较完整 ✅
 
 ### 4.1 已实现功能
 
-- `packet.rs`: Echo Request/Reply, Destination Unreachable, Time Exceeded
-- `process.rs`: 报文处理逻辑，校验和验证
+- `packet.rs`: Echo Request/Reply, Destination Unreachable, Time Exceeded, **Parameter Problem** ✅
+- `process.rs`: 报文处理逻辑，校验和验证，错误报文创建函数 ✅
 - `echo.rs`: Echo 处理逻辑
 - `global.rs`: EchoManager，包含速率限制
 
-### 4.2 存在问题
+### 4.2 已修复问题 ✅
+
+| 问题 | 状态 | 说明 |
+|------|------|------|
+| ICMPv6 伪头部校验和未实现 | ✅ 已修复 | 添加 `calculate_icmpv6_checksum` 和 `verify_icmpv6_checksum` 函数，符合 RFC 4443 |
+| 错误报文响应未完整实现 | ✅ 已修复 | 添加 Parameter Problem (Type 12) 支持，完善错误报文响应机制 |
+
+### 4.3 剩余问题
 
 | 问题 | 位置 | 严重程度 |
 |------|------|----------|
 | 测试代码混入生产文件 | `packet.rs:669-762`, `process.rs:338-395`, `echo.rs:135-227` | 低 |
-| ICMPv6 伪头部校验和未实现 | `process.rs:252` | 中 |
-| 错误报文响应未完整实现 | 只处理 Echo，其他错误报文静默丢弃 | 中 |
 
-### 4.3 代码质量
+### 4.4 代码质量
 
 注释完善，RFC 合规性好，测试覆盖率高（但应移至独立测试文件）
 

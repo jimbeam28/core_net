@@ -82,6 +82,14 @@ pub fn process_icmp_packet(
             }
             Ok(IcmpProcessResult::Processed)
         }
+        IcmpPacket::ParameterProblem(param_problem) => {
+            // Parameter Problem 是错误消息，不需要响应
+            if verbose {
+                println!("ICMP: 收到 Parameter Problem Code={} Pointer={}",
+                    param_problem.code, param_problem.pointer);
+            }
+            Ok(IcmpProcessResult::Processed)
+        }
     }
 }
 
@@ -223,6 +231,23 @@ pub fn create_time_exceeded(code: u8, original_datagram: Vec<u8>) -> Vec<u8> {
     };
 
     time_exceeded.to_bytes()
+}
+
+/// 创建 Parameter Problem 报文
+///
+/// # 参数
+/// - code: 错误代码（0=指针指示错误, 1=缺少必需选项, 2=错误长度）
+/// - pointer: 指向原始数据报中错误的字节
+/// - original_datagram: 触发错误的原始 IP 数据报（至少包含 IP 头部和前 8 字节）
+///
+/// # 返回
+/// - Vec<u8>: 编码后的 ICMP Parameter Problem 报文
+pub fn create_parameter_problem(code: u8, pointer: u8, original_datagram: Vec<u8>) -> Vec<u8> {
+    use super::packet::IcmpParameterProblem;
+
+    let param_problem = IcmpParameterProblem::new(code, pointer, original_datagram);
+
+    param_problem.to_bytes()
 }
 
 // ========== ICMPv6 处理函数 ==========
@@ -419,5 +444,23 @@ mod tests {
             }
             _ => panic!("Expected Reply"),
         }
+    }
+
+    #[test]
+    fn test_create_parameter_problem() {
+        // Need at least IP header (20 bytes) + 8 bytes data
+        let original = vec![
+            0x45, 0x00, 0x00, 0x1c,  // Version/IHL, TOS, Total Length
+            0x00, 0x00, 0x00, 0x00,  // ID, Flags/Fragment
+            0x40, 0x01, 0x00, 0x00,  // TTL, Protocol, Checksum
+            0xc0, 0xa8, 0x01, 0x01,  // Source IP
+            0xc0, 0xa8, 0x01, 0x02,  // Dest IP
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // 8 bytes data
+        ];
+        let packet = create_parameter_problem(0, 8, original);
+
+        assert_eq!(packet[0], ICMP_TYPE_PARAMETER_PROBLEM);
+        assert_eq!(packet[1], 0); // Code
+        assert_eq!(packet[4], 8); // Pointer
     }
 }
