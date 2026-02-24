@@ -7,10 +7,12 @@ mod tag;
 mod frame;
 mod error;
 mod parse;
+mod filter;
 
 pub use tag::VlanTag;
 pub use frame::VlanFrame;
 pub use error::VlanError;
+pub use filter::VlanFilter;
 
 pub use parse::{
     has_vlan_tag,

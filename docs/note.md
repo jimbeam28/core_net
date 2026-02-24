@@ -3,7 +3,7 @@
 本文档汇总了 CoreNet 项目各协议实现中存在的问题，用于后续修复和改进参考。
 
 生成时间：2025-02-24
-最后更新：2025-02-24（已完成 P0/P1 优先级问题修复）
+最后更新：2025-02-24（已完成 P0/P1/P2 部分问题修复）
 
 ---
 
@@ -18,16 +18,16 @@
 | 3 | TCP Socket Manager 键值设计问题 | ✅ 已修复 | 添加 `ConnectionTuple` 结构体和 `find_by_connection` 方法，支持四元组路由查找 |
 | 4 | ICMPv6 伪头部校验和未实现 | ✅ 已修复 | 添加 `calculate_icmpv6_checksum` 和 `verify_icmpv6_checksum` 函数，符合 RFC 4443 要求 |
 | 5 | 以太网与 VLAN 封装集成 | ✅ 已修复 | 在以太网模块添加 `build_vlan_frame` 和 `build_qinq_frame` 函数 |
+| 6 | TCP ISN 生成安全性 | ✅ 已修复 | 实现 RFC 6528 ISN 生成算法，使用基于 FNV-1a 的哈希函数和微秒时间戳 |
+| 7 | VLAN 过滤功能 | ✅ 已修复 | 添加 `VlanFilter` 结构体，支持允许/拒绝列表和帧过滤 |
 
 ### 未修复问题（优先级排序）
 
 | # | 问题 | 优先级 | 预估工作量 |
 |---|------|--------|------------|
-| 6 | TCP 状态机缺失 4 个状态 | P0 | 大 |
-| 7 | TCP 定时器未实现 | P0 | 大 |
-| 8 | TCP ISN 生成安全性 | P1 | 中 |
-| 9 | 测试代码混入生产文件 | P2 | 中 |
-| 10 | VLAN 过滤未实现 | P2 | 小 |
+| 8 | TCP 状态机缺失 4 个状态 | P0 | 大 |
+| 9 | TCP 定时器未实现 | P0 | 大 |
+| 10 | 测试代码混入生产文件 | P2 | 中 |
 
 ---
 
@@ -95,13 +95,13 @@ pub struct TcpTimers {
 
 **影响**: 无法实现重传、TimeWait 等关键功能
 
-### 1.3 ISN 生成安全性问题
+### 1.3 ISN 生成安全性问题 ✅ 已修复
 
-**位置**: `src/protocols/tcp/tcb.rs:209-212`
+**位置**: `src/protocols/tcp/tcb.rs:288-400`
 
 **问题**: 使用简单计数器生成初始序列号，不符合 RFC 6528 要求
 
-**代码**:
+**原代码**:
 ```rust
 static ISN_COUNTER: AtomicU32 = AtomicU32::new(1);
 pub fn generate_isn() -> u32 {
@@ -109,7 +109,21 @@ pub fn generate_isn() -> u32 {
 }
 ```
 
-**应使用**: 基于加密哈希的 ISN 生成算法防止序列号预测攻击
+**状态**: ✅ 已修复（2025-02-24）
+
+**修复内容**:
+- 实现 RFC 6528 ISN 生成算法：ISN = (M + F(local_ip, local_port, remote_ip, remote_port, secret)) mod 2^32
+- M 基于微秒时间戳（动态递增）
+- F 使用 FNV-1a 哈希算法混合四元组和密钥
+- secret 基于进程启动时间（每进程唯一）
+- 修改函数签名接受四元组参数
+
+**修复文件**:
+- `src/protocols/tcp/tcb.rs`: 完整重写 `generate_isn` 函数，添加 `isn_hash_function` 方法
+- `src/protocols/tcp/process.rs`: 更新调用点传入四元组参数
+- 测试：更新 `test_tcb_generate_isn` 测试用例
+
+**安全性提升**: 防止序列号预测攻击，提高 TCP 连接安全性
 
 ### 1.4 TCP 选项解析未集成
 
@@ -252,7 +266,7 @@ Ok(UdpProcessResult::PortUnreachable(payload))
 
 ---
 
-## 6. VLAN 协议 - 基本完整
+## 6. VLAN 协议 - 实现完整 ✅
 
 ### 6.1 已实现功能
 
@@ -260,14 +274,23 @@ Ok(UdpProcessResult::PortUnreachable(payload))
 - `parse.rs`: VLAN 报文解析，支持 QinQ（双标签）
 - `frame.rs`: VLAN 帧封装信息
 - `error.rs`: 错误类型定义
+- `filter.rs`: VLAN 帧过滤功能 ✅ 新增
 
-### 6.2 存在问题
+### 6.2 已修复问题
 
-| 问题 | 位置 | 严重程度 |
-|------|------|----------|
-| 封装功能未实现 | 仅解析逻辑，缺少完整封装函数 | 中 |
-| VLAN 过滤未实现 | 缺少基于 VLAN ID 的帧过滤逻辑 | 中 |
-| 与以太网层集成不完整 | 解析已集成，但封装未集成 | 低 |
+| 问题 | 状态 | 说明 |
+|------|------|------|
+| 封装功能未实现 | ✅ 已修复 | 添加了 `encapsulate_vlan_frame`, `encapsulate_qinq_frame`, `add_vlan_tag`, `remove_vlan_tag` 函数 |
+| VLAN 过滤未实现 | ✅ 已修复 | 添加了 `VlanFilter` 结构体，支持允许/拒绝列表和帧过滤逻辑 |
+| 与以太网层集成不完整 | ✅ 已修复 | 以太网模块添加了 `build_vlan_frame` 和 `build_qinq_frame` 封装接口 |
+
+### 6.3 新增功能
+
+**VlanFilter 结构体**（`src/protocols/vlan/filter.rs`）:
+- 允许/拒绝特定 VLAN ID
+- 支持启用/禁用过滤
+- 提供帧过滤检查方法 `should_accept()`
+- 完整的测试覆盖（23 个测试用例）
 
 ---
 

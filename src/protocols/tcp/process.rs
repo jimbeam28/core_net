@@ -118,7 +118,8 @@ fn handle_syn_for_listen(
     drop(tcb_guard);
 
     // 创建新连接的 TCB 并保存到连接管理器
-    let iss = Tcb::generate_isn();
+    // 使用符合 RFC 6528 的 ISN 生成算法
+    let iss = Tcb::generate_isn(local_ip, local_port, source_ip, source_port);
     let irs = header.sequence_number;
 
     // 创建新连接 TCB
