@@ -192,11 +192,7 @@ pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, Vla
 /// 构造带单个 VLAN 标签的以太网帧。
 ///
 /// # 参数
-/// - dst_mac: 目标 MAC 地址
-/// - src_mac: 源 MAC 地址
-/// - vlan_tag: VLAN 标签
-/// - tpid: 标签协议标识符（默认 0x8100）
-/// - inner_type: 内层协议类型（如 0x0800 表示 IPv4）
+/// - params: VLAN 封装参数
 /// - payload: 负载数据
 ///
 /// # 返回
@@ -207,10 +203,6 @@ pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, Vla
 /// ```text
 /// | DA(6) | SA(6) | TPID(2) | TCI(2) | Type(2) | Payload | FCS(4) |
 /// ```
-///
-/// # 参数
-/// - params: VLAN 封装参数
-/// - payload: 负载数据
 pub fn encapsulate_vlan_frame_with_params(params: VlanEncapParams, payload: &[u8]) -> Vec<u8> {
     // 计算总长度：以太网头部(14) + VLAN标签(4) + 负载
     let total_len = 14 + 4 + payload.len();
@@ -233,46 +225,7 @@ pub fn encapsulate_vlan_frame_with_params(params: VlanEncapParams, payload: &[u8
     frame
 }
 
-/// 封装 VLAN 帧（单标签）- 便捷函数
-///
-/// 构造带单个 VLAN 标签的以太网帧。
-///
-/// # 参数
-/// - dst_mac: 目标 MAC 地址
-/// - src_mac: 源 MAC 地址
-/// - vlan_tag: VLAN 标签
-/// - tpid: 标签协议标识符（默认 0x8100）
-/// - inner_type: 内层协议类型（如 0x0800 表示 IPv4）
-/// - payload: 负载数据
-///
-/// # 返回
-/// - Vec<u8>: 完整的 VLAN 标记以太网帧
-///
-/// # 帧格式
-/// 注：本实现不包含 FCS（由硬件添加）
-/// ```text
-/// | DA(6) | SA(6) | TPID(2) | TCI(2) | Type(2) | Payload | FCS(4) |
-/// ```
-#[allow(clippy::too_many_arguments)]
-pub fn encapsulate_vlan_frame(
-    dst_mac: MacAddr,
-    src_mac: MacAddr,
-    vlan_tag: VlanTag,
-    tpid: u16,
-    inner_type: u16,
-    payload: &[u8],
-) -> Vec<u8> {
-    let params = VlanEncapParams {
-        dst_mac,
-        src_mac,
-        vlan_tag,
-        tpid,
-        inner_type,
-    };
-    encapsulate_vlan_frame_with_params(params, payload)
-}
-
-/// 封装 QinQ 帧（双标签）- 使用参数结构体版本
+/// 封装 QinQ 帧（双标签）
 ///
 /// 构造带双层 VLAN 标签的以太网帧（Q-in-Q）。
 ///
@@ -311,50 +264,6 @@ pub fn encapsulate_qinq_frame_with_params(params: QinQEncapParams, payload: &[u8
     frame.extend_from_slice(payload);
 
     frame
-}
-
-/// 封装 QinQ 帧（双标签）- 便捷函数
-///
-/// 构造带双层 VLAN 标签的以太网帧（Q-in-Q）。
-///
-/// # 参数
-/// - dst_mac: 目标 MAC 地址
-/// - src_mac: 源 MAC 地址
-/// - outer_tag: 外层 VLAN 标签（服务 VLAN）
-/// - outer_tpid: 外层 TPID（通常 0x9100 或 0x88A8）
-/// - inner_tag: 内层 VLAN 标签（用户 VLAN）
-/// - inner_tpid: 内层 TPID（通常 0x8100）
-/// - inner_type: 内层协议类型（如 0x0800 表示 IPv4）
-/// - payload: 负载数据
-///
-/// # 返回
-/// - Vec<u8>: 完整的 QinQ 标记以太网帧
-///
-/// # 帧格式
-/// ```text
-/// | DA(6) | SA(6) | OuterTPID(2) | OuterTCI(2) | InnerTPID(2) | InnerTCI(2) | Type(2) | Payload | FCS(4) |
-/// ```
-#[allow(clippy::too_many_arguments)]
-pub fn encapsulate_qinq_frame(
-    dst_mac: MacAddr,
-    src_mac: MacAddr,
-    outer_tag: VlanTag,
-    outer_tpid: u16,
-    inner_tag: VlanTag,
-    inner_tpid: u16,
-    inner_type: u16,
-    payload: &[u8],
-) -> Vec<u8> {
-    let params = QinQEncapParams {
-        dst_mac,
-        src_mac,
-        outer_tag,
-        outer_tpid,
-        inner_tag,
-        inner_tpid,
-        inner_type,
-    };
-    encapsulate_qinq_frame_with_params(params, payload)
 }
 
 /// 为现有以太网帧添加 VLAN 标签
@@ -450,14 +359,14 @@ mod encapsulation_tests {
         let vlan_tag = VlanTag::new(5, true, 100).unwrap();
         let payload = vec![0x08, 0x00, 0x45, 0x00]; // IP头部示例
 
-        let frame = encapsulate_vlan_frame(
+        let params = VlanEncapParams {
             dst_mac,
             src_mac,
             vlan_tag,
-            TPID_8021Q,
-            0x0800,
-            &payload,
-        );
+            tpid: TPID_8021Q,
+            inner_type: 0x0800,
+        };
+        let frame = encapsulate_vlan_frame_with_params(params, &payload);
 
         // 验证帧长度：14 + 4 + 4 = 22
         assert_eq!(frame.len(), 22);
@@ -492,16 +401,16 @@ mod encapsulation_tests {
         let inner_tag = VlanTag::new(5, true, 100).unwrap();
         let payload = vec![0x08, 0x00, 0x45, 0x00];
 
-        let frame = encapsulate_qinq_frame(
+        let params = QinQEncapParams {
             dst_mac,
             src_mac,
             outer_tag,
-            TPID_QINQ,
+            outer_tpid: TPID_QINQ,
             inner_tag,
-            TPID_8021Q,
-            0x0800,
-            &payload,
-        );
+            inner_tpid: TPID_8021Q,
+            inner_type: 0x0800,
+        };
+        let frame = encapsulate_qinq_frame_with_params(params, &payload);
 
         // 验证帧长度：14 + 8 + 4 = 26
         assert_eq!(frame.len(), 26);

@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn test_vlan_filter_new() {
         let filter = VlanFilter::new(false);
-        assert_eq!(filter.is_enabled(), false);
+        assert!(!filter.is_enabled());
         assert_eq!(filter.allowed_count(), 0);
         assert_eq!(filter.denied_count(), 0);
     }
@@ -225,31 +225,31 @@ mod tests {
     #[test]
     fn test_vlan_filter_default() {
         let filter = VlanFilter::default();
-        assert_eq!(filter.is_enabled(), false);
+        assert!(!filter.is_enabled());
     }
 
     #[test]
     fn test_vlan_filter_disabled() {
         let filter = VlanFilter::disabled();
-        assert_eq!(filter.is_enabled(), false);
+        assert!(!filter.is_enabled());
     }
 
     #[test]
     fn test_vlan_filter_enabled() {
         let filter = VlanFilter::enabled();
-        assert_eq!(filter.is_enabled(), true);
+        assert!(filter.is_enabled());
     }
 
     #[test]
     fn test_enable_disable() {
         let mut filter = VlanFilter::disabled();
-        assert_eq!(filter.is_enabled(), false);
+        assert!(!filter.is_enabled());
 
         filter.enable();
-        assert_eq!(filter.is_enabled(), true);
+        assert!(filter.is_enabled());
 
         filter.disable();
-        assert_eq!(filter.is_enabled(), false);
+        assert!(!filter.is_enabled());
     }
 
     #[test]

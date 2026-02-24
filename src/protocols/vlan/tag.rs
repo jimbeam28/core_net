@@ -141,11 +141,6 @@ impl VlanTag {
 
         Ok(())
     }
-
-    /// 追加VLAN标签到Packet末尾
-    pub fn append_to_packet(&self, packet: &mut Packet, tpid: u16) -> Result<(), VlanError> {
-        self.write_to_packet(packet, tpid)
-    }
 }
 
 // 实现Default trait

@@ -1,6 +1,6 @@
 // Poweron 模块集成测试
 
-use core_net::poweron::{boot_default, shutdown};
+use core_net::poweron::shutdown;
 use core_net::context::SystemContext;
 use core_net::interface::{InterfaceState, Ipv4Addr, MacAddr};
 use serial_test::serial;
@@ -43,7 +43,7 @@ fn count_all_packets(context: &SystemContext) -> usize {
 #[test]
 #[serial]
 fn test_complete_lifecycle() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     assert!(context.interface_count() > 0, "系统应该至少有一个接口");
 
@@ -73,15 +73,15 @@ fn test_complete_lifecycle() {
 
 #[test]
 #[serial]
-fn test_boot_default_creates_context() {
-    let context = boot_default();
+fn test_from_config_creates_context() {
+    let context = SystemContext::from_config();
     assert!(context.interface_count() > 0);
 }
 
 #[test]
 #[serial]
 fn test_shutdown_clears_queues() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
     inject_packets(&context, "eth0", 5);
     assert!(count_all_packets(&context) > 0);
     shutdown(&context);
@@ -92,7 +92,7 @@ fn test_shutdown_clears_queues() {
 #[serial]
 fn test_multiple_boot_shutdown_cycles() {
     for i in 0..3 {
-        let context = boot_default();
+        let context = SystemContext::from_config();
         assert!(context.interface_count() > 0, "第 {} 次上电应该成功", i + 1);
         shutdown(&context);
         assert_eq!(count_all_packets(&context), 0, "第 {} 次下电应清理所有队列", i + 1);
@@ -104,7 +104,7 @@ fn test_multiple_boot_shutdown_cycles() {
 #[test]
 #[serial]
 fn test_context_get_interface() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     let guard = context.interfaces.lock().unwrap();
     let eth0 = guard.get_by_name("eth0");
@@ -122,7 +122,7 @@ fn test_context_get_interface() {
 #[test]
 #[serial]
 fn test_context_get_interface_mut() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     let mut guard = context.interfaces.lock().unwrap();
     if let Ok(iface) = guard.get_by_name_mut("eth0") {
@@ -140,7 +140,7 @@ fn test_context_get_interface_mut() {
 #[test]
 #[serial]
 fn test_context_interface_up_down() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     let mut guard = context.interfaces.lock().unwrap();
     if let Ok(iface) = guard.get_by_name_mut("eth0") {
@@ -155,7 +155,7 @@ fn test_context_interface_up_down() {
 #[test]
 #[serial]
 fn test_context_multiple_modifications() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     let (original_ip, original_netmask, original_mtu) = {
         let guard = context.interfaces.lock().unwrap();
@@ -209,7 +209,7 @@ fn test_context_multiple_modifications() {
 #[test]
 #[serial]
 fn test_context_interface_properties() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     let guard = context.interfaces.lock().unwrap();
 
@@ -232,7 +232,7 @@ fn test_context_interface_properties() {
 #[test]
 #[serial]
 fn test_context_get_interface_by_index() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     let guard = context.interfaces.lock().unwrap();
     let iface0 = guard.get_by_index(0);
@@ -249,7 +249,7 @@ fn test_context_get_interface_by_index() {
 #[test]
 #[serial]
 fn test_context_queue_operations() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     // 初始队列为空
     {

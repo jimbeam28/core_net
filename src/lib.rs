@@ -37,10 +37,7 @@ pub use common::{
 };
 
 // 重新导出上电启动模块
-pub use poweron::{
-    boot_default,
-    shutdown,
-};
+pub use poweron::shutdown;
 
 // 重新导出系统上下文（新的依赖注入方式）
 pub use context::SystemContext as Context;

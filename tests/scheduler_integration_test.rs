@@ -3,7 +3,7 @@
 use core_net::common::{MacAddr, Ipv4Addr};
 use core_net::engine::PacketProcessor;
 use core_net::interface::InterfaceManager;
-use core_net::poweron::{boot_default, shutdown};
+use core_net::poweron::shutdown;
 use core_net::scheduler::Scheduler;
 use core_net::interface::{InterfaceConfig, InterfaceState};
 use core_net::protocols::Ipv6Addr;
@@ -199,7 +199,7 @@ fn test_multi_interface_all_empty() {
 #[test]
 #[serial]
 fn test_boot_schedule_shutdown_cycle() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     assert!(context.interface_count() > 0, "系统应启动并加载接口");
 
@@ -253,7 +253,7 @@ fn test_boot_schedule_shutdown_cycle() {
 #[test]
 #[serial]
 fn test_boot_with_arp_schedule_shutdown() {
-    let context = boot_default();
+    let context = SystemContext::from_config();
 
     let scheduler = Scheduler::new("BootArpTestScheduler".to_string())
         .with_processor(PacketProcessor::with_context(context.clone()));
@@ -280,7 +280,7 @@ fn test_boot_with_arp_schedule_shutdown() {
 #[serial]
 fn test_multiple_boot_schedule_cycles() {
     for i in 0..3 {
-        let context = boot_default();
+        let context = SystemContext::from_config();
         let scheduler = Scheduler::new(format!("Cycle{}Scheduler", i))
             .with_processor(PacketProcessor::with_context(context.clone()));
 

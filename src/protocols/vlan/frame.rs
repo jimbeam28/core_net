@@ -1,4 +1,4 @@
-// src/common/protocols/vlan/frame.rs
+// src/protocols/vlan/frame.rs
 //
 // VLAN帧封装信息结构
 
@@ -33,15 +33,5 @@ impl VlanFrame {
             tag,
             tpid: 0x8100,
         }
-    }
-
-    /// 获取VLAN标签
-    pub fn tag(&self) -> VlanTag {
-        self.tag
-    }
-
-    /// 获取TPID
-    pub fn tpid(&self) -> u16 {
-        self.tpid
     }
 }

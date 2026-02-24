@@ -612,10 +612,10 @@ fn test_vlan_frame_structure() {
     let tag = VlanTag::new(5, true, 1234).unwrap();
     let frame = VlanFrame::new(tag, 0x9100);
 
-    assert_eq!(frame.tpid(), 0x9100);
-    assert_eq!(frame.tag().vid, 1234);
-    assert_eq!(frame.tag().pcp, 5);
-    assert!(frame.tag().dei);
+    assert_eq!(frame.tpid, 0x9100);
+    assert_eq!(frame.tag.vid, 1234);
+    assert_eq!(frame.tag.pcp, 5);
+    assert!(frame.tag.dei);
 }
 
 #[test]
@@ -624,7 +624,7 @@ fn test_vlan_frame_standard_8021q() {
     let tag = VlanTag::new(0, false, 100).unwrap();
     let frame = VlanFrame::standard_8021q(tag);
 
-    assert_eq!(frame.tpid(), 0x8100);
+    assert_eq!(frame.tpid, 0x8100);
 }
 
 // ========== 8.6 测试框架使用 ==========

@@ -1,4 +1,4 @@
-// src/common/protocols/vlan/mod.rs
+// src/protocols/vlan/mod.rs
 //
 // VLAN模块入口
 // 负责802.1Q VLAN标签的解析和封装
@@ -25,9 +25,7 @@ pub use parse::{
     TPID_8021AD,
     VlanEncapParams,
     QinQEncapParams,
-    encapsulate_vlan_frame,
     encapsulate_vlan_frame_with_params,
-    encapsulate_qinq_frame,
     encapsulate_qinq_frame_with_params,
     add_vlan_tag,
     remove_vlan_tag,

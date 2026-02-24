@@ -1,11 +1,14 @@
 /// 上电启动模块
 ///
-/// 负责系统资源的初始化和释放
+/// 负责系统资源的释放
 ///
 /// 注意：接口配置文件路径由 interface 模块自己管理
 use crate::context::SystemContext;
 
 /// 下电释放 - 清空所有接口的队列并释放内存
+///
+/// # 参数
+/// - context: 系统上下文的引用
 pub fn shutdown(context: &SystemContext) {
     let mut guard = match context.interfaces.lock() {
         Ok(g) => g,
@@ -16,11 +19,6 @@ pub fn shutdown(context: &SystemContext) {
         iface.rxq.clear();
         iface.txq.clear();
     }
-}
-
-/// 使用默认配置启动系统
-pub fn boot_default() -> SystemContext {
-    SystemContext::from_config()
 }
 
 // ========== 单元测试 ==========
@@ -109,11 +107,11 @@ mod tests {
         }
     }
 
-    // ========== boot_default() 测试组 ==========
+    // ========== SystemContext::from_config() 测试组 ==========
 
     #[test]
-    fn test_boot_default_success() {
-        let context = boot_default();
+    fn test_from_config_success() {
+        let context = SystemContext::from_config();
 
         // 验证上下文创建成功
         assert!(context.interface_count() > 0);
@@ -123,8 +121,8 @@ mod tests {
     }
 
     #[test]
-    fn test_boot_default_loads_interfaces() {
-        let context = boot_default();
+    fn test_from_config_loads_interfaces() {
+        let context = SystemContext::from_config();
 
         // 根据默认配置文件，应该至少有一个接口
         assert!(context.interface_count() >= 1);
@@ -139,8 +137,8 @@ mod tests {
     }
 
     #[test]
-    fn test_boot_default_interface_properties() {
-        let context = boot_default();
+    fn test_from_config_interface_properties() {
+        let context = SystemContext::from_config();
 
         // 验证 eth0 接口属性（如果存在）
         if let Some((name, mac, ip, mtu)) = get_interface_properties(&context, "eth0") {
@@ -159,8 +157,8 @@ mod tests {
     }
 
     #[test]
-    fn test_boot_default_initializes_queues() {
-        let context = boot_default();
+    fn test_from_config_initializes_queues() {
+        let context = SystemContext::from_config();
 
         // 验证所有接口的队列都已初始化
         let guard = context.interfaces.lock().unwrap();
@@ -176,10 +174,10 @@ mod tests {
     }
 
     #[test]
-    fn test_boot_default_multiple_calls() {
-        // 多次调用 boot_default() 应该都能成功
-        let context1 = boot_default();
-        let context2 = boot_default();
+    fn test_from_config_multiple_calls() {
+        // 多次调用 SystemContext::from_config() 应该都能成功
+        let context1 = SystemContext::from_config();
+        let context2 = SystemContext::from_config();
 
         // 两个上下文应该有相同数量的接口
         assert_eq!(context1.interface_count(), context2.interface_count());
@@ -189,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_shutdown_clears_queues() {
-        let context = boot_default();
+        let context = SystemContext::from_config();
 
         // 向队列中注入报文
         inject_packets_to_rxq(&context, "eth0", 10);
@@ -218,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_shutdown_multiple_interfaces() {
-        let context = boot_default();
+        let context = SystemContext::from_config();
 
         // 向多个接口的队列注入报文
         if context.interface_count() >= 2 {
@@ -241,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_shutdown_idempotent() {
-        let context = boot_default();
+        let context = SystemContext::from_config();
 
         // 第一次 shutdown
         shutdown(&context);
@@ -255,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_shutdown_with_full_queue() {
-        let context = boot_default();
+        let context = SystemContext::from_config();
 
         // 填满一个队列
         {
@@ -279,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_shutdown_memory_release() {
-        let context = boot_default();
+        let context = SystemContext::from_config();
 
         // 注入大量报文
         inject_packets_to_rxq(&context, "eth0", 100);
@@ -297,7 +295,7 @@ mod tests {
     #[test]
     fn test_boot_shutdown_cycle() {
         // 完整的上电下电循环
-        let context = boot_default();
+        let context = SystemContext::from_config();
 
         // 验证系统正常运行
         assert!(context.interface_count() > 0);
@@ -314,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_boot_modify_shutdown() {
-        let context = boot_default();
+        let context = SystemContext::from_config();
 
         // 修改接口配置
         {
@@ -337,7 +335,7 @@ mod tests {
     fn test_multiple_boot_cycles() {
         // 多次上电下电循环
         for _ in 0..3 {
-            let context = boot_default();
+            let context = SystemContext::from_config();
             assert!(context.interface_count() > 0);
             shutdown(&context);
         }
