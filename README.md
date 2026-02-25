@@ -117,11 +117,14 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 - **应用层**
   - ✅ Socket API - POSIX风格API（socket、bind、listen、accept、connect、send、sendto、recv、recvfrom、close）
 
+- **动态路由协议**
+  - ✅ OSPFv2 (RFC 2328) - Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
+  - ✅ OSPFv3 (RFC 5340) - OSPF for IPv6，支持链路本地地址、OSPFv3 LSA类型
+  - ✅ BGP-4 (RFC 4271) - Open/Update/Notification/Keepalive报文、状态机、对等体管理、RIB、路径属性
+
 ### 计划中 ⏳
 - **网络层**
   - ⏳ IPSec 支持（ESP/AH扩展头）
-- **应用层**
-  - ⏳ 动态路由协议（OSPF、BGP等）
 
 ## 目录结构
 
@@ -186,7 +189,11 @@ core_net/
 │   │   ├── icmp/              # ICMP 协议 ✅
 │   │   ├── icmpv6/            # ICMPv6 协议 ✅
 │   │   ├── udp/               # UDP 协议 ✅
-│   │   └── tcp/               # TCP 协议 ✅
+│   │   ├── tcp/               # TCP 协议 ✅
+│   │   ├── ospf/              # OSPF 共享核心模块 ✅
+│   │   ├── ospf2/             # OSPFv2 协议 ✅
+│   │   ├── ospf3/             # OSPFv3 协议 ✅
+│   │   └── bgp/               # BGP-4 协议 ✅
 │   ├── socket/                # Socket API ✅（完整 POSIX 实现）
 │   │   ├── types.rs           # Socket 类型定义
 │   │   ├── entry.rs           # Socket 表项
@@ -250,6 +257,10 @@ core_net/
 - `icmpv6` - ICMPv6 协议（Echo、NDP、错误报告）
 - `udp` - UDP 协议、UdpSocket、UdpPortManager（RFC 768）
 - `tcp` - TCP 协议、TcpSocket、连接管理、拥塞控制（RFC 793, RFC 9293）
+- `ospf` - OSPF 共享核心模块（SPF算法、DR/BDR选举、LSA洪泛）
+- `ospf2` - OSPFv2 协议（RFC 2328）
+- `ospf3` - OSPFv3 协议（RFC 5340）
+- `bgp` - BGP-4 协议（RFC 4271）
 
 ### socket
 POSIX风格 Socket API 实现（应用层网络接口）：
@@ -359,9 +370,33 @@ cargo clippy
 
 **目标**：支持完整的 IP 分片重组、IPv6 扩展头和 Socket API ✅ 已实现
 
-### 阶段六：高级网络功能（计划中）
+### 阶段六：动态路由协议 ✅
+- [x] OSPFv2 协议
+  - [x] 报文解析/封装（Hello、DD、LSR、LSU、LSAck）
+  - [x] LSA 类型支持
+  - [x] 接口状态机
+  - [x] 邻居状态机
+  - [x] LSDB 管理
+  - [x] SPF 算法
+  - [x] DR/BDR 选举
+  - [x] 定时器管理
+- [x] OSPFv3 协议
+  - [x] 报文解析/封装
+  - [x] OSPFv3 LSA 类型
+  - [x] IPv6 支持
+  - [x] 接口/邻居状态机
+  - [x] LSDB 管理
+- [x] BGP-4 协议
+  - [x] 报文解析/封装
+  - [x] 状态机
+  - [x] 对等体管理
+  - [x] RIB 管理
+  - [x] 定时器管理
+
+**目标**：支持 OSPFv2、OSPFv3 和 BGP-4 动态路由协议 ✅ 已实现
+
+### 阶段七：高级网络功能（计划中）
 - [ ] IPSec 支持（ESP/AH扩展头）
-- [ ] 动态路由协议
 
 ---
 
@@ -384,7 +419,7 @@ cargo clippy
 - UDP 协议: 100%（数据报解析/封装、端口绑定、Socket API、回调机制、端口不可达响应）
 - TCP 协议: 100%（完整状态机、拥塞控制、定时器管理）
 
-**整体项目完成度: ~99%**
+**整体项目完成度: ~99%**（不含 IPSec）
 
 ## 设计文档
 
@@ -414,6 +449,9 @@ cargo clippy
 - [ICMPv6 协议设计](docs/design/protocols/icmpv6.md) - ICMPv6 协议实现
 - [TCP 协议设计](docs/design/protocols/tcp.md) - TCP 协议实现
 - [UDP 协议设计](docs/design/protocols/udp.md) - UDP 协议实现
+- [OSPFv2 协议设计](docs/design/protocols/ospf.md) - OSPFv2 协议实现
+- [OSPFv3 协议设计](docs/design/protocols/ospfv3.md) - OSPFv3 协议实现
+- [BGP 协议设计](docs/design/protocols/bgp.md) - BGP-4 协议实现
 - [Socket API 设计](docs/design/socket.md) - Socket API 实现
 
 ## 参考资料
@@ -431,6 +469,9 @@ cargo clippy
 | ICMPv6 | RFC 4443 | ICMPv6 | ✅ 已实现（Echo、NDP） |
 | TCP | RFC 793, RFC 9293 | 传输控制协议 | ✅ 已实现（完整状态机、拥塞控制、Socket API） |
 | UDP | RFC 768 | 用户数据报协议 | ✅ 已实现（Socket API、回调机制） |
+| OSPFv2 | RFC 2328 | 开放最短路径优先 v2 | ✅ 已实现（状态机、LSDB、SPF） |
+| OSPFv3 | RFC 5340 | OSPF for IPv6 | ✅ 已实现（状态机、LSDB、SPF） |
+| BGP-4 | RFC 4271 | 边界网关协议 4 | ✅ 已实现（状态机、RIB、对等体管理） |
 | Socket API | POSIX | Socket API | ✅ 已实现（完整 POSIX 风格 API） |
 
 ## 开发日志

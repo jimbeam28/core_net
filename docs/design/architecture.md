@@ -18,6 +18,7 @@
 - ✅ IP分片与重组（IPv4/IPv6）
 - ✅ IPv6扩展头（逐跳选项、路由、分片、目的选项）
 - ✅ Socket API（bind、connect、send、recv、close等）
+- ✅ 动态路由协议（OSPFv2、OSPFv3、BGP-4）
 
 ---
 
@@ -531,6 +532,121 @@ protocols/udp/
 
 ---
 
+#### 3.5.10 OSPFv2 模块
+
+```
+protocols/ospf2/
+├── mod.rs       # 模块入口
+├── packet.rs    # OSPF 报文结构
+├── lsa.rs       # LSA 类型定义
+├── error.rs     # 错误类型
+├── config.rs    # 配置
+├── process.rs   # 报文处理
+├── interface.rs # 接口状态机
+├── neighbor.rs  # 邻居状态机
+└── lsdb.rs      # 链路状态数据库
+
+protocols/ospf/   # 共享核心模块
+├── spf.rs        # SPF 算法
+├── flooding.rs   # LSA 洪泛
+├── election.rs   # DR/BDR 选举
+├── types.rs      # 共享类型
+├── config.rs     # 共享配置
+├── manager.rs    # OSPF 管理器
+└── checksum.rs   # 校验和计算
+```
+
+**核心功能**：
+- OSPF 报文解析和封装（Hello、DD、LSR、LSU、LSAck）
+- LSA 类型支持（Router-LSA、Network-LSA、Summary-LSA、AS-External-LSA）
+- 接口状态机（Down、Loopback、Waiting、Point-to-Point、DR、BDR、Other）
+- 邻居状态机（Down、Attempt、Init、2-Way、ExStart、Exchange、Loading、Full）
+- 链路状态数据库（LSDB）管理
+- SPF 算法实现（Dijkstra）
+- DR/BDR 选举算法
+- LSA 洪泛机制
+- 定时器管理（Hello、Dead、Poll、Retransmit）
+
+**已实现**：
+- ✅ 报文解析/封装
+- ✅ LSA 类型
+- ✅ 接口状态机
+- ✅ 邻居状态机
+- ✅ LSDB 管理
+- ✅ SPF 算法
+- ✅ DR/BDR 选举
+- ✅ 定时器管理
+
+---
+
+#### 3.5.11 OSPFv3 模块
+
+```
+protocols/ospf3/
+├── mod.rs       # 模块入口
+├── packet.rs    # OSPFv3 报文结构
+├── lsa.rs       # OSPFv3 LSA 类型
+├── error.rs     # 错误类型
+├── config.rs    # 配置
+├── interface.rs # 接口状态机
+├── neighbor.rs  # 邻居状态机
+├── lsdb.rs      # 链路状态数据库
+└── process.rs   # 报文处理
+```
+
+**核心功能**：
+- OSPFv3 报文解析和封装（Hello、DD、LSR、LSU、LSAck）
+- OSPFv3 LSA 类型（Router-LSA、Network-LSA、Inter-Area-Prefix-LSA、Inter-Area-Router-LSA、AS-External-LSA、Link-LSA、Intra-Area-Prefix-LSA）
+- IPv6 链路本地地址支持
+- 接口状态机（与 OSPFv2 类似）
+- 邻居状态机（与 OSPFv2 类似）
+- 链路状态数据库管理
+- 定时器管理
+
+**已实现**：
+- ✅ 报文解析/封装
+- ✅ LSA 类型
+- ✅ 接口状态机
+- ✅ 邻居状态机
+- ✅ LSDB 管理
+- ✅ 定时器管理
+
+---
+
+#### 3.5.12 BGP 模块
+
+```
+protocols/bgp/
+├── mod.rs       # 模块入口
+├── message.rs   # BGP 消息类型
+├── packet.rs    # BGP 报文解析/封装
+├── error.rs     # 错误类型
+├── config.rs    # 配置
+├── peer.rs      # 对等体管理
+├── rib.rs       # 路由信息库
+├── timer.rs     # 定时器管理
+└── process.rs   # 报文处理
+```
+
+**核心功能**：
+- BGP-4 报文解析和封装（Open、Update、Notification、Keepalive、Route-Refresh）
+- BGP 状态机（Idle、Connect、Active、OpenSent、OpenConfirm、Established）
+- 对等体管理（IBGP/EBGP）
+- 路径属性处理（AS_PATH、NEXT_HOP、LOCAL_PREF、MED 等）
+- RIB 管理（Adj-RIB-In、Loc-RIB、Adj-RIB-Out）
+- 路由策略和过滤
+- 定时器管理（Connect Retry、Keepalive、Hold）
+- 路由通告和撤销
+
+**已实现**：
+- ✅ 报文解析/封装
+- ✅ 状态机
+- ✅ 对等体管理
+- ✅ RIB 管理
+- ✅ 定时器管理
+
+---
+
 ### 3.6 路由模块 (Route)
 
 ```
@@ -828,6 +944,9 @@ pub struct RingQueue<T> {
 | 网络层 | ICMP | RFC 792 | ✅ 已实现 |
 | 网络层 | ICMPv6 | RFC 4443 | ✅ 已实现（Echo、NDP） |
 | 路由 | 路由表 | - | ✅ 已实现（最长前缀匹配） |
+| 路由 | OSPFv2 | RFC 2328 | ✅ 已实现（状态机、LSDB、SPF） |
+| 路由 | OSPFv3 | RFC 5340 | ✅ 已实现（状态机、LSDB、SPF） |
+| 路由 | BGP-4 | RFC 4271 | ✅ 已实现（状态机、RIB） |
 | 链路层 | Ethernet | IEEE 802.3 | ✅ 已实现 |
 | 链路层 | VLAN | IEEE 802.1Q | ✅ 已实现 |
 | 链路层 | ARP | RFC 826 | ✅ 已实现 |
@@ -837,12 +956,14 @@ pub struct RingQueue<T> {
 - **UDP**: 端口绑定、数据报收发、Socket API、回调机制、端口不可达响应
 - **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持、分片与重组、扩展头支持
 - **路由**: IPv4/IPv6路由表、最长前缀匹配（LPM）
+- **OSPFv2**: Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
+- **OSPFv3**: 与OSPFv2类似功能，支持IPv6链路本地地址、OSPFv3 LSA类型
+- **BGP-4**: Open/Update/Notification/Keepalive报文、状态机、对等体管理、RIB、路径属性
 - **Socket API**: POSIX风格API（socket, bind, listen, accept, connect, send, recv, close）
 - **IP分片**: IPv4/IPv6分片与重组（超时处理、重叠检测）
 
 **未实现功能**：
 - IPSec（ESP/AH扩展头返回错误）
-- 动态路由协议（OSPF、BGP等）
 
 ---
 
@@ -897,5 +1018,8 @@ pub struct RingQueue<T> {
 - [ICMPv6 协议设计](protocols/icmpv6.md) - ICMPv6 协议实现
 - [TCP 协议设计](protocols/tcp.md) - TCP 协议实现
 - [UDP 协议设计](protocols/udp.md) - UDP 协议实现
+- [OSPFv2 协议设计](protocols/ospf.md) - OSPFv2 协议实现
+- [OSPFv3 协议设计](protocols/ospfv3.md) - OSPFv3 协议实现
+- [BGP 协议设计](protocols/bgp.md) - BGP-4 协议实现
 - [路由模块设计](route.md) - 路由表和最长前缀匹配
 - [Socket API 设计](socket.md) - Socket API 实现
