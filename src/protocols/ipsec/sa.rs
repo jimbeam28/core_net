@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use crate::common::addr::IpAddr;
-use super::{IpsecError, IpsecResult};
+use super::IpsecResult;
+use super::{ah, esp};
 
 // ========== 方向和模式 ==========
 
@@ -106,6 +107,50 @@ impl CipherTransform {
             Self::AesGcm { .. } => 16,
             Self::Null => 1,
         }
+    }
+
+    /// 加密数据（简化实现）
+    ///
+    /// 注意：这是模拟实现，使用 XOR 和简单置换
+    /// 实际应用中应使用真正的加密库（如 RustCrypto）
+    pub fn encrypt(&self, plaintext: &[u8], key: &[u8]) -> Vec<u8> {
+        if matches!(self, Self::Null) || key.is_empty() {
+            return plaintext.to_vec();
+        }
+
+        let mut ciphertext = Vec::with_capacity(plaintext.len());
+
+        // 简化的流加密：使用密钥进行 XOR 操作，加上简单的位置混淆
+        for (i, &byte) in plaintext.iter().enumerate() {
+            let key_byte = key[i % key.len()];
+            // 简单的位置混淆 + XOR
+            let obfuscate = ((i as u8).wrapping_mul(17)).wrapping_add(73);
+            let encrypted = byte ^ key_byte ^ obfuscate;
+            ciphertext.push(encrypted);
+        }
+
+        ciphertext
+    }
+
+    /// 解密数据（简化实现）
+    ///
+    /// 注意：这是模拟实现，与 encrypt() 对应
+    pub fn decrypt(&self, ciphertext: &[u8], key: &[u8]) -> Vec<u8> {
+        if matches!(self, Self::Null) || key.is_empty() {
+            return ciphertext.to_vec();
+        }
+
+        let mut plaintext = Vec::with_capacity(ciphertext.len());
+
+        // 简化的流解密：逆向加密操作
+        for (i, &byte) in ciphertext.iter().enumerate() {
+            let key_byte = key[i % key.len()];
+            let obfuscate = ((i as u8).wrapping_mul(17)).wrapping_add(73);
+            let decrypted = byte ^ key_byte ^ obfuscate;
+            plaintext.push(decrypted);
+        }
+
+        plaintext
     }
 }
 
@@ -268,14 +313,11 @@ impl SecurityAssociation {
     /// 检查重放
     pub fn check_replay(&mut self, seq: u64) -> bool {
         if seq > self.rx_sequence {
-            // 新序列号
+            // 新的最高序列号
             self.rx_sequence = seq;
-            self.replay_window.reset();
-            true
-        } else {
-            // 检查重放窗口
-            self.replay_window.check_and_mark(seq, self.rx_sequence)
         }
+        // check_and_mark 内部会自动滑动窗口
+        self.replay_window.check_and_mark(seq, self.rx_sequence)
     }
 
     /// 获取下一个发送序列号
@@ -283,6 +325,58 @@ impl SecurityAssociation {
         let seq = self.tx_sequence;
         self.tx_sequence += 1;
         seq
+    }
+
+    /// 封装出站数据包
+    ///
+    /// 根据协议类型和模式封装数据包
+    ///
+    /// # 参数
+    /// - `payload`: 原始载荷数据
+    /// - `next_header`: 上层协议号
+    pub fn encapsulate_outbound(
+        &mut self,
+        payload: Vec<u8>,
+        next_header: u8,
+    ) -> IpsecResult<(Vec<u8>, u8)> {
+        match self.protocol {
+            IpsecProtocol::Ah => {
+                let icv_len = self.auth.icv_size();
+                let header = ah::AhHeader::new(
+                    next_header,
+                    self.spi,
+                    self.next_sequence() as u32,
+                    icv_len,
+                );
+                let icv = ah::AhPacket::compute_icv(&payload, &self.auth_key, icv_len);
+                let ah_packet = ah::AhPacket {
+                    header,
+                    icv,
+                    payload,
+                };
+
+                Ok((ah_packet.to_bytes(), ah::IP_PROTO_AH))
+            }
+            IpsecProtocol::Esp => {
+                // 先获取序列号和加密参数
+                let seq = self.next_sequence() as u32;
+                let block_size = self.cipher.as_ref().map_or(1, |c| c.block_size());
+                let cipher = self.cipher.clone();
+                let key = self.cipher_key.clone();
+
+                let esp_packet = esp::EspPacket::create_encrypted(
+                    self.spi,
+                    seq,
+                    payload,
+                    next_header,
+                    block_size,
+                    cipher.as_ref(),
+                    key.as_deref().unwrap_or(&[]),
+                );
+
+                Ok((esp_packet.to_bytes(), esp::IP_PROTO_ESP))
+            }
+        }
     }
 }
 
@@ -293,6 +387,8 @@ pub struct ReplayWindow {
     window_size: u64,
     /// 位图（最多支持 1024 位）
     bitmap: Vec<u64>,
+    /// 当前窗口左边界（最高序列号 - 窗口大小 + 1）
+    window_left: u64,
 }
 
 impl ReplayWindow {
@@ -302,6 +398,7 @@ impl ReplayWindow {
         Self {
             window_size: window_size as u64,
             bitmap: vec![0u64; words],
+            window_left: 0,
         }
     }
 
@@ -310,17 +407,118 @@ impl ReplayWindow {
         for word in &mut self.bitmap {
             *word = 0;
         }
+        self.window_left = 0;
     }
 
-    /// 检查并标记序列号
-    pub fn check_and_mark(&mut self, seq: u64, highest: u64) -> bool {
-        if seq > highest {
-            return true;
+    /// 滑动窗口到新的最高序列号
+    pub fn slide_to(&mut self, new_highest: u64) {
+        if new_highest <= self.window_left + self.window_size - 1 {
+            // 新序列号在当前窗口内，无需滑动
+            return;
         }
 
-        let offset = highest - seq;
+        let old_left = self.window_left;
+        let new_left = new_highest.saturating_sub(self.window_size) + 1;
+        self.window_left = new_left;
+
+        if new_left > old_left + self.window_size {
+            // 窗口完全移出，全部重置
+            self.reset();
+            return;
+        }
+
+        // 计算需要移动的位数
+        let shift = (new_left - old_left) as usize;
+
+        // 滑动位图
+        let word_shift = shift / 64;
+        let bit_shift = shift % 64;
+
+        if bit_shift == 0 {
+            // 简单情况：只需移动字
+            for i in 0..self.bitmap.len() {
+                if i + word_shift < self.bitmap.len() {
+                    self.bitmap[i] = self.bitmap[i + word_shift];
+                } else {
+                    self.bitmap[i] = 0;
+                }
+            }
+        } else {
+            // 复杂情况：需要移动位
+            for i in 0..self.bitmap.len() {
+                let low = if i + word_shift < self.bitmap.len() {
+                    self.bitmap[i + word_shift] >> bit_shift
+                } else {
+                    0
+                };
+                let high = if i + word_shift + 1 < self.bitmap.len() {
+                    self.bitmap[i + word_shift + 1] << (64 - bit_shift)
+                } else {
+                    0
+                };
+                self.bitmap[i] = low | high;
+            }
+        }
+    }
+
+    /// 检查并标记序列号（滑动窗口版本）
+    pub fn check_and_mark(&mut self, seq: u64, highest: u64) -> bool {
+        // 序列号超出窗口
+        if seq < self.window_left {
+            return false; // 太旧，已被窗口移出
+        }
+
+        // 计算新的窗口左边界
+        let new_left = if highest >= self.window_size {
+            highest - self.window_size + 1
+        } else {
+            0
+        };
+
+        // 只有当新边界大于当前边界时才滑动窗口
+        if new_left > self.window_left {
+            let shift = (new_left - self.window_left) as usize;
+            self.window_left = new_left;
+
+            // 滑动位图
+            let word_shift = shift / 64;
+            let bit_shift = shift % 64;
+
+            if bit_shift == 0 {
+                // 简单情况：只需移动字
+                for i in 0..self.bitmap.len() {
+                    if i + word_shift < self.bitmap.len() {
+                        self.bitmap[i] = self.bitmap[i + word_shift];
+                    } else {
+                        self.bitmap[i] = 0;
+                    }
+                }
+            } else {
+                // 复杂情况：需要移动位
+                for i in 0..self.bitmap.len() {
+                    let low = if i + word_shift < self.bitmap.len() {
+                        self.bitmap[i + word_shift] >> bit_shift
+                    } else {
+                        0
+                    };
+                    let high = if i + word_shift + 1 < self.bitmap.len() {
+                        self.bitmap[i + word_shift + 1] << (64 - bit_shift)
+                    } else {
+                        0
+                    };
+                    self.bitmap[i] = low | high;
+                }
+            }
+        }
+
+        // 检查序列号是否在窗口内
+        if seq < self.window_left {
+            return false; // 滑动后已被移出窗口
+        }
+
+        let offset = seq - self.window_left;
         if offset >= self.window_size {
-            return false; // 超出窗口
+            return false; // 超出窗口右边界
         }
 
         let word = (offset / 64) as usize;
@@ -572,6 +770,7 @@ impl Default for SpdManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::addr::Ipv4Addr;
 
     #[test]
     fn test_sa_creation() {
@@ -597,17 +796,30 @@ mod tests {
     fn test_replay_window() {
         let mut window = ReplayWindow::new(64);
 
-        // 第一个序列号
+        // 第一个序列号（成为 highest）
         assert!(window.check_and_mark(1, 1));
 
-        // 重放检测
+        // 重放检测 - 相同序列号应该被拒绝
         assert!(!window.check_and_mark(1, 1));
 
-        // 新序列号
-        assert!(window.check_and_mark(2, 2));
+        // 更高的序列号（成为新的 highest，窗口左边界移动）
+        assert!(window.check_and_mark(10, 10));
 
-        // 超出窗口
+        // 序列号 10 的重放检测
+        assert!(!window.check_and_mark(10, 10));
+
+        // 序列号 5 在窗口内（窗口左边界是 max(0, 10-64+1)=0，offset=5）
+        assert!(window.check_and_mark(5, 10));
+
+        // 序列号 5 的重放检测
+        assert!(!window.check_and_mark(5, 10));
+
+        // 当 highest 变为 100 时，窗口左边界变为 100-64+1=37
+        // 序列号 1 被移出窗口，应该被拒绝
         assert!(!window.check_and_mark(1, 100));
+
+        // 序列号 50 在窗口内（offset=50-37=13）
+        assert!(window.check_and_mark(50, 100));
     }
 
     #[test]
@@ -683,5 +895,59 @@ mod tests {
         assert_eq!(IpsecProtocol::from_u8(50), Some(IpsecProtocol::Esp));
         assert_eq!(IpsecProtocol::from_u8(51), Some(IpsecProtocol::Ah));
         assert_eq!(IpsecProtocol::from_u8(99), None);
+    }
+
+    #[test]
+    fn test_cipher_encrypt_decrypt() {
+        let cipher = CipherTransform::AesCbc { key_size: 128 };
+        let key = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                        0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
+        let plaintext = b"Hello, World!".to_vec();
+
+        let ciphertext = cipher.encrypt(&plaintext, &key);
+        assert_ne!(ciphertext, plaintext); // 加密后应该不同
+
+        let decrypted = cipher.decrypt(&ciphertext, &key);
+        assert_eq!(decrypted, plaintext); // 解密后应该恢复原文
+    }
+
+    #[test]
+    fn test_null_cipher() {
+        let cipher = CipherTransform::Null;
+        let key = vec![];
+        let plaintext = b"Hello, World!".to_vec();
+
+        let ciphertext = cipher.encrypt(&plaintext, &key);
+        assert_eq!(ciphertext, plaintext); // Null 加密不改变数据
+
+        let decrypted = cipher.decrypt(&ciphertext, &key);
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_esp_encrypted_packet() {
+        use crate::protocols::ipsec::esp::EspPacket;
+
+        let cipher = CipherTransform::AesCbc { key_size: 128 };
+        let key = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                        0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10];
+        let payload = b"Secret data".to_vec();
+
+        let packet = EspPacket::create_encrypted(
+            0x12345678,
+            1,
+            payload.clone(),
+            6, // TCP
+            16,
+            Some(&cipher),
+            &key,
+        );
+
+        // 验证加密后的数据与原始数据不同
+        assert_ne!(packet.encrypted_data, payload);
+
+        // 验证解密可以恢复原始数据
+        let decrypted = packet.decrypt_payload(Some(&cipher), &key);
+        assert_eq!(decrypted, payload);
     }
 }

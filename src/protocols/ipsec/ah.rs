@@ -5,11 +5,11 @@
 
 use super::{IpsecError, IpsecResult};
 
-/// AH 协议号
-pub const IP_PROTO_AH: u8 = 51;
-
 /// AH 头最小长度（字节）
 pub const AH_HEADER_MIN_LEN: usize = 12;
+
+// 使用父模块定义的协议号
+pub use super::IP_PROTO_AH;
 
 /// AH 头固定部分长度（不含 ICV）
 const AH_FIXED_HEADER_LEN: usize = 12;
@@ -153,10 +153,10 @@ impl AhPacket {
     /// 计算 ICV（简化实现，实际应使用 HMAC）
     ///
     /// 注意：这是模拟实现，实际应用中应使用真正的加密库
-    pub fn compute_icv(data: &[u8], key: &[u8], _icv_len: usize) -> Vec<u8> {
-        // 简化的 ICV 计算：key 与数据的异或后取前 12 字节
+    pub fn compute_icv(data: &[u8], key: &[u8], icv_len: usize) -> Vec<u8> {
+        // 简化的 ICV 计算：key 与数据的异或
         // 实际应用中应使用 HMAC-SHA1 或 HMAC-SHA256
-        let mut result = vec![0u8; 12.min(key.len().max(data.len()))];
+        let mut result = vec![0u8; icv_len];
 
         for (i, byte) in result.iter_mut().enumerate() {
             let key_byte = key.get(i).copied().unwrap_or(0);
@@ -167,11 +167,11 @@ impl AhPacket {
         result
     }
 
-    /// 验证 ICV
+    /// 验证 ICV（使用恒定时间比较防止时序攻击）
     pub fn verify_icv(&self, data: &[u8], key: &[u8]) -> bool {
         let computed = Self::compute_icv(data, key, self.icv.len());
-        // 简单的比较，实际应使用恒定时间比较
-        computed == self.icv
+        // 使用恒定时间比较防止时序攻击
+        super::constant_time_compare(&computed, &self.icv)
     }
 }
 

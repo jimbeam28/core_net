@@ -5,11 +5,11 @@
 
 use super::{IpsecError, IpsecResult};
 
-/// ESP 协议号
-pub const IP_PROTO_ESP: u8 = 50;
-
 /// ESP 头最小长度（字节）
 pub const ESP_HEADER_MIN_LEN: usize = 8;
+
+// 使用父模块定义的协议号
+pub use super::IP_PROTO_ESP;
 
 /// ESP 头固定部分长度
 const ESP_FIXED_HEADER_LEN: usize = 8;
@@ -236,13 +236,25 @@ impl EspPacket {
         buffer
     }
 
-    /// 获取载荷数据（加密前的原始数据）
+    /// 获取载荷数据（解密后的原始数据）
     ///
-    /// 注意：此方法仅用于模拟，实际应用中需要解密
+    /// 注意：此方法需要 SA 的加密密钥和算法
     pub fn get_payload(&self) -> Vec<u8> {
         // 在模拟环境中，我们假设"加密"数据就是原始数据
-        // 实际应用中需要解密
+        // 实际应用中需要使用 SA 的加密密钥解密
         self.encrypted_data.clone()
+    }
+
+    /// 解密载荷数据
+    ///
+    /// # 参数
+    /// - `cipher`: 加密算法
+    /// - `key`: 加密密钥
+    pub fn decrypt_payload(&self, cipher: Option<&super::CipherTransform>, key: &[u8]) -> Vec<u8> {
+        match cipher {
+            Some(c) if !key.is_empty() => c.decrypt(&self.encrypted_data, key),
+            _ => self.encrypted_data.clone(),
+        }
     }
 
     /// 创建简单的 ESP 报文（模拟加密）
@@ -256,7 +268,7 @@ impl EspPacket {
     pub fn create_simple(
         spi: u32,
         sequence_number: u32,
-        mut payload: Vec<u8>,
+        payload: Vec<u8>,
         next_header: u8,
         block_size: usize,
     ) -> Self {
@@ -282,13 +294,56 @@ impl EspPacket {
         }
     }
 
-    /// 验证 ICV（如果有）
+    /// 创建加密的 ESP 报文
+    ///
+    /// # 参数
+    /// - `spi`: 安全参数索引
+    /// - `sequence_number`: 序列号
+    /// - `payload`: 原始载荷数据
+    /// - `next_header`: 下一个协议号
+    /// - `block_size`: 加密块大小（用于填充计算）
+    /// - `cipher`: 加密算法（可选）
+    /// - `key`: 加密密钥
+    pub fn create_encrypted(
+        spi: u32,
+        sequence_number: u32,
+        payload: Vec<u8>,
+        next_header: u8,
+        block_size: usize,
+        cipher: Option<&super::CipherTransform>,
+        key: &[u8],
+    ) -> Self {
+        // 加密载荷
+        let encrypted_data = match cipher {
+            Some(c) if !key.is_empty() => c.encrypt(&payload, key),
+            _ => payload,
+        };
+
+        // 计算填充
+        let pad_len = EspTrailer::calculate_padding(encrypted_data.len(), block_size);
+        let padding = vec![0x00; pad_len];
+
+        // 创建 ESP 尾
+        let trailer = EspTrailer {
+            pad_length: pad_len as u8,
+            next_header,
+            padding,
+        };
+
+        Self {
+            header: EspHeader::new(spi, sequence_number),
+            encrypted_data,
+            trailer,
+            icv: None,
+        }
+    }
+
+    /// 验证 ICV（使用恒定时间比较防止时序攻击）
     pub fn verify_icv(&self, key: &[u8]) -> bool {
         if let Some(ref icv) = self.icv {
-            // 简化的 ICV 验证
-            // 实际应用中应使用 HMAC-SHA1 或 HMAC-SHA256
             let computed = self.compute_icv(key);
-            computed == *icv
+            // 使用恒定时间比较防止时序攻击
+            super::constant_time_compare(&computed, icv)
         } else {
             true // 无 ICV 时默认通过
         }

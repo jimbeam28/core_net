@@ -72,6 +72,8 @@ impl GlobalStateManager {
             None, // socket_mgr: 使用默认值
             None, // bgp_manager: 使用默认值
             None, // ospf_manager: 使用默认值
+            None, // sad_mgr: 使用默认值
+            None, // spd_mgr: 使用默认值
         )
     }
 

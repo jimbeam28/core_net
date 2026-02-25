@@ -14,6 +14,7 @@ use crate::protocols::icmpv6::Icmpv6Context;
 use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_REASSEMBLY_ENTRIES};
 use crate::protocols::ospf::OspfManager;
 use crate::protocols::ipv6::FragmentCache;
+use crate::protocols::ipsec::{SadManager, SpdManager};
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
 use crate::socket::SocketManager;
@@ -68,6 +69,12 @@ pub struct SystemContext {
 
     /// OSPF 管理器
     pub ospf_manager: Arc<Mutex<OspfManager>>,
+
+    /// IPsec SAD 管理器
+    pub sad_mgr: Arc<Mutex<SadManager>>,
+
+    /// IPsec SPD 管理器
+    pub spd_mgr: Arc<Mutex<SpdManager>>,
 }
 
 /// Socket 管理器及其依赖组件
@@ -126,6 +133,10 @@ impl SystemContext {
         // 创建默认 OSPF 管理器
         let ospf_manager = Arc::new(Mutex::new(OspfManager::new(0)));
 
+        // 创建默认 IPsec 管理器
+        let sad_mgr = Arc::new(Mutex::new(SadManager::new()));
+        let spd_mgr = Arc::new(Mutex::new(SpdManager::new()));
+
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -142,6 +153,8 @@ impl SystemContext {
             socket_mgr: socket_mgrs.socket_mgr,
             bgp_manager,
             ospf_manager,
+            sad_mgr,
+            spd_mgr,
         }
     }
 
@@ -177,6 +190,10 @@ impl SystemContext {
         // 创建默认 OSPF 管理器
         let ospf_manager = Arc::new(Mutex::new(OspfManager::new(0)));
 
+        // 创建默认 IPsec 管理器
+        let sad_mgr = Arc::new(Mutex::new(SadManager::new()));
+        let spd_mgr = Arc::new(Mutex::new(SpdManager::new()));
+
         Self {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -193,6 +210,8 @@ impl SystemContext {
             socket_mgr: socket_mgrs.socket_mgr,
             bgp_manager,
             ospf_manager,
+            sad_mgr,
+            spd_mgr,
         }
     }
 
@@ -217,6 +236,8 @@ impl SystemContext {
     /// - `socket_mgr`: Socket 管理器（可选，默认为空）
     /// - `bgp_manager`: BGP 管理器（可选，默认为空）
     /// - `ospf_manager`: OSPF 管理器（可选，默认为空）
+    /// - `sad_mgr`: IPsec SAD 管理器（可选，默认为空）
+    /// - `spd_mgr`: IPsec SPD 管理器（可选，默认为空）
     #[allow(clippy::too_many_arguments)]
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
@@ -234,6 +255,8 @@ impl SystemContext {
         socket_mgr: Option<Arc<Mutex<SocketManager>>>,
         bgp_manager: Option<Arc<Mutex<BgpPeerManager>>>,
         ospf_manager: Option<Arc<Mutex<OspfManager>>>,
+        sad_mgr: Option<Arc<Mutex<SadManager>>>,
+        spd_mgr: Option<Arc<Mutex<SpdManager>>>,
     ) -> Self {
         // 创建 TCP Socket 管理器和 UDP 端口管理器（如果未提供）
         let tcp_sockets = tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
@@ -255,6 +278,15 @@ impl SystemContext {
         // 创建或使用提供的 OSPF 管理器
         let ospf_manager = ospf_manager.unwrap_or_else(|| {
             Arc::new(Mutex::new(OspfManager::new(0)))
+        });
+
+        // 创建或使用提供的 IPsec 管理器
+        let sad_mgr = sad_mgr.unwrap_or_else(|| {
+            Arc::new(Mutex::new(SadManager::new()))
+        });
+
+        let spd_mgr = spd_mgr.unwrap_or_else(|| {
+            Arc::new(Mutex::new(SpdManager::new()))
         });
 
         #[allow(clippy::arc_with_non_send_sync)]
@@ -279,6 +311,8 @@ impl SystemContext {
             socket_mgr,
             bgp_manager,
             ospf_manager,
+            sad_mgr,
+            spd_mgr,
         }
     }
 
@@ -357,6 +391,8 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.ipv6_fragment_cache, &ctx2.ipv6_fragment_cache));
         assert!(Arc::ptr_eq(&ctx1.socket_mgr, &ctx2.socket_mgr));
         assert!(Arc::ptr_eq(&ctx1.bgp_manager, &ctx2.bgp_manager));
+        assert!(Arc::ptr_eq(&ctx1.sad_mgr, &ctx2.sad_mgr));
+        assert!(Arc::ptr_eq(&ctx1.spd_mgr, &ctx2.spd_mgr));
     }
 
     #[test]
@@ -384,6 +420,8 @@ mod tests {
             None, // socket_mgr
             None, // bgp_manager
             None, // ospf_manager
+            None, // sad_mgr
+            None, // spd_mgr
         );
 
         assert_eq!(ctx.interface_count(), 1);
@@ -479,6 +517,12 @@ mod tests {
         // 验证 ospf_manager 也共享相同的 Arc
         assert!(Arc::ptr_eq(&ctx.ospf_manager, &ctx_clone1.ospf_manager));
         assert!(Arc::ptr_eq(&ctx_clone1.ospf_manager, &ctx_clone2.ospf_manager));
+
+        // 验证 sad_mgr 和 spd_mgr 也共享相同的 Arc
+        assert!(Arc::ptr_eq(&ctx.sad_mgr, &ctx_clone1.sad_mgr));
+        assert!(Arc::ptr_eq(&ctx_clone1.sad_mgr, &ctx_clone2.sad_mgr));
+        assert!(Arc::ptr_eq(&ctx.spd_mgr, &ctx_clone1.spd_mgr));
+        assert!(Arc::ptr_eq(&ctx_clone1.spd_mgr, &ctx_clone2.spd_mgr));
 
         // 强度计数
         assert_eq!(Arc::strong_count(&ctx.interfaces), 3);
