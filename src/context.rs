@@ -9,6 +9,7 @@ use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
 use crate::protocols::tcp::{TcpConnectionManager, TcpSocketManager, TcpTimerManager};
 use crate::protocols::udp::UdpPortManager;
+use crate::protocols::bgp::BgpPeerManager;
 use crate::protocols::icmpv6::Icmpv6Context;
 use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_REASSEMBLY_ENTRIES};
 use crate::protocols::ipv6::FragmentCache;
@@ -60,6 +61,9 @@ pub struct SystemContext {
 
     /// Socket 管理器
     pub socket_mgr: Arc<Mutex<SocketManager>>,
+
+    /// BGP 对等体管理器
+    pub bgp_manager: Arc<Mutex<BgpPeerManager>>,
 }
 
 /// Socket 管理器及其依赖组件
@@ -109,6 +113,12 @@ impl SystemContext {
 
         let tcp_timers = Arc::new(Mutex::new(TcpTimerManager::new()));
 
+        // 创建默认 BGP 管理器
+        let bgp_manager = Arc::new(Mutex::new(BgpPeerManager::new(
+            0, // 默认本地 AS
+            crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
+        )));
+
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -123,6 +133,7 @@ impl SystemContext {
             ip_reassembly: Self::create_default_reassembly(),
             ipv6_fragment_cache: Self::create_default_ipv6_fragment_cache(),
             socket_mgr: socket_mgrs.socket_mgr,
+            bgp_manager,
         }
     }
 
@@ -149,6 +160,12 @@ impl SystemContext {
 
         let tcp_timers = Arc::new(Mutex::new(TcpTimerManager::new()));
 
+        // 创建默认 BGP 管理器
+        let bgp_manager = Arc::new(Mutex::new(BgpPeerManager::new(
+            0, // 默认本地 AS
+            crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
+        )));
+
         Self {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -163,6 +180,7 @@ impl SystemContext {
             ip_reassembly: Self::create_default_reassembly(),
             ipv6_fragment_cache: Self::create_default_ipv6_fragment_cache(),
             socket_mgr: socket_mgrs.socket_mgr,
+            bgp_manager,
         }
     }
 
@@ -185,6 +203,7 @@ impl SystemContext {
     /// - `ip_reassembly`: IPv4 重组表（可选，默认为空）
     /// - `ipv6_fragment_cache`: IPv6 分片缓存（可选，默认为空）
     /// - `socket_mgr`: Socket 管理器（可选，默认为空）
+    /// - `bgp_manager`: BGP 管理器（可选，默认为空）
     #[allow(clippy::too_many_arguments)]
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
@@ -200,6 +219,7 @@ impl SystemContext {
         ip_reassembly: Option<Arc<Mutex<ReassemblyTable>>>,
         ipv6_fragment_cache: Option<Arc<Mutex<FragmentCache>>>,
         socket_mgr: Option<Arc<Mutex<SocketManager>>>,
+        bgp_manager: Option<Arc<Mutex<BgpPeerManager>>>,
     ) -> Self {
         // 创建 TCP Socket 管理器和 UDP 端口管理器（如果未提供）
         let tcp_sockets = tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
@@ -208,6 +228,14 @@ impl SystemContext {
         // 创建或使用提供的 Socket 管理器
         let socket_mgr = socket_mgr.unwrap_or_else(|| {
             Arc::new(Mutex::new(SocketManager::new(tcp_sockets.clone(), udp_ports.clone())))
+        });
+
+        // 创建或使用提供的 BGP 管理器
+        let bgp_manager = bgp_manager.unwrap_or_else(|| {
+            Arc::new(Mutex::new(BgpPeerManager::new(
+                0, // 默认本地 AS
+                crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
+            )))
         });
 
         #[allow(clippy::arc_with_non_send_sync)]
@@ -230,6 +258,7 @@ impl SystemContext {
             ip_reassembly: ip_reassembly.unwrap_or_else(Self::create_default_reassembly),
             ipv6_fragment_cache: ipv6_fragment_cache.unwrap_or_else(Self::create_default_ipv6_fragment_cache),
             socket_mgr,
+            bgp_manager,
         }
     }
 
@@ -307,6 +336,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ctx1.ip_reassembly, &ctx2.ip_reassembly));
         assert!(Arc::ptr_eq(&ctx1.ipv6_fragment_cache, &ctx2.ipv6_fragment_cache));
         assert!(Arc::ptr_eq(&ctx1.socket_mgr, &ctx2.socket_mgr));
+        assert!(Arc::ptr_eq(&ctx1.bgp_manager, &ctx2.bgp_manager));
     }
 
     #[test]
@@ -332,6 +362,7 @@ mod tests {
             None, // ip_reassembly
             None, // ipv6_fragment_cache
             None, // socket_mgr
+            None, // bgp_manager
         );
 
         assert_eq!(ctx.interface_count(), 1);

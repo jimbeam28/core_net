@@ -29,6 +29,9 @@ pub mod udp;
 // TCP 协议
 pub mod tcp;
 
+// BGP 协议
+pub mod bgp;
+
 // 从 common 模块重新导出类型
 pub use crate::common::{
     Packet,
@@ -145,4 +148,17 @@ pub use tcp::{
     create_ack,
     create_fin,
     create_rst,
+};
+
+// BGP 模块导出
+pub use bgp::{
+    BgpConfig, BgpPeerConfig, BgpPolicy, BgpPeerType,
+    BgpError, BgpState,
+    BgpHeader, BgpOpen, BgpUpdate, BgpNotification, BgpKeepalive, BgpRouteRefresh,
+    BgpMessage, BgpCapability, IpPrefix,
+    BgpRoute, BgpRib,
+    BgpPeer, BgpPeerManager,
+    parse_bgp_message, encapsulate_bgp_message,
+    BGP_PORT, BGP_VERSION, DEFAULT_HOLD_TIME, DEFAULT_CONNECT_RETRY_TIME,
+    BGP_MSG_OPEN, BGP_MSG_UPDATE, BGP_MSG_NOTIFICATION, BGP_MSG_KEEPALIVE, BGP_MSG_ROUTE_REFRESH,
 };
