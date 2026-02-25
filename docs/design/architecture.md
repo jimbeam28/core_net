@@ -12,7 +12,7 @@
 
 ### 1.3 项目状态
 - ✅ 链路层完整实现（Ethernet、VLAN、ARP）
-- ✅ 网络层完整实现（IPv4、IPv6、ICMP、ICMPv6、NDP）
+- ✅ 网络层完整实现（IPv4、IPv6、ICMP、ICMPv6、NDP、IPsec）
 - ✅ 传输层完整实现（TCP、UDP）
 - ✅ 路由模块实现（IPv4/IPv6路由表、最长前缀匹配）
 - ✅ IP分片与重组（IPv4/IPv6）
@@ -46,6 +46,8 @@
 │  │  │  Arc<Mutex<ReassemblyTable>>  (IPv4分片重组)                │  │   │
 │  │  │  Arc<Mutex<FragmentCache>>    (IPv6分片缓存)                │  │   │
 │  │  │  Arc<Mutex<SocketManager>>    (Socket管理器)                │  │   │
+│  │  │  Arc<Mutex<SadManager>>       (IPsec SA数据库)              │  │   │
+│  │  │  Arc<Mutex<SpdManager>>       (IPsec策略数据库)             │  │   │
 │  │  │                   (依赖注入模式，支持 Clone)                  │  │   │
 │  │  └──────────────────────────────────────────────────────────────┘  │   │
 │  │       from_config() ──► 加载 interface.toml ──► 初始化所有组件      │   │
@@ -647,6 +649,52 @@ protocols/bgp/
 
 ---
 
+#### 3.5.13 IPsec 模块
+
+```
+protocols/ipsec/
+├── mod.rs       # 模块入口
+├── ah.rs        # Authentication Header (AH) 协议
+├── esp.rs       # Encapsulating Security Payload (ESP) 协议
+└── sa.rs        # SA (Security Association) 和 SPD (Security Policy Database)
+```
+
+**核心功能**：
+- AH 协议实现（RFC 4302）
+  - 头部解析和封装
+  - ICV (Integrity Check Value) 计算和验证
+  - 抗重放保护
+- ESP 协议实现（RFC 4303）
+  - 头部和尾部解析/封装
+  - 加密/解密（简化模拟实现）
+  - ICV 计算和验证
+  - 载荷填充处理
+- SA 和 SPD 管理
+  - 安全关联生命周期（Larval、Mature、Dying、Dead）
+  - 加密/认证算法支持（AES、3DES、HMAC-SHA、HMAC-MD5）
+  - 流量选择器
+  - 重放窗口（滑动窗口算法）
+- 传输模式和隧道模式
+- 恒定时间比较（防时序攻击）
+
+**已实现**：
+- ✅ AH 报文解析/封装
+- ✅ ESP 报文解析/封装
+- ✅ SA/SPD 管理
+- ✅ 重放窗口保护
+- ✅ 传输模式和隧道模式解封装
+- ✅ IPv4 入站报文处理
+- ✅ SystemContext 集成
+- ✅ 加密/认证算法（简化模拟）
+
+**未实现**：
+- ❌ IKEv2 协议（密钥交换）
+- ❌ 真实密码学算法（当前为简化实现）
+- ❌ IPv6 IPsec 完整处理
+- ❌ 出站报文流集成
+
+---
+
 ### 3.6 路由模块 (Route)
 
 ```
@@ -943,6 +991,7 @@ pub struct RingQueue<T> {
 | 网络层 | IPv6 | RFC 8200 | ✅ 已实现（含分片/重组/扩展头） |
 | 网络层 | ICMP | RFC 792 | ✅ 已实现 |
 | 网络层 | ICMPv6 | RFC 4443 | ✅ 已实现（Echo、NDP） |
+| 网络层 | IPsec (AH/ESP) | RFC 4302, 4303 | ✅ 部分实现（入站处理、SA/SPD） |
 | 路由 | 路由表 | - | ✅ 已实现（最长前缀匹配） |
 | 路由 | OSPFv2 | RFC 2328 | ✅ 已实现（状态机、LSDB、SPF） |
 | 路由 | OSPFv3 | RFC 5340 | ✅ 已实现（状态机、LSDB、SPF） |
@@ -955,6 +1004,7 @@ pub struct RingQueue<T> {
 - **TCP**: 三次握手、四次挥手、滑动窗口、重传机制、拥塞控制、Socket API、连接管理、MSS选项、定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
 - **UDP**: 端口绑定、数据报收发、Socket API、回调机制、端口不可达响应
 - **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持、分片与重组、扩展头支持
+- **IPsec**: AH/ESP报文解析/封装、SA/SPD管理、重放窗口保护、传输/隧道模式解封装、IPv4入站处理
 - **路由**: IPv4/IPv6路由表、最长前缀匹配（LPM）
 - **OSPFv2**: Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
 - **OSPFv3**: 与OSPFv2类似功能，支持IPv6链路本地地址、OSPFv3 LSA类型
@@ -963,7 +1013,10 @@ pub struct RingQueue<T> {
 - **IP分片**: IPv4/IPv6分片与重组（超时处理、重叠检测）
 
 **未实现功能**：
-- IPSec（ESP/AH扩展头返回错误）
+- IKEv2 协议（IPsec 密钥交换）
+- 真实密码学算法（IPsec 当前为简化模拟实现）
+- IPv6 IPsec 完整处理（仅识别扩展头）
+- IPsec 出站报文流集成
 
 ---
 
@@ -1021,5 +1074,6 @@ pub struct RingQueue<T> {
 - [OSPFv2 协议设计](protocols/ospf.md) - OSPFv2 协议实现
 - [OSPFv3 协议设计](protocols/ospfv3.md) - OSPFv3 协议实现
 - [BGP 协议设计](protocols/bgp.md) - BGP-4 协议实现
+- [IPsec 协议设计](protocols/ipsec.md) - IPsec 协议实现（AH/ESP、SA/SPD）
 - [路由模块设计](route.md) - 路由表和最长前缀匹配
 - [Socket API 设计](socket.md) - Socket API 实现
