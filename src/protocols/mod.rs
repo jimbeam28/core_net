@@ -32,6 +32,12 @@ pub mod tcp;
 // BGP 协议
 pub mod bgp;
 
+// OSPF 协议（共享核心模块）
+pub mod ospf;
+
+// OSPFv2 协议（IPv4）
+pub mod ospf2;
+
 // 从 common 模块重新导出类型
 pub use crate::common::{
     Packet,
@@ -161,4 +167,33 @@ pub use bgp::{
     parse_bgp_message, encapsulate_bgp_message,
     BGP_PORT, BGP_VERSION, DEFAULT_HOLD_TIME, DEFAULT_CONNECT_RETRY_TIME,
     BGP_MSG_OPEN, BGP_MSG_UPDATE, BGP_MSG_NOTIFICATION, BGP_MSG_KEEPALIVE, BGP_MSG_ROUTE_REFRESH,
+};
+
+// OSPF 共享模块导出
+pub use ospf::{
+    OspfType, OspfOptions, InterfaceState, NeighborState, InterfaceType,
+    OspfConfig, OspfInterfaceConfig, AuthAlgorithm, CryptoAuthConfig,
+    IP_PROTO_OSPF, OSPF_ALL_SPF_ROUTERS, OSPF_ALL_D_ROUTERS,
+    HELLO_INTERVAL_DEFAULT, DEAD_INTERVAL_DEFAULT, PRIORITY_DEFAULT,
+    RETRANSMIT_INTERVAL_DEFAULT, TRANSMIT_DELAY_DEFAULT,
+    SpfNode, SpfVertex, RouteEntry, RouteType,
+    run_spf_calculation,
+};
+
+// OSPFv2 模块导出
+pub use ospf2::{
+    OspfHeader, OspfHello, OspfDatabaseDescription, OspfLinkStateRequest,
+    OspfLinkStateUpdate, OspfLinkStateAck, OspfType as OspfV2Type,
+    LsaHeader, LsaType, RouterLsa, RouterLink, NetworkLsa, SummaryLsa,
+    AsExternalLsa, Lsa,
+    OspfError, OspfResult,
+    OspfV2Config, OspfV2InterfaceConfig,
+    OspfProcessResult, OspfProcessor,
+    process_ospfv2_packet, encapsulate_ospfv2_hello,
+    OspfInterface, InterfaceState as OspfV2InterfaceState,
+    OspfNeighbor, NeighborState as OspfV2NeighborState,
+    LinkStateDatabase, LsaEntry,
+    OSPFV2_VERSION, IP_PROTO_OSPF as OSPFV2_PROTO,
+    OSPF_ALL_SPF_ROUTERS as OSPFV2_ALL_SPF_ROUTERS,
+    OSPF_ALL_D_ROUTERS as OSPFV2_ALL_D_ROUTERS,
 };

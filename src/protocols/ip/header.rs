@@ -23,6 +23,9 @@ pub const IP_PROTO_TCP: u8 = 6;
 /// IP 协议号：UDP
 pub const IP_PROTO_UDP: u8 = 17;
 
+/// IP 协议号：OSPF
+pub const IP_PROTO_OSPF: u8 = 89;
+
 /// 默认 TTL 值
 pub const DEFAULT_TTL: u8 = 64;
 

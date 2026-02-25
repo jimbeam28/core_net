@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, Ipv4Addr};
+use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, ospf2, Ipv4Addr};
 use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
@@ -309,6 +309,9 @@ impl PacketProcessor {
                     }
                     ip::IP_PROTO_TCP => {
                         self.handle_tcp(eth_hdr, ip_hdr, protocol_packet)
+                    }
+                    ip::IP_PROTO_OSPF => {
+                        self.handle_ospf(eth_hdr, ip_hdr, protocol_packet)
                     }
                     _ => {
                         Err(ProcessError::UnsupportedProtocol(
@@ -713,6 +716,71 @@ impl PacketProcessor {
                 if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
                     let _ = socket_mgr.notify_tcp_event(&id, "closed");
                 }
+                Ok(None)
+            }
+        }
+    }
+
+    /// 处理 OSPF 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ip_hdr: IPv4 头部
+    /// - packet: Packet（已去除 IP 头部）
+    fn handle_ospf(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, mut packet: Packet) -> ProcessResult {
+        let ifindex = packet.ifindex;
+
+        if self.verbose {
+            println!("OSPF: 处理 OSPF 报文 源={} 目的={}",
+                ip_hdr.source_addr, ip_hdr.dest_addr);
+        }
+
+        // 处理 OSPF 报文
+        // 注意：OSPF 需要路由器 ID，这里使用简化处理
+        // TODO: 从配置或上下文获取路由器 ID
+        let router_id = match self.get_interface_ip(ifindex) {
+            Ok(ip) => ip,
+            Err(_) => Ipv4Addr::new(1, 1, 1, 1),  // 默认路由器 ID
+        };
+
+        let result = ospf2::process_ospfv2_packet(
+            &mut packet,
+            ifindex,
+            router_id,
+            ip_hdr.source_addr,
+        ).map_err(|e| ProcessError::ParseError(format!("OSPF处理失败: {:?}", e)))?;
+
+        // 根据处理结果返回
+        match result {
+            ospf2::OspfProcessResult::NoReply => Ok(None),
+            ospf2::OspfProcessResult::Reply(ospf_bytes) => {
+                // 获取本接口的 IP 和 MAC 地址
+                let our_ip = self.get_interface_ip(ifindex)?;
+                let our_mac = self.get_interface_mac(ifindex)?;
+
+                // 封装为 IP 数据报
+                let ip_reply = ip::Ipv4Header::new(
+                    our_ip,
+                    ip_hdr.source_addr,
+                    ip::IP_PROTO_OSPF,
+                    ospf_bytes.len(),
+                );
+                let mut ip_packet = ip_reply.to_bytes();
+                ip_packet.extend_from_slice(&ospf_bytes);
+
+                // 封装为以太网帧
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,
+                    our_mac,
+                    crate::protocols::ETH_P_IP,
+                    &ip_packet,
+                );
+
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
+            ospf2::OspfProcessResult::FloodLsa {..} | ospf2::OspfProcessResult::ScheduleSpfCalculation |
+            ospf2::OspfProcessResult::DatabaseSynced => {
+                // 这些结果类型不需要立即响应
                 Ok(None)
             }
         }

@@ -130,6 +130,9 @@ impl Ipv4Addr {
         Ipv4Addr { bytes: [0; 4] }
     }
 
+    /// 未指定地址 0.0.0.0（常量）
+    pub const UNSPECIFIED: Ipv4Addr = Ipv4Addr { bytes: [0; 4] };
+
     /// 创建广播地址 255.255.255.255
     pub const fn broadcast() -> Self {
         Ipv4Addr {
@@ -167,6 +170,11 @@ impl Ipv4Addr {
     /// 转换为字节数组引用
     pub const fn as_bytes(&self) -> &[u8; 4] {
         &self.bytes
+    }
+
+    /// 转换为字节数组（Vec）
+    pub fn to_bytes(&self) -> [u8; 4] {
+        self.bytes
     }
 }
 

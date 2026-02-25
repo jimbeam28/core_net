@@ -299,3 +299,141 @@ pub fn create_ip_header_udp(src_ip: Ipv4Addr, dst_ip: Ipv4Addr, payload_len: usi
     let ip_header = Ipv4Header::new(src_ip, dst_ip, IP_PROTO_UDP, payload_len);
     ip_header.to_bytes()
 }
+
+// ========== OSPF 辅助函数 ==========
+
+/// 创建 OSPF Hello 报文（带 IP 和以太网封装）
+///
+/// OSPF 报文直接封装在 IP 中（协议号 89），目的地址为组播地址 224.0.0.5
+pub fn create_ospf_hello_packet(
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    router_id: Ipv4Addr,
+    network_mask: Ipv4Addr,
+    hello_interval: u16,
+    dead_interval: u32,
+    neighbors: Vec<Ipv4Addr>,
+) -> Packet {
+    use core_net::protocols::ospf2::{OspfHello, OspfHeader, OspfType};
+    use core_net::protocols::ip::IP_PROTO_OSPF;
+    use core_net::protocols::ETH_P_IP;
+
+    // 创建 Hello 报文
+    let mut hello = OspfHello::new(
+        network_mask,
+        hello_interval,
+        dead_interval,
+        1, // priority
+    );
+    for neighbor in neighbors {
+        hello.add_neighbor(neighbor);
+    }
+
+    let hello_bytes = hello.to_bytes();
+
+    // 创建 OSPF 头部
+    let mut header = OspfHeader::new(
+        OspfType::Hello,
+        router_id,
+        Ipv4Addr::new(0, 0, 0, 0), // Area ID = 0 (骨干区域)
+    );
+    header.length = (OspfHeader::LENGTH + hello_bytes.len()) as u16;
+    header.calculate_checksum(&hello_bytes);
+
+    let header_bytes = header.to_bytes();
+
+    // 组装 OSPF 报文
+    let mut ospf_data = header_bytes;
+    ospf_data.extend_from_slice(&hello_bytes);
+
+    // 封装 IP 头部
+    let mut ip_data = Vec::new();
+    ip_data.extend_from_slice(&[0x45]); // Version=4, IHL=5
+    ip_data.extend_from_slice(&[0x00, 0x00]); // TOS (0)
+    ip_data.extend_from_slice(&((20 + ospf_data.len()) as u16).to_be_bytes()); // Total Length
+    ip_data.extend_from_slice(&[0x00, 0x01]); // Identification
+    ip_data.extend_from_slice(&[0x00, 0x00]); // Flags + Fragment Offset
+    ip_data.push(1); // TTL
+    ip_data.push(IP_PROTO_OSPF); // Protocol
+    ip_data.extend_from_slice(&[0x00, 0x00]); // Checksum (placeholder)
+    ip_data.extend_from_slice(&src_ip.as_bytes()[..]);
+    ip_data.extend_from_slice(&[224, 0, 0, 5]); // Destination = 224.0.0.5 (AllSPFRouters)
+
+    // 计算 IP 校验和
+    let checksum = core_net::protocols::ip::checksum::calculate_checksum(&ip_data);
+    ip_data[10] = (checksum >> 8) as u8;
+    ip_data[11] = (checksum & 0xFF) as u8;
+
+    // 添加 OSPF 数据
+    ip_data.extend_from_slice(&ospf_data);
+
+    // 封装以太网头部
+    let mut frame = Vec::new();
+    // 目的 MAC: 01:00:5e:00:00:05 (224.0.0.5 的组播 MAC)
+    frame.extend_from_slice(&[0x01, 0x00, 0x5e, 0x00, 0x00, 0x05]);
+    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
+    frame.extend_from_slice(&ip_data);
+
+    Packet::from_bytes(frame)
+}
+
+/// 创建 OSPF Database Description 报文（带 IP 和以太网封装）
+pub fn create_ospf_dd_packet(
+    src_mac: MacAddr,
+    src_ip: Ipv4Addr,
+    router_id: Ipv4Addr,
+    dd_seq_number: u32,
+) -> Packet {
+    use core_net::protocols::ospf2::{OspfDatabaseDescription, OspfHeader, OspfType};
+    use core_net::protocols::ip::IP_PROTO_OSPF;
+    use core_net::protocols::ETH_P_IP;
+
+    // 创建 DD 报文
+    let dd = OspfDatabaseDescription::new(1500, dd_seq_number)
+        .with_flags(true, false, true); // I=1, M=0, MS=1
+
+    let dd_bytes = dd.to_bytes();
+
+    // 创建 OSPF 头部
+    let mut header = OspfHeader::new(
+        OspfType::DatabaseDescription,
+        router_id,
+        Ipv4Addr::new(0, 0, 0, 0),
+    );
+    header.length = (OspfHeader::LENGTH + dd_bytes.len()) as u16;
+    header.calculate_checksum(&dd_bytes);
+
+    let header_bytes = header.to_bytes();
+
+    // 组装 OSPF 报文
+    let mut ospf_data = header_bytes;
+    ospf_data.extend_from_slice(&dd_bytes);
+
+    // 封装 IP 头部
+    let mut ip_data = Vec::new();
+    ip_data.extend_from_slice(&[0x45]);
+    ip_data.extend_from_slice(&[0x00, 0x00]);
+    ip_data.extend_from_slice(&((20 + ospf_data.len()) as u16).to_be_bytes());
+    ip_data.extend_from_slice(&[0x00, 0x01]);
+    ip_data.extend_from_slice(&[0x00, 0x00]);
+    ip_data.push(1);
+    ip_data.push(IP_PROTO_OSPF);
+    ip_data.extend_from_slice(&[0x00, 0x00]);
+    ip_data.extend_from_slice(&src_ip.as_bytes()[..]);
+    ip_data.extend_from_slice(&[224, 0, 0, 5]);
+
+    let checksum = core_net::protocols::ip::checksum::calculate_checksum(&ip_data);
+    ip_data[10] = (checksum >> 8) as u8;
+    ip_data[11] = (checksum & 0xFF) as u8;
+    ip_data.extend_from_slice(&ospf_data);
+
+    // 封装以太网头部
+    let mut frame = Vec::new();
+    frame.extend_from_slice(&[0x01, 0x00, 0x5e, 0x00, 0x00, 0x05]);
+    frame.extend_from_slice(&src_mac.bytes);
+    frame.extend_from_slice(&ETH_P_IP.to_be_bytes());
+    frame.extend_from_slice(&ip_data);
+
+    Packet::from_bytes(frame)
+}

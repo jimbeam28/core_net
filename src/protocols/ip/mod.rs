@@ -27,6 +27,7 @@ pub use header::{
     IP_PROTO_ICMP,
     IP_PROTO_TCP,
     IP_PROTO_UDP,
+    IP_PROTO_OSPF,
     DEFAULT_TTL,
 };
 pub use protocol::Ipv4Protocol;
