@@ -71,6 +71,7 @@ impl GlobalStateManager {
             None, // ipv6_fragment_cache: 使用默认值
             None, // socket_mgr: 使用默认值
             None, // bgp_manager: 使用默认值
+            None, // ospf_manager: 使用默认值
         )
     }
 

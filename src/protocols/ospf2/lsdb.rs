@@ -139,6 +139,76 @@ impl LinkStateDatabase {
 
         count
     }
+
+    /// 构建用于 SPF 计算的 LSA 描述符哈希表
+    ///
+    /// 将 LSDB 中的 LSA 条目转换为 SPF 算法所需的 LsaDescriptor 格式
+    pub fn build_lsa_descriptors(&self) -> std::collections::HashMap<(u8, Ipv4Addr, Ipv4Addr), crate::protocols::ospf::spf::LsaDescriptor> {
+        use crate::protocols::ospf::spf::{LsaDescriptor, LsaLink};
+        use crate::protocols::ospf2::lsa::{RouterLink, LsaHeader};
+
+        let mut descriptors = std::collections::HashMap::new();
+
+        for (key, entry) in &self.lsas {
+            let (lsa_type, link_state_id, advertising_router) = *key;
+
+            // 只处理 Router LSA (Type 1) 和 Network LSA (Type 2)
+            if lsa_type == 1 {
+                // Router LSA: 解析链路信息
+                let mut links = Vec::new();
+                let lsa_data = &entry.data[LsaHeader::LENGTH..];
+
+                // Router LSA 数据格式：每个链路 12 字节
+                let num_links = lsa_data.len() / 12;
+                for i in 0..num_links {
+                    let offset = i * 12;
+                    if offset + 12 <= lsa_data.len() {
+                        if let Ok(router_link) = RouterLink::from_bytes(&lsa_data[offset..offset+12]) {
+                            links.push(LsaLink {
+                                link_id: router_link.link_id,
+                                link_data: router_link.link_data,
+                                link_type: router_link.link_type,
+                                metric: router_link.metric as u32,
+                            });
+                        }
+                    }
+                }
+
+                let descriptor = LsaDescriptor::router_lsa(
+                    link_state_id,
+                    advertising_router,
+                    entry.header.sequence_number,
+                    links,
+                );
+                descriptors.insert(*key, descriptor);
+
+            } else if lsa_type == 2 {
+                // Network LSA: 提取连接的路由器列表
+                let mut attached_routers = Vec::new();
+                let lsa_data = &entry.data[LsaHeader::LENGTH..];
+
+                // Network LSA 数据格式：每个路由器 4 字节
+                let num_routers = lsa_data.len() / 4;
+                for i in 0..num_routers {
+                    let offset = i * 4;
+                    if offset + 4 <= lsa_data.len() {
+                        let router_bytes: [u8; 4] = lsa_data[offset..offset+4].try_into().unwrap();
+                        attached_routers.push(Ipv4Addr::from_bytes(router_bytes));
+                    }
+                }
+
+                let descriptor = LsaDescriptor::network_lsa(
+                    link_state_id,
+                    advertising_router,
+                    entry.header.sequence_number,
+                    attached_routers,
+                );
+                descriptors.insert(*key, descriptor);
+            }
+        }
+
+        descriptors
+    }
 }
 
 impl Default for LinkStateDatabase {

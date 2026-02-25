@@ -12,6 +12,7 @@ use crate::protocols::udp::UdpPortManager;
 use crate::protocols::bgp::BgpPeerManager;
 use crate::protocols::icmpv6::Icmpv6Context;
 use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT_SECS, DEFAULT_MAX_REASSEMBLY_ENTRIES};
+use crate::protocols::ospf::OspfManager;
 use crate::protocols::ipv6::FragmentCache;
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
@@ -64,6 +65,9 @@ pub struct SystemContext {
 
     /// BGP 对等体管理器
     pub bgp_manager: Arc<Mutex<BgpPeerManager>>,
+
+    /// OSPF 管理器
+    pub ospf_manager: Arc<Mutex<OspfManager>>,
 }
 
 /// Socket 管理器及其依赖组件
@@ -119,6 +123,9 @@ impl SystemContext {
             crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
         )));
 
+        // 创建默认 OSPF 管理器
+        let ospf_manager = Arc::new(Mutex::new(OspfManager::new(0)));
+
         Self {
             interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -134,6 +141,7 @@ impl SystemContext {
             ipv6_fragment_cache: Self::create_default_ipv6_fragment_cache(),
             socket_mgr: socket_mgrs.socket_mgr,
             bgp_manager,
+            ospf_manager,
         }
     }
 
@@ -166,6 +174,9 @@ impl SystemContext {
             crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
         )));
 
+        // 创建默认 OSPF 管理器
+        let ospf_manager = Arc::new(Mutex::new(OspfManager::new(0)));
+
         Self {
             interfaces: Arc::new(Mutex::new(interface_manager)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
@@ -181,6 +192,7 @@ impl SystemContext {
             ipv6_fragment_cache: Self::create_default_ipv6_fragment_cache(),
             socket_mgr: socket_mgrs.socket_mgr,
             bgp_manager,
+            ospf_manager,
         }
     }
 
@@ -204,6 +216,7 @@ impl SystemContext {
     /// - `ipv6_fragment_cache`: IPv6 分片缓存（可选，默认为空）
     /// - `socket_mgr`: Socket 管理器（可选，默认为空）
     /// - `bgp_manager`: BGP 管理器（可选，默认为空）
+    /// - `ospf_manager`: OSPF 管理器（可选，默认为空）
     #[allow(clippy::too_many_arguments)]
     pub fn with_components(
         interfaces: Arc<Mutex<InterfaceManager>>,
@@ -220,6 +233,7 @@ impl SystemContext {
         ipv6_fragment_cache: Option<Arc<Mutex<FragmentCache>>>,
         socket_mgr: Option<Arc<Mutex<SocketManager>>>,
         bgp_manager: Option<Arc<Mutex<BgpPeerManager>>>,
+        ospf_manager: Option<Arc<Mutex<OspfManager>>>,
     ) -> Self {
         // 创建 TCP Socket 管理器和 UDP 端口管理器（如果未提供）
         let tcp_sockets = tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
@@ -236,6 +250,11 @@ impl SystemContext {
                 0, // 默认本地 AS
                 crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
             )))
+        });
+
+        // 创建或使用提供的 OSPF 管理器
+        let ospf_manager = ospf_manager.unwrap_or_else(|| {
+            Arc::new(Mutex::new(OspfManager::new(0)))
         });
 
         #[allow(clippy::arc_with_non_send_sync)]
@@ -259,6 +278,7 @@ impl SystemContext {
             ipv6_fragment_cache: ipv6_fragment_cache.unwrap_or_else(Self::create_default_ipv6_fragment_cache),
             socket_mgr,
             bgp_manager,
+            ospf_manager,
         }
     }
 
@@ -363,6 +383,7 @@ mod tests {
             None, // ipv6_fragment_cache
             None, // socket_mgr
             None, // bgp_manager
+            None, // ospf_manager
         );
 
         assert_eq!(ctx.interface_count(), 1);
@@ -454,6 +475,10 @@ mod tests {
         // 验证 ipv6_fragment_cache 也共享相同的 Arc
         assert!(Arc::ptr_eq(&ctx.ipv6_fragment_cache, &ctx_clone1.ipv6_fragment_cache));
         assert!(Arc::ptr_eq(&ctx_clone1.ipv6_fragment_cache, &ctx_clone2.ipv6_fragment_cache));
+
+        // 验证 ospf_manager 也共享相同的 Arc
+        assert!(Arc::ptr_eq(&ctx.ospf_manager, &ctx_clone1.ospf_manager));
+        assert!(Arc::ptr_eq(&ctx_clone1.ospf_manager, &ctx_clone2.ospf_manager));
 
         // 强度计数
         assert_eq!(Arc::strong_count(&ctx.interfaces), 3);

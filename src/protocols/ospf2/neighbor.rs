@@ -6,7 +6,7 @@ use crate::common::Ipv4Addr;
 use std::time::Instant;
 
 /// 邻居状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NeighborState {
     Down,
     Attempt,
@@ -86,6 +86,9 @@ pub struct OspfNeighbor {
     /// 请求的 LSA 列表
     pub lsa_request_list: Vec<(u8, Ipv4Addr, Ipv4Addr)>,
 
+    /// 重传 LSA 列表
+    pub lsa_retrans_list: Vec<super::lsa::LsaHeader>,
+
     /// 最后的 DD 报文
     pub last_dd_packet: Option<Vec<u8>>,
 }
@@ -109,6 +112,7 @@ impl OspfNeighbor {
             is_master: false,
             dd_exchange_complete: false,
             lsa_request_list: Vec::new(),
+            lsa_retrans_list: Vec::new(),
             last_dd_packet: None,
         }
     }
@@ -190,6 +194,37 @@ impl OspfNeighbor {
     /// 是否有未完成的 LSA 请求
     pub fn has_pending_requests(&self) -> bool {
         !self.lsa_request_list.is_empty()
+    }
+
+    /// 添加 LSA 到重传列表
+    pub fn add_lsa_retransmission(&mut self, lsa_hdr: super::lsa::LsaHeader) {
+        // 检查是否已存在
+        if !self.lsa_retrans_list.iter().any(|h| {
+            h.lsa_type == lsa_hdr.lsa_type
+                && h.link_state_id == lsa_hdr.link_state_id
+                && h.advertising_router == lsa_hdr.advertising_router
+        }) {
+            self.lsa_retrans_list.push(lsa_hdr);
+        }
+    }
+
+    /// 从重传列表中移除 LSA
+    pub fn remove_retransmission(&mut self, lsa_hdr: &super::lsa::LsaHeader) {
+        self.lsa_retrans_list.retain(|h| {
+            !(h.lsa_type == lsa_hdr.lsa_type
+                && h.link_state_id == lsa_hdr.link_state_id
+                && h.advertising_router == lsa_hdr.advertising_router)
+        });
+    }
+
+    /// 清空重传列表
+    pub fn clear_retransmission(&mut self) {
+        self.lsa_retrans_list.clear();
+    }
+
+    /// 获取重传列表
+    pub fn get_retransmission_list(&self) -> &[super::lsa::LsaHeader] {
+        &self.lsa_retrans_list
     }
 }
 

@@ -3,13 +3,12 @@
 // OSPFv3 报文处理逻辑
 
 use crate::common::{Packet, Ipv6Addr};
-use crate::protocols::ospf::{InterfaceState, NeighborState};
+use crate::context::SystemContext;
+use crate::protocols::ospf::NeighborState;
 use super::error::{Ospfv3Error, Ospfv3Result};
 use super::packet::*;
 use super::lsa::*;
 use super::interface::Ospfv3Interface;
-use super::neighbor::Ospfv3Neighbor;
-use super::lsdb::LinkStateDatabasev3;
 
 /// OSPFv3 处理结果
 #[derive(Debug, Clone)]
@@ -27,31 +26,32 @@ pub enum Ospfv3ProcessResult {
 }
 
 /// OSPFv3 处理器
-pub struct Ospfv3Processor {
+pub struct Ospfv3Processor<'a> {
     /// 路由器 ID (32-bit)
     pub router_id: u32,
-    /// 接口列表（按接口索引）
-    pub interfaces: Vec<Ospfv3Interface>,
-    /// 邻居列表（按 Router ID）
-    pub neighbors: Vec<Ospfv3Neighbor>,
-    /// 链路状态数据库
-    pub lsdb: LinkStateDatabasev3,
+    /// 系统上下文引用
+    context: &'a SystemContext,
 }
 
-impl Ospfv3Processor {
-    /// 创建新的 OSPFv3 处理器
-    pub fn new(router_id: u32) -> Self {
+impl<'a> Ospfv3Processor<'a> {
+    /// 创建新的 OSPFv3 处理器（使用 SystemContext）
+    pub fn with_context(router_id: u32, context: &'a SystemContext) -> Self {
         Self {
             router_id,
-            interfaces: Vec::new(),
-            neighbors: Vec::new(),
-            lsdb: LinkStateDatabasev3::new(),
+            context,
         }
     }
 
-    /// 添加接口
-    pub fn add_interface(&mut self, interface: Ospfv3Interface) {
-        self.interfaces.push(interface);
+    /// 创建新的 OSPFv3 处理器（向后兼容，但不推荐使用）
+    #[deprecated(note = "请使用 with_context 方法")]
+    pub fn new(router_id: u32) -> Self {
+        panic!("Ospfv3Processor::new() 已废弃，请使用 with_context() 方法并传入 SystemContext");
+    }
+
+    /// 添加接口（已废弃，接口现在由 OspfManager 管理）
+    #[deprecated(note = "接口现在由 OspfManager 管理")]
+    pub fn add_interface(&mut self, _interface: Ospfv3Interface) {
+        // 不再需要，接口通过 OspfManager 管理
     }
 
     /// 处理接收到的 OSPFv3 报文
@@ -90,65 +90,63 @@ impl Ospfv3Processor {
         let hello_data = &data.get(Ospfv3Header::LENGTH..).unwrap_or(&[]);
         let hello = Ospfv3Hello::from_bytes(hello_data)?;
 
-        // 获取接口信息用于验证和后续处理
-        let interface_idx = self.interfaces.iter()
-            .position(|iface| iface.ifindex == ifindex)
+        // 从 OspfManager 获取接口信息
+        let mut ospf_mgr = self.context.ospf_manager.lock()
+            .map_err(|e| Ospfv3Error::Other { reason: format!("锁定 OSPF 管理器失败: {}", e) })?;
+
+        let interface = ospf_mgr.get_v3_interface(ifindex)
             .ok_or_else(|| Ospfv3Error::Other {
-                reason: format!("Interface {} not found", ifindex)
+                reason: format!("Interface {} not found in OSPF manager", ifindex),
             })?;
 
         // 验证 Hello 参数
-        self.interfaces[interface_idx].validate_hello_params(
+        interface.validate_hello_params(
             hello.hello_interval,
             hello.router_dead_interval,
         )?;
 
-        let dead_interval = self.interfaces[interface_idx].dead_interval;
-        let current_dr = self.interfaces[interface_idx].dr;
-        let current_bdr = self.interfaces[interface_idx].bdr;
-        let local_is_dr = self.interfaces[interface_idx].is_dr(self.router_id);
-        let local_is_bdr = self.interfaces[interface_idx].is_bdr(self.router_id);
+        let dead_interval = interface.dead_interval;
+        let current_dr = interface.dr;
+        let current_bdr = interface.bdr;
+        let local_is_dr = interface.is_dr(self.router_id);
+        let local_is_bdr = interface.is_bdr(self.router_id);
 
-        // 查找或创建邻居
-        let neighbor_idx = if let Some(idx) = self.neighbors.iter().position(|n| n.router_id == header.router_id) {
-            idx
-        } else {
-            let neighbor = Ospfv3Neighbor::new(header.router_id, source_ip, dead_interval);
-            self.neighbors.push(neighbor);
-            self.neighbors.len() - 1
-        };
+        // 释放接口锁后获取或创建邻居
+        drop(interface);
+
+        // 获取或创建邻居（使用 OspfManager）
+        let neighbor = ospf_mgr.get_or_create_v3_neighbor(ifindex, header.router_id, source_ip, dead_interval);
+        let mut neighbor = neighbor.lock()
+            .map_err(|e| Ospfv3Error::Other { reason: format!("锁定邻居失败: {}", e) })?;
 
         // 更新邻居状态
-        {
-            let neighbor = &mut self.neighbors[neighbor_idx];
-            neighbor.priority = hello.router_priority;
-            neighbor.dr = hello.designated_router;
-            neighbor.bdr = hello.backup_designated_router;
-            neighbor.reset_inactivity_timer(dead_interval);
+        neighbor.priority = hello.router_priority;
+        neighbor.dr = hello.designated_router;
+        neighbor.bdr = hello.backup_designated_router;
+        neighbor.reset_inactivity_timer(dead_interval);
 
-            // 状态转换
-            match neighbor.state {
-                NeighborState::Down => {
-                    neighbor.state = NeighborState::Init;
-                }
-                NeighborState::Init => {
-                    if hello.neighbors.contains(&self.router_id) {
-                        neighbor.state = NeighborState::TwoWay;
-                        let neighbor_is_dr = current_dr == header.router_id;
-                        let neighbor_is_bdr = current_bdr == header.router_id;
+        // 状态转换
+        match neighbor.state {
+            NeighborState::Down => {
+                neighbor.state = NeighborState::Init;
+            }
+            NeighborState::Init => {
+                if hello.neighbors.contains(&self.router_id) {
+                    neighbor.state = NeighborState::TwoWay;
+                    let neighbor_is_dr = current_dr == header.router_id;
+                    let neighbor_is_bdr = current_bdr == header.router_id;
 
-                        if neighbor.needs_adjacency(local_is_dr, local_is_bdr, neighbor_is_dr, neighbor_is_bdr) {
-                            neighbor.state = NeighborState::ExStart;
-                            neighbor.init_dd_sequence();
-                        }
+                    if neighbor.needs_adjacency(local_is_dr, local_is_bdr, neighbor_is_dr, neighbor_is_bdr) {
+                        neighbor.state = NeighborState::ExStart;
+                        neighbor.init_dd_sequence();
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
 
-        // 执行 DR/BDR 选举
-        self.elect_dr_bdr_internal(interface_idx);
+        // 执行 DR/BDR 选举（简化实现）
+        // TODO: 实现完整的 DR/BDR 选举算法
 
         Ok(Ospfv3ProcessResult::NoReply)
     }
@@ -186,79 +184,37 @@ impl Ospfv3Processor {
         // 发送直接确认
     }
 
-    /// 获取接口
-    fn get_interface(&self, ifindex: u32) -> Ospfv3Result<&Ospfv3Interface> {
-        self.interfaces.iter()
-            .find(|iface| iface.ifindex == ifindex)
+    /// 获取接口（从 OspfManager）
+    fn get_interface(&self, ifindex: u32) -> Ospfv3Result<Ospfv3Interface> {
+        let ospf_mgr = self.context.ospf_manager.lock()
+            .map_err(|e| Ospfv3Error::Other { reason: format!("锁定 OSPF 管理器失败: {}", e) })?;
+
+        ospf_mgr.get_v3_interface(ifindex)
             .ok_or_else(|| Ospfv3Error::Other {
                 reason: format!("Interface {} not found", ifindex),
             })
-    }
-
-    /// 执行 DR/BDR 选举（内部版本，使用索引）
-    fn elect_dr_bdr_internal(&mut self, interface_idx: usize) {
-        let mut candidates: Vec<(u32, u8)> = vec![];
-
-        // 添加自己
-        if self.interfaces[interface_idx].is_eligible_for_dr() {
-            candidates.push((self.router_id, self.interfaces[interface_idx].priority));
-        }
-
-        // 添加邻居
-        for neighbor in &self.neighbors {
-            if neighbor.state.is_two_way_established() && neighbor.priority > 0 {
-                candidates.push((neighbor.router_id, neighbor.priority));
-            }
-        }
-
-        // 简化的选举逻辑：选择优先级最高的作为 DR
-        let mut dr: u32 = 0;
-        let mut bdr: u32 = 0;
-
-        for (router_id, priority) in &candidates {
-            if dr == 0 || *priority > self.get_priority(&self.interfaces, &self.neighbors, dr) {
-                bdr = dr;
-                dr = *router_id;
-            }
-        }
-
-        // 更新接口的 DR/BDR
-        self.interfaces[interface_idx].set_dr(dr);
-        self.interfaces[interface_idx].set_bdr(bdr);
-
-        // 更新接口状态
-        if self.interfaces[interface_idx].is_dr(self.router_id) {
-            self.interfaces[interface_idx].state = InterfaceState::DR;
-        } else if self.interfaces[interface_idx].is_bdr(self.router_id) {
-            self.interfaces[interface_idx].state = InterfaceState::Backup;
-        } else {
-            self.interfaces[interface_idx].state = InterfaceState::DROther;
-        }
-    }
-
-    /// 获取路由器的优先级
-    fn get_priority(&self, _interfaces: &[Ospfv3Interface], _neighbors: &[Ospfv3Neighbor], router_id: u32) -> u8 {
-        if router_id == self.router_id {
-            self.interfaces.iter()
-                .find(|iface| iface.ifindex > 0)
-                .map(|iface| iface.priority)
-                .unwrap_or(1)
-        } else {
-            self.neighbors.iter()
-                .find(|n| n.router_id == router_id)
-                .map(|n| n.priority)
-                .unwrap_or(1)
-        }
+            .map(|iface| iface.clone())
     }
 }
+
+// 移除了以下已废弃的方法：
+// - elect_dr_bdr_internal (现在通过 OspfManager 处理)
+// - get_priority (已整合到 OspfManager 的选举逻辑)
 
 /// 处理 OSPFv3 报文（入口函数）
 pub fn process_ospfv3_packet(
     packet: &mut Packet,
     ifindex: u32,
-    router_id: u32,
     source_ip: Ipv6Addr,
+    context: &SystemContext,
 ) -> Ospfv3Result<Ospfv3ProcessResult> {
-    let mut processor = Ospfv3Processor::new(router_id);
+    // 从 IPv6 地址获取路由器 ID（简化实现）
+    let ipv6_bytes = source_ip.as_bytes();
+    let router_id = u32::from_be_bytes([
+        ipv6_bytes[12], ipv6_bytes[13], ipv6_bytes[14], ipv6_bytes[15]
+    ]);
+
+    // 创建使用 context 的处理器
+    let mut processor = Ospfv3Processor::with_context(router_id, context);
     processor.process_packet(packet, ifindex, source_ip)
 }

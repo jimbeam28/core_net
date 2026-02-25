@@ -474,19 +474,12 @@ impl PacketProcessor {
             iface.ipv6_addr()
         };
 
-        // TODO: 从配置获取路由器 ID
-        // 简化实现：使用 IPv6 地址的最后 32 位作为 Router ID
-        let ipv6_bytes = our_ipv6.as_bytes();
-        let router_id = u32::from_be_bytes([
-            ipv6_bytes[12], ipv6_bytes[13], ipv6_bytes[14], ipv6_bytes[15]
-        ]);
-
-        // 处理 OSPFv3 报文
+        // 处理 OSPFv3 报文，使用 SystemContext
         let result = ospf3::process_ospfv3_packet(
             &mut packet,
             ifindex,
-            router_id,
             ipv6_hdr.source_addr,
+            &self.context,
         ).map_err(|e| ProcessError::ParseError(format!("OSPFv3处理失败: {}", e)))?;
 
         match result {
@@ -522,9 +515,16 @@ impl PacketProcessor {
                 Ok(None)
             }
             ospf3::Ospfv3ProcessResult::ScheduleSpfCalculation => {
-                // TODO: 实现 SPF 计算
                 if self.verbose {
-                    println!("OSPFv3: ScheduleSpfCalculation - 暂未实现");
+                    println!("OSPFv3: 触发 SPF 计算");
+                }
+                // OSPFv3 SPF 计算
+                // TODO: 实现 IPv6 路由同步
+                if let Ok(_ospf_mgr) = self.context.ospf_manager.lock() {
+                    // 运行 SPF 计算（IPv6 版本待实现）
+                    if self.verbose {
+                        println!("OSPFv3: SPF 计算暂未完整实现");
+                    }
                 }
                 Ok(None)
             }
@@ -926,19 +926,12 @@ impl PacketProcessor {
                 ip_hdr.source_addr, ip_hdr.dest_addr);
         }
 
-        // 处理 OSPF 报文
-        // 注意：OSPF 需要路由器 ID，这里使用简化处理
-        // TODO: 从配置或上下文获取路由器 ID
-        let router_id = match self.get_interface_ip(ifindex) {
-            Ok(ip) => ip,
-            Err(_) => Ipv4Addr::new(1, 1, 1, 1),  // 默认路由器 ID
-        };
-
+        // 处理 OSPF 报文，使用 SystemContext
         let result = ospf2::process_ospfv2_packet(
             &mut packet,
             ifindex,
-            router_id,
             ip_hdr.source_addr,
+            &self.context,
         ).map_err(|e| ProcessError::ParseError(format!("OSPF处理失败: {:?}", e)))?;
 
         // 根据处理结果返回
@@ -969,8 +962,50 @@ impl PacketProcessor {
 
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
-            ospf2::OspfProcessResult::FloodLsa {..} | ospf2::OspfProcessResult::ScheduleSpfCalculation |
-            ospf2::OspfProcessResult::DatabaseSynced => {
+            ospf2::OspfProcessResult::ScheduleSpfCalculation => {
+                if self.verbose {
+                    println!("OSPF: 触发 SPF 计算");
+                }
+                // 运行 SPF 计算并同步到路由表
+                use crate::protocols::ospf;
+
+                // 获取 LSDB 并构建 LSA 描述符
+                let lsa_descriptors = {
+                    let ospf_mgr = self.context.ospf_manager.lock()
+                        .map_err(|e| ProcessError::ParseError(format!("锁定 OSPF 管理器失败: {}", e)))?;
+                    ospf_mgr.v2_lsdb.build_lsa_descriptors()
+                };
+
+                // 获取路由器 ID
+                let router_id = {
+                    let ospf_mgr = self.context.ospf_manager.lock()
+                        .map_err(|e| ProcessError::ParseError(format!("锁定 OSPF 管理器失败: {}", e)))?;
+                    Ipv4Addr::from_u32(ospf_mgr.router_id)
+                };
+
+                // 运行 SPF 计算
+                let spf_result = ospf::run_spf_calculation(router_id, &lsa_descriptors);
+
+                if spf_result.success {
+                    // 同步到路由表
+                    if let Ok(mut route_table) = self.context.route_table.lock() {
+                        let area_id = Ipv4Addr::new(0, 0, 0, 0); // 区域 0 (骨干区域)
+                        if let Err(e) = ospf::sync_spf_routes_to_route_table(
+                            &spf_result,
+                            &mut route_table,
+                            area_id,
+                        ) {
+                            if self.verbose {
+                                println!("OSPF: 同步路由表失败: {}", e);
+                            }
+                        } else if self.verbose {
+                            println!("OSPF: SPF 计算完成，已同步 {} 条路由", spf_result.routes.len());
+                        }
+                    }
+                }
+                Ok(None)
+            }
+            ospf2::OspfProcessResult::FloodLsa {..} | ospf2::OspfProcessResult::DatabaseSynced => {
                 // 这些结果类型不需要立即响应
                 Ok(None)
             }

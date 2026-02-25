@@ -413,6 +413,56 @@ pub fn verify_lsa_checksum(_lsa_data: &[u8]) -> bool {
     true
 }
 
+/// 将 SPF 计算结果同步到路由表
+///
+/// # 参数
+/// - `spf_result`: SPF 计算结果
+/// - `route_table`: 路由表引用
+/// - `area_id`: 区域 ID
+///
+/// # 返回
+/// - `Ok(())`: 同步成功
+/// - `Err(String)`: 同步失败原因
+///
+/// # 说明
+/// 此函数将 SPF 计算生成的路由条目添加到系统路由表中。
+/// 对于已存在的路由，会先删除旧路由再添加新路由（更新）。
+pub fn sync_spf_routes_to_route_table(
+    spf_result: &SpfResult,
+    route_table: &mut crate::route::RouteTable,
+    area_id: Ipv4Addr,
+) -> Result<(), String> {
+    use crate::route::Ipv4Route;
+
+    // 遍历 SPF 计算结果中的路由条目
+    for route_entry in &spf_result.routes {
+        // 只处理本区域的路由
+        if route_entry.area_id != area_id {
+            continue;
+        }
+
+        // 检查是否已存在相同的路由（目标网络和子网掩码相同）
+        // 如果存在，先删除旧路由
+        let _ = route_table.remove_ipv4_route(route_entry.destination, route_entry.mask);
+
+        // 创建新的路由条目
+        let ipv4_route = Ipv4Route::with_metric(
+            route_entry.destination,
+            route_entry.mask,
+            route_entry.next_hop,
+            route_entry.outgoing_interface.clone(),
+            route_entry.cost,
+        );
+
+        // 添加路由到路由表
+        route_table
+            .add_ipv4_route(ipv4_route)
+            .map_err(|e| format!("Failed to add route: {}", e))?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

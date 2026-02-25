@@ -12,9 +12,27 @@ pub mod types;
 // 配置
 pub mod config;
 
+// OSPF 管理器
+pub mod manager;
+
+// LSA 洪泛机制
+pub mod flooding;
+
+// DR/BDR 选举算法
+pub mod election;
+
+// 邻居共享逻辑
+pub mod neighbor;
+
+// 接口共享逻辑
+pub mod interface;
+
+// 校验和计算
+pub mod checksum;
+
 pub use spf::{
     SpfNode, SpfVertex, RouteEntry, RouteType,
-    run_spf_calculation,
+    run_spf_calculation, sync_spf_routes_to_route_table,
 };
 
 pub use types::{
@@ -26,6 +44,31 @@ pub use config::{
     OspfConfig, OspfInterfaceConfig, AuthAlgorithm, CryptoAuthConfig,
     HELLO_INTERVAL_DEFAULT, DEAD_INTERVAL_DEFAULT, PRIORITY_DEFAULT,
     RETRANSMIT_INTERVAL_DEFAULT, TRANSMIT_DELAY_DEFAULT,
+};
+
+pub use manager::{
+    OspfManager, OspfTimerManager, OspfTimer, OspfTimerType,
+    OspfTimerEvent, InterfaceTimers, NeighborTimers,
+};
+
+pub use flooding::{LsaFlooder, FloodResult};
+
+pub use election::{DrBdrElection, ElectionResult};
+
+// 共享逻辑模块导出
+pub use neighbor::{
+    OspfNeighborCommon, SharedNeighborTimers, DdExchangeState,
+    LsaRequestManager, LsaKey,
+};
+
+pub use interface::{
+    OspfInterfaceConstants, SharedInterfaceTimers, DrBdrState,
+    HelloValidation, SharedInterfaceConfig, OspfInterfaceCommon,
+};
+
+pub use checksum::{
+    calculate_fletcher_checksum, verify_fletcher_checksum, update_checksum,
+    calculate_ip_checksum, verify_ip_checksum,
 };
 
 // OSPF 常量定义

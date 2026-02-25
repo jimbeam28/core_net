@@ -347,6 +347,46 @@ impl OspfDatabaseDescription {
     /// 最小 DD 报文长度
     pub const MIN_LENGTH: usize = 8;
 
+    /// 从字节解析 DD 报文
+    pub fn from_bytes(data: &[u8]) -> Result<Self, super::error::OspfError> {
+        if data.len() < Self::MIN_LENGTH {
+            return Err(super::error::OspfError::ParseError {
+                field: "Database Description".to_string(),
+                reason: format!("数据长度不足，需要至少 {} 字节", Self::MIN_LENGTH),
+            });
+        }
+
+        let interface_mtu = u16::from_be_bytes([data[0], data[1]]);
+        let options = data[2];
+        // data[3] 是保留字段
+        let dd_sequence_number = u32::from_be_bytes([data[4], data[5], data[6], data[7]]);
+
+        // 解析标志位
+        let i_bit = (options & 0x04) != 0;
+        let m_bit = (options & 0x02) != 0;
+        let ms_bit = (options & 0x01) != 0;
+
+        let mut dd = Self {
+            interface_mtu,
+            options,
+            i_bit,
+            m_bit,
+            ms_bit,
+            dd_sequence_number,
+            lsa_headers: Vec::new(),
+        };
+
+        // 解析 LSA 头部列表（如果有）
+        let mut offset = Self::MIN_LENGTH;
+        while offset + super::lsa::LsaHeader::LENGTH <= data.len() {
+            let lsa_hdr = super::lsa::LsaHeader::from_bytes(&data[offset..])?;
+            dd.lsa_headers.push(lsa_hdr);
+            offset += super::lsa::LsaHeader::LENGTH;
+        }
+
+        Ok(dd)
+    }
+
     /// 创建新的 DD 报文
     pub fn new(interface_mtu: u16, dd_sequence_number: u32) -> Self {
         Self {
@@ -378,8 +418,14 @@ impl OspfDatabaseDescription {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
+        // 编码选项字段，包含 I/M/MS 位
+        let mut options = self.options & 0xF8;  // 保留高5位
+        if self.i_bit { options |= 0x04; }
+        if self.m_bit { options |= 0x02; }
+        if self.ms_bit { options |= 0x01; }
+
         bytes.extend_from_slice(&self.interface_mtu.to_be_bytes());
-        bytes.push(self.options);
+        bytes.push(options);
         bytes.push(0);  // 保留字段
         bytes.extend_from_slice(&self.dd_sequence_number.to_be_bytes());
 
@@ -405,6 +451,27 @@ pub struct LsaRequest {
 impl LsaRequest {
     /// LSA 请求条目长度
     pub const LENGTH: usize = 12;
+
+    /// 从字节解析 LSA 请求
+    pub fn from_bytes(data: &[u8]) -> Result<Self, super::error::OspfError> {
+        if data.len() < Self::LENGTH {
+            return Err(super::error::OspfError::ParseError {
+                field: "LSA Request".to_string(),
+                reason: format!("数据长度不足，需要至少 {} 字节", Self::LENGTH),
+            });
+        }
+
+        let lsa_type = data[0];
+        // data[1..3] 是保留字段，跳过
+        let link_state_id = Ipv4Addr::new(data[4], data[5], data[6], data[7]);
+        let advertising_router = Ipv4Addr::new(data[8], data[9], data[10], data[11]);
+
+        Ok(Self {
+            lsa_type,
+            link_state_id,
+            advertising_router,
+        })
+    }
 
     /// 创建新的 LSA 请求
     pub fn new(lsa_type: u8, link_state_id: Ipv4Addr, advertising_router: Ipv4Addr) -> Self {
@@ -441,6 +508,20 @@ pub struct OspfLinkStateRequest {
 }
 
 impl OspfLinkStateRequest {
+    /// 从字节解析 LSR 报文
+    pub fn from_bytes(data: &[u8]) -> Result<Self, super::error::OspfError> {
+        let mut lsr = Self::new();
+
+        let mut offset = 0;
+        while offset + LsaRequest::LENGTH <= data.len() {
+            let request = LsaRequest::from_bytes(&data[offset..])?;
+            lsr.add_request(request);
+            offset += LsaRequest::LENGTH;
+        }
+
+        Ok(lsr)
+    }
+
     /// 创建新的 LSR 报文
     pub fn new() -> Self {
         Self {
@@ -511,6 +592,20 @@ pub struct OspfLinkStateAck {
 }
 
 impl OspfLinkStateAck {
+    /// 从字节解析 LSAck 报文
+    pub fn from_bytes(data: &[u8]) -> Result<Self, super::error::OspfError> {
+        let mut lsack = Self::new();
+
+        let mut offset = 0;
+        while offset + super::lsa::LsaHeader::LENGTH <= data.len() {
+            let lsa_hdr = super::lsa::LsaHeader::from_bytes(&data[offset..])?;
+            lsack.add_lsa_header(lsa_hdr);
+            offset += super::lsa::LsaHeader::LENGTH;
+        }
+
+        Ok(lsack)
+    }
+
     /// 创建新的 LSAck 报文
     pub fn new() -> Self {
         Self {
