@@ -282,14 +282,8 @@ impl PacketProcessor {
                     println!("IPv4: Reply {} bytes", ip_bytes.len());
                 }
                 // 封装为以太网帧
-                let our_mac = self.get_interface_mac(ifindex)?;
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,  // 响应发送给原始发送方
-                    our_mac,          // 使用本接口的 MAC
-                    crate::protocols::ETH_P_IP,
-                    &ip_bytes,
-                );
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_bytes)?;
+                Ok(Some(pkt))
             }
             ip::IpProcessResult::DeliverToProtocol { ip_hdr, data } => {
                 if self.verbose {
@@ -352,14 +346,8 @@ impl PacketProcessor {
             ipv6::Ipv6ProcessResult::NoReply => Ok(None),
             ipv6::Ipv6ProcessResult::Reply(ipv6_bytes) => {
                 // 封装为以太网帧
-                let our_mac = self.get_interface_mac(ifindex)?;
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,  // 响应发送给原始发送方
-                    our_mac,          // 使用本接口的 MAC
-                    crate::protocols::ETH_P_IPV6,
-                    &ipv6_bytes,
-                );
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IPV6, &ipv6_bytes)?;
+                Ok(Some(pkt))
             }
             ipv6::Ipv6ProcessResult::NeedsReassembly { .. } => {
                 // 分片重组暂不支持
@@ -445,14 +433,8 @@ impl PacketProcessor {
                 ipv6_packet.extend_from_slice(&icmpv6_bytes);
 
                 // 封装为以太网帧
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,  // 响应发送给原始发送方
-                    our_mac,          // 使用本接口的 MAC
-                    crate::protocols::ETH_P_IPV6,
-                    &ipv6_packet,
-                );
-
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IPV6, &ipv6_packet)?;
+                Ok(Some(pkt))
             }
             icmpv6::Icmpv6ProcessResult::Processed => Ok(None),
         }
@@ -493,7 +475,6 @@ impl PacketProcessor {
             ospf3::Ospfv3ProcessResult::NoReply => Ok(None),
             ospf3::Ospfv3ProcessResult::Reply(ospfv3_bytes) => {
                 // 封装为 IPv6 数据包
-                let our_mac = self.get_interface_mac(ifindex)?;
                 let ipv6_reply = ipv6::Ipv6Header::new(
                     our_ipv6,
                     ipv6_hdr.source_addr,
@@ -505,14 +486,8 @@ impl PacketProcessor {
                 ipv6_packet.extend_from_slice(&ospfv3_bytes);
 
                 // 封装为以太网帧
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,
-                    our_mac,
-                    crate::protocols::ETH_P_IPV6,
-                    &ipv6_packet,
-                );
-
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IPV6, &ipv6_packet)?;
+                Ok(Some(pkt))
             }
             ospf3::Ospfv3ProcessResult::FloodLsa { .. } => {
                 // TODO: 实现 LSA 洪泛
@@ -581,8 +556,6 @@ impl PacketProcessor {
             }
             icmp::IcmpProcessResult::Reply(icmp_bytes) => {
                 println!("ICMP: Reply {} bytes", icmp_bytes.len());
-                // 获取本接口的 MAC 地址
-                let our_mac = self.get_interface_mac(ifindex)?;
 
                 // 封装为 IP 数据报
                 let ip_reply = ip::Ipv4Header::new(
@@ -595,17 +568,9 @@ impl PacketProcessor {
                 ip_packet.extend_from_slice(&icmp_bytes);
 
                 // 封装为以太网帧
-                // 目标 MAC = 原始发送方的 MAC
-                // 源 MAC = 本接口的 MAC
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,  // 响应发送给原始发送方
-                    our_mac,          // 使用本接口的 MAC
-                    crate::protocols::ETH_P_IP,
-                    &ip_packet,
-                );
-
-                println!("ICMP: 返回以太网帧 {} bytes", frame_bytes.len());
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
+                println!("ICMP: 返回以太网帧 {} bytes", pkt.len());
+                Ok(Some(pkt))
             }
             icmp::IcmpProcessResult::Processed => {
                 println!("ICMP: Processed");
@@ -659,9 +624,6 @@ impl PacketProcessor {
         match result {
             udp::UdpProcessResult::NoReply => Ok(None),
             udp::UdpProcessResult::PortUnreachable(original_ip) => {
-                // 获取本接口的 MAC 地址
-                let our_mac = self.get_interface_mac(ifindex)?;
-
                 // 使用原始 IP 数据报构造 ICMP 端口不可达消息
                 // ICMP Type=3 (Destination Unreachable), Code=3 (Port Unreachable)
                 let icmp_msg = udp::create_port_unreachable(&original_ip);
@@ -677,14 +639,8 @@ impl PacketProcessor {
                 ip_packet.extend_from_slice(&icmp_msg);
 
                 // 封装为以太网帧
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,
-                    our_mac,
-                    crate::protocols::ETH_P_IP,
-                    &ip_packet,
-                );
-
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
+                Ok(Some(pkt))
             }
             udp::UdpProcessResult::Delivered(local_port, src_addr, src_port, data) => {
                 // 尝试将数据分发到 Socket
@@ -766,7 +722,6 @@ impl PacketProcessor {
                             bgp::BgpProcessResult::Reply(bgp_bytes) => {
                                 // 需要发送 BGP 响应，通过 TCP 封装
                                 // 这里简化处理：直接返回 IP 数据包
-                                let our_mac = self.get_interface_mac(ifindex)?;
                                 let ip_reply = ip::Ipv4Header::new(
                                     our_ip,
                                     ip_hdr.source_addr,
@@ -776,17 +731,11 @@ impl PacketProcessor {
                                 let mut ip_packet = ip_reply.to_bytes();
                                 ip_packet.extend_from_slice(&bgp_bytes);
 
-                                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                                    eth_hdr.src_mac,
-                                    our_mac,
-                                    crate::protocols::ETH_P_IP,
-                                    &ip_packet,
-                                );
-                                return Ok(Some(Packet::from_bytes(frame_bytes)));
+                                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
+                                return Ok(Some(pkt));
                             }
                             bgp::BgpProcessResult::CloseConnection(data) => {
                                 // 发送 NOTIFICATION 并关闭连接
-                                let our_mac = self.get_interface_mac(ifindex)?;
                                 let ip_reply = ip::Ipv4Header::new(
                                     our_ip,
                                     ip_hdr.source_addr,
@@ -796,13 +745,8 @@ impl PacketProcessor {
                                 let mut ip_packet = ip_reply.to_bytes();
                                 ip_packet.extend_from_slice(&data);
 
-                                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                                    eth_hdr.src_mac,
-                                    our_mac,
-                                    crate::protocols::ETH_P_IP,
-                                    &ip_packet,
-                                );
-                                return Ok(Some(Packet::from_bytes(frame_bytes)));
+                                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
+                                return Ok(Some(pkt));
                             }
                             _ => {}
                         }
@@ -830,9 +774,6 @@ impl PacketProcessor {
         match result {
             tcp::TcpProcessResult::NoReply => Ok(None),
             tcp::TcpProcessResult::Reply(tcp_bytes) => {
-                // 获取本接口的 MAC 地址
-                let our_mac = self.get_interface_mac(ifindex)?;
-
                 // 封装为 IP 数据报
                 let ip_reply = ip::Ipv4Header::new(
                     our_ip,
@@ -844,14 +785,8 @@ impl PacketProcessor {
                 ip_packet.extend_from_slice(&tcp_bytes);
 
                 // 封装为以太网帧
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,
-                    our_mac,
-                    crate::protocols::ETH_P_IP,
-                    &ip_packet,
-                );
-
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
+                Ok(Some(pkt))
             }
             tcp::TcpProcessResult::Delivered(conn_id, data) => {
                 if self.verbose {
@@ -873,9 +808,6 @@ impl PacketProcessor {
                     let _ = socket_mgr.deliver_tcp_data(&conn_id, data);
                 }
 
-                // 获取本接口的 MAC 地址
-                let our_mac = self.get_interface_mac(ifindex)?;
-
                 // 封装为 IP 数据报
                 let ip_reply = ip::Ipv4Header::new(
                     our_ip,
@@ -887,14 +819,8 @@ impl PacketProcessor {
                 ip_packet.extend_from_slice(&tcp_bytes);
 
                 // 封装为以太网帧
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,
-                    our_mac,
-                    crate::protocols::ETH_P_IP,
-                    &ip_packet,
-                );
-
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
+                Ok(Some(pkt))
             }
             tcp::TcpProcessResult::ConnectionEstablished(id) => {
                 if self.verbose {
@@ -945,9 +871,8 @@ impl PacketProcessor {
         match result {
             ospf2::OspfProcessResult::NoReply => Ok(None),
             ospf2::OspfProcessResult::Reply(ospf_bytes) => {
-                // 获取本接口的 IP 和 MAC 地址
+                // 获取本接口的 IP 地址
                 let our_ip = self.get_interface_ip(ifindex)?;
-                let our_mac = self.get_interface_mac(ifindex)?;
 
                 // 封装为 IP 数据报
                 let ip_reply = ip::Ipv4Header::new(
@@ -960,14 +885,8 @@ impl PacketProcessor {
                 ip_packet.extend_from_slice(&ospf_bytes);
 
                 // 封装为以太网帧
-                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
-                    eth_hdr.src_mac,
-                    our_mac,
-                    crate::protocols::ETH_P_IP,
-                    &ip_packet,
-                );
-
-                Ok(Some(Packet::from_bytes(frame_bytes)))
+                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
+                Ok(Some(pkt))
             }
             ospf2::OspfProcessResult::ScheduleSpfCalculation => {
                 if self.verbose {
@@ -1303,7 +1222,7 @@ impl PacketProcessor {
         }
 
         // 解密数据
-        let decrypted_payload = esp_packet.decrypt_payload(sa.cipher.as_ref(), &sa.cipher_key.as_ref().unwrap_or(&vec![]));
+        let decrypted_payload = esp_packet.decrypt_payload(sa.cipher.as_ref(), sa.cipher_key.as_ref().unwrap_or(&vec![]));
 
         if self.verbose {
             println!("IPsec ESP: 验证通过，提交上层协议 NextHeader={} Mode={:?}",
@@ -1411,6 +1330,34 @@ impl PacketProcessor {
             .map_err(|e| ProcessError::ParseError(format!("获取接口失败: {}", e)))?;
 
         Ok(iface.ip_addr)
+    }
+
+    /// 构建以太网响应帧
+    ///
+    /// # 参数
+    /// - `ifindex`: 接口索引
+    /// - `dst_mac`: 目标 MAC 地址（响应发送给原始发送方）
+    /// - `ether_type`: 以太网类型
+    /// - `payload`: 载荷数据
+    ///
+    /// # 返回
+    /// - `Ok(Packet)`: 封装好的以太网帧
+    /// - `Err(ProcessError)`: 封装失败
+    fn build_ethernet_response(
+        &self,
+        ifindex: u32,
+        dst_mac: crate::protocols::MacAddr,
+        ether_type: u16,
+        payload: &[u8],
+    ) -> Result<Packet, ProcessError> {
+        let our_mac = self.get_interface_mac(ifindex)?;
+        let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+            dst_mac,
+            our_mac,
+            ether_type,
+            payload,
+        );
+        Ok(Packet::from_bytes(frame_bytes))
     }
 
     fn print_packet_info(&self, packet: &Packet) {

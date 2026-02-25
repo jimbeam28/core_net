@@ -394,7 +394,7 @@ pub struct ReplayWindow {
 impl ReplayWindow {
     /// 创建新的重放窗口
     pub fn new(window_size: usize) -> Self {
-        let words = (window_size + 63) / 64;
+        let words = window_size.div_ceil(64);
         Self {
             window_size: window_size as u64,
             bitmap: vec![0u64; words],
@@ -410,9 +410,32 @@ impl ReplayWindow {
         self.window_left = 0;
     }
 
+    /// 滑动位图（内部辅助方法）
+    ///
+    /// # 参数
+    /// - `shift`: 需要移动的位数
+    fn slide_bitmap(&mut self, shift: usize) {
+        let word_shift = shift / 64;
+        let bit_shift = shift % 64;
+
+        if bit_shift == 0 {
+            // 简单情况：只需移动字
+            for i in 0..self.bitmap.len() {
+                self.bitmap[i] = self.bitmap.get(i + word_shift).copied().unwrap_or(0);
+            }
+        } else {
+            // 复杂情况：需要移动位
+            for i in 0..self.bitmap.len() {
+                let low = self.bitmap.get(i + word_shift).copied().unwrap_or(0) >> bit_shift;
+                let high = self.bitmap.get(i + word_shift + 1).copied().unwrap_or(0) << (64 - bit_shift);
+                self.bitmap[i] = low | high;
+            }
+        }
+    }
+
     /// 滑动窗口到新的最高序列号
     pub fn slide_to(&mut self, new_highest: u64) {
-        if new_highest <= self.window_left + self.window_size - 1 {
+        if new_highest < self.window_left + self.window_size {
             // 新序列号在当前窗口内，无需滑动
             return;
         }
@@ -427,38 +450,9 @@ impl ReplayWindow {
             return;
         }
 
-        // 计算需要移动的位数
+        // 计算需要移动的位数并滑动位图
         let shift = (new_left - old_left) as usize;
-
-        // 滑动位图
-        let word_shift = shift / 64;
-        let bit_shift = shift % 64;
-
-        if bit_shift == 0 {
-            // 简单情况：只需移动字
-            for i in 0..self.bitmap.len() {
-                if i + word_shift < self.bitmap.len() {
-                    self.bitmap[i] = self.bitmap[i + word_shift];
-                } else {
-                    self.bitmap[i] = 0;
-                }
-            }
-        } else {
-            // 复杂情况：需要移动位
-            for i in 0..self.bitmap.len() {
-                let low = if i + word_shift < self.bitmap.len() {
-                    self.bitmap[i + word_shift] >> bit_shift
-                } else {
-                    0
-                };
-                let high = if i + word_shift + 1 < self.bitmap.len() {
-                    self.bitmap[i + word_shift + 1] << (64 - bit_shift)
-                } else {
-                    0
-                };
-                self.bitmap[i] = low | high;
-            }
-        }
+        self.slide_bitmap(shift);
     }
 
     /// 检查并标记序列号（滑动窗口版本）
@@ -479,36 +473,7 @@ impl ReplayWindow {
         if new_left > self.window_left {
             let shift = (new_left - self.window_left) as usize;
             self.window_left = new_left;
-
-            // 滑动位图
-            let word_shift = shift / 64;
-            let bit_shift = shift % 64;
-
-            if bit_shift == 0 {
-                // 简单情况：只需移动字
-                for i in 0..self.bitmap.len() {
-                    if i + word_shift < self.bitmap.len() {
-                        self.bitmap[i] = self.bitmap[i + word_shift];
-                    } else {
-                        self.bitmap[i] = 0;
-                    }
-                }
-            } else {
-                // 复杂情况：需要移动位
-                for i in 0..self.bitmap.len() {
-                    let low = if i + word_shift < self.bitmap.len() {
-                        self.bitmap[i + word_shift] >> bit_shift
-                    } else {
-                        0
-                    };
-                    let high = if i + word_shift + 1 < self.bitmap.len() {
-                        self.bitmap[i + word_shift + 1] << (64 - bit_shift)
-                    } else {
-                        0
-                    };
-                    self.bitmap[i] = low | high;
-                }
-            }
+            self.slide_bitmap(shift);
         }
 
         // 检查序列号是否在窗口内
@@ -597,17 +562,15 @@ impl TrafficSelector {
         }
 
         // 检查源地址
-        if let Some(ref selector_src) = self.src_addr {
-            if selector_src != &src {
-                return false;
-            }
+        if let Some(ref selector_src) = self.src_addr
+            && selector_src != &src {
+            return false;
         }
 
         // 检查目的地址
-        if let Some(ref selector_dst) = self.dst_addr {
-            if selector_dst != &dst {
-                return false;
-            }
+        if let Some(ref selector_dst) = self.dst_addr
+            && selector_dst != &dst {
+            return false;
         }
 
         true
@@ -704,6 +667,11 @@ impl SadManager {
     pub fn len(&self) -> usize {
         self.sas.len()
     }
+
+    /// SA 列表是否为空
+    pub fn is_empty(&self) -> bool {
+        self.sas.is_empty()
+    }
 }
 
 impl Default for SadManager {
@@ -758,6 +726,11 @@ impl SpdManager {
     /// 策略数量
     pub fn len(&self) -> usize {
         self.policies.len()
+    }
+
+    /// 策略列表是否为空
+    pub fn is_empty(&self) -> bool {
+        self.policies.is_empty()
     }
 }
 

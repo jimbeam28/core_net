@@ -403,7 +403,7 @@ fn test_ipsec_ah_with_test_harness() {
     injector.inject("eth0", core_net::common::Packet::from_bytes(frame)).unwrap();
 
     // 处理报文
-    harness.run();
+    let _ = harness.run();
 
     // 验证结果（简化验证）
     // 在实际实现中，应该验证 AH 包被正确解析
@@ -442,7 +442,7 @@ fn test_ipsec_esp_with_test_harness() {
     injector.inject("eth0", core_net::common::Packet::from_bytes(frame)).unwrap();
 
     // 处理报文
-    harness.run();
+    let _ = harness.run();
 
     // 验证结果（简化验证）
     // 在实际实现中，应该验证 ESP 包被正确解析
@@ -471,7 +471,7 @@ fn test_esp_no_padding() {
     );
 
     // ESP 总是至少添加 1 字节填充
-    assert!(packet.trailer.padding.len() >= 1);
+    assert!(!packet.trailer.padding.is_empty());
 }
 
 #[test]
