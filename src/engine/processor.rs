@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, ospf2, Ipv4Addr};
+use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, ospf2, ospf3, Ipv4Addr};
 use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
@@ -72,6 +72,7 @@ impl_from_protocol_error!(crate::protocols::vlan::VlanError, "VLAN");
 impl_from_protocol_error!(crate::protocols::ip::IpError);
 impl_from_protocol_error!(crate::protocols::ipv6::Ipv6Error);
 impl_from_protocol_error!(crate::protocols::tcp::TcpError, "TCP");
+impl_from_protocol_error!(crate::protocols::ospf3::Ospfv3Error, "OSPFv3");
 
 impl From<String> for ProcessError {
     fn from(msg: String) -> Self {
@@ -369,6 +370,9 @@ impl PacketProcessor {
                     ipv6::IpProtocol::IcmpV6 => {
                         self.handle_icmpv6(eth_hdr, header, Packet::from_bytes(data))
                     }
+                    ipv6::IpProtocol::Ospf => {
+                        self.handle_ospfv3(eth_hdr, header, Packet::from_bytes(data))
+                    }
                     _ => {
                         Err(ProcessError::UnsupportedProtocol(
                             format!("Unknown IPv6 next header: {}", u8::from(header.next_header))
@@ -443,6 +447,92 @@ impl PacketProcessor {
                 Ok(Some(Packet::from_bytes(frame_bytes)))
             }
             icmpv6::Icmpv6ProcessResult::Processed => Ok(None),
+        }
+    }
+
+    /// 处理 OSPFv3 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ipv6_hdr: IPv6 头部
+    /// - packet: Packet（已去除 IPv6 头部）
+    fn handle_ospfv3(&self, eth_hdr: EthernetHeader, ipv6_hdr: ipv6::Ipv6Header, mut packet: Packet) -> ProcessResult {
+        let ifindex = packet.ifindex;
+
+        if self.verbose {
+            println!("OSPFv3: 处理 OSPFv3 报文 源={} 目的={}",
+                ipv6_hdr.source_addr, ipv6_hdr.destination_addr);
+        }
+
+        // 获取本接口的 IPv6 地址
+        let our_ipv6 = {
+            let interfaces = self.context.interfaces.lock()
+                .map_err(|e| ProcessError::ParseError(format!("锁定接口管理器失败: {}", e)))?;
+            let iface = interfaces.get_by_index(ifindex)
+                .map_err(|e| ProcessError::ParseError(format!("获取接口失败: {}", e)))?;
+            iface.ipv6_addr()
+        };
+
+        // TODO: 从配置获取路由器 ID
+        // 简化实现：使用 IPv6 地址的最后 32 位作为 Router ID
+        let ipv6_bytes = our_ipv6.as_bytes();
+        let router_id = u32::from_be_bytes([
+            ipv6_bytes[12], ipv6_bytes[13], ipv6_bytes[14], ipv6_bytes[15]
+        ]);
+
+        // 处理 OSPFv3 报文
+        let result = ospf3::process_ospfv3_packet(
+            &mut packet,
+            ifindex,
+            router_id,
+            ipv6_hdr.source_addr,
+        ).map_err(|e| ProcessError::ParseError(format!("OSPFv3处理失败: {}", e)))?;
+
+        match result {
+            ospf3::Ospfv3ProcessResult::NoReply => Ok(None),
+            ospf3::Ospfv3ProcessResult::Reply(ospfv3_bytes) => {
+                // 封装为 IPv6 数据包
+                let our_mac = self.get_interface_mac(ifindex)?;
+                let ipv6_reply = ipv6::Ipv6Header::new(
+                    our_ipv6,
+                    ipv6_hdr.source_addr,
+                    ospfv3_bytes.len() as u16,
+                    ipv6::IpProtocol::Ospf,
+                    64,
+                );
+                let mut ipv6_packet = ipv6_reply.to_bytes().to_vec();
+                ipv6_packet.extend_from_slice(&ospfv3_bytes);
+
+                // 封装为以太网帧
+                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                    eth_hdr.src_mac,
+                    our_mac,
+                    crate::protocols::ETH_P_IPV6,
+                    &ipv6_packet,
+                );
+
+                Ok(Some(Packet::from_bytes(frame_bytes)))
+            }
+            ospf3::Ospfv3ProcessResult::FloodLsa { .. } => {
+                // TODO: 实现 LSA 洪泛
+                if self.verbose {
+                    println!("OSPFv3: FloodLsa - 暂未实现");
+                }
+                Ok(None)
+            }
+            ospf3::Ospfv3ProcessResult::ScheduleSpfCalculation => {
+                // TODO: 实现 SPF 计算
+                if self.verbose {
+                    println!("OSPFv3: ScheduleSpfCalculation - 暂未实现");
+                }
+                Ok(None)
+            }
+            ospf3::Ospfv3ProcessResult::DatabaseSynced => {
+                if self.verbose {
+                    println!("OSPFv3: DatabaseSynced");
+                }
+                Ok(None)
+            }
         }
     }
 

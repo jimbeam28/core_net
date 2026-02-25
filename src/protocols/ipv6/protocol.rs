@@ -46,6 +46,9 @@ pub enum IpProtocol {
     /// 无下一头部
     NoNextHeader = 59,
 
+    /// OSPF for IPv6
+    Ospf = 89,
+
     /// IPv6 目的选项 (Destination Options) - 未来支持
     Ipv6DestOptions = 60,
 
@@ -72,7 +75,7 @@ impl IpProtocol {
 
     /// 判断是否为上层协议类型
     pub fn is_upper_layer(&self) -> bool {
-        matches!(self, Self::Tcp | Self::Udp | Self::IcmpV6 | Self::Icmp)
+        matches!(self, Self::Tcp | Self::Udp | Self::IcmpV6 | Self::Icmp | Self::Ospf)
     }
 
     /// 判断协议是否被支持（当前仅支持 ICMPv6）
@@ -97,6 +100,7 @@ impl IpProtocol {
             Self::NoNextHeader => "NoNextHeader",
             Self::Ipv6DestOptions => "IPv6DestOptions",
             Self::Ihip => "IHIP",
+            Self::Ospf => "OSPF",
             Self::Unknown(_) => "Unknown",
         }
     }
@@ -118,6 +122,7 @@ impl From<u8> for IpProtocol {
             58 => IpProtocol::IcmpV6,
             59 => IpProtocol::NoNextHeader,
             60 => IpProtocol::Ipv6DestOptions,
+            89 => IpProtocol::Ospf,
             139 => IpProtocol::Ihip,
             v => IpProtocol::Unknown(v),
         }
@@ -140,6 +145,7 @@ impl From<IpProtocol> for u8 {
             IpProtocol::IcmpV6 => 58,
             IpProtocol::NoNextHeader => 59,
             IpProtocol::Ipv6DestOptions => 60,
+            IpProtocol::Ospf => 89,
             IpProtocol::Ihip => 139,
             IpProtocol::Unknown(v) => v,
         }

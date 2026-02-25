@@ -38,6 +38,9 @@ pub mod ospf;
 // OSPFv2 协议（IPv4）
 pub mod ospf2;
 
+// OSPFv3 协议（IPv6）
+pub mod ospf3;
+
 // 从 common 模块重新导出类型
 pub use crate::common::{
     Packet,

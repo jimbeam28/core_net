@@ -272,6 +272,11 @@ impl Ipv6Addr {
         Ipv6Addr { bytes }
     }
 
+    /// 创建未指定地址 ::
+    pub const fn unspecified() -> Self {
+        Self::UNSPECIFIED
+    }
+
     /// 转换为字节数组引用
     pub const fn as_bytes(&self) -> &[u8; 16] {
         &self.bytes
