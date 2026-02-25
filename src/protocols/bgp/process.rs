@@ -385,7 +385,6 @@ pub fn withdraw_route(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocols::bgp::{BgpPeerType, BgpState};
     use crate::common::addr::Ipv4Addr as CoreIpv4Addr;
     use std::net::Ipv4Addr;
 

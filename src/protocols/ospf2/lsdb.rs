@@ -128,7 +128,7 @@ impl LinkStateDatabase {
 
         for (key, entry) in &self.lsas {
             if entry.is_expired() {
-                expired_keys.push(key.clone());
+                expired_keys.push(*key);
             }
         }
 
@@ -162,15 +162,15 @@ impl LinkStateDatabase {
                 let num_links = lsa_data.len() / 12;
                 for i in 0..num_links {
                     let offset = i * 12;
-                    if offset + 12 <= lsa_data.len() {
-                        if let Ok(router_link) = RouterLink::from_bytes(&lsa_data[offset..offset+12]) {
-                            links.push(LsaLink {
-                                link_id: router_link.link_id,
-                                link_data: router_link.link_data,
-                                link_type: router_link.link_type,
-                                metric: router_link.metric as u32,
-                            });
-                        }
+                    if offset + 12 <= lsa_data.len()
+                        && let Ok(router_link) = RouterLink::from_bytes(&lsa_data[offset..offset+12])
+                    {
+                        links.push(LsaLink {
+                            link_id: router_link.link_id,
+                            link_data: router_link.link_data,
+                            link_type: router_link.link_type,
+                            metric: router_link.metric as u32,
+                        });
                     }
                 }
 

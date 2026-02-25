@@ -50,7 +50,7 @@ impl<'a> OspfProcessor<'a> {
 
     /// 创建新的 OSPF 处理器（向后兼容，但不推荐使用）
     #[deprecated(note = "请使用 with_context 方法")]
-    pub fn new(router_id: Ipv4Addr) -> Self {
+    pub fn new(_router_id: Ipv4Addr) -> Self {
         // 这个方法现在只是临时实现，需要调用者提供 context
         // 实际使用中应该使用 with_context
         panic!("OspfProcessor::new() 已废弃，请使用 with_context() 方法并传入 SystemContext");
@@ -129,9 +129,6 @@ impl<'a> OspfProcessor<'a> {
         let local_is_dr = interface.is_dr(self.router_id);
         let local_is_bdr = interface.is_bdr(self.router_id);
 
-        // 释放接口锁后获取或创建邻居
-        drop(interface);
-
         // 获取或创建邻居（使用 OspfManager）
         let neighbor = ospf_mgr.get_or_create_v2_neighbor(header.router_id, source_ip, dead_interval);
         let mut neighbor = neighbor.lock()
@@ -180,7 +177,7 @@ impl<'a> OspfProcessor<'a> {
         let dd = OspfDatabaseDescription::from_bytes(dd_data)?;
 
         // 获取邻居
-        let mut ospf_mgr = self.context.ospf_manager.lock()
+        let ospf_mgr = self.context.ospf_manager.lock()
             .map_err(|e| OspfError::Other { reason: format!("锁定 OSPF 管理器失败: {}", e) })?;
 
         let neighbor = ospf_mgr.get_v2_neighbor(header.router_id)
@@ -260,7 +257,6 @@ impl<'a> OspfProcessor<'a> {
             neighbor.dd_seq_number = dd.dd_sequence_number;
 
             // 处理 LSA 头部列表
-            let mut has_more_instances = false;
             for lsa_hdr in &dd.lsa_headers {
                 // 检查是否需要请求此 LSA
                 if self.should_request_lsa(&ospf_mgr, lsa_hdr) {
@@ -270,7 +266,6 @@ impl<'a> OspfProcessor<'a> {
                         lsa_hdr.advertising_router,
                     );
                 }
-                has_more_instances = true;
             }
 
             // 检查是否 DD 交换完成
@@ -324,7 +319,7 @@ impl<'a> OspfProcessor<'a> {
     /// 构建空的 DD 报文（用于 ExStart 阶段）
     fn build_empty_dd(
         &self,
-        neighbor_id: Ipv4Addr,
+        _neighbor_id: Ipv4Addr,
         ifindex: u32,
         is_master: bool,
         dd_seq_number: u32,
@@ -365,7 +360,7 @@ impl<'a> OspfProcessor<'a> {
         let lsr = OspfLinkStateRequest::from_bytes(lsr_data)?;
 
         // 获取邻居
-        let mut ospf_mgr = self.context.ospf_manager.lock()
+        let ospf_mgr = self.context.ospf_manager.lock()
             .map_err(|e| OspfError::Other { reason: format!("锁定 OSPF 管理器失败: {}", e) })?;
 
         let neighbor = ospf_mgr.get_v2_neighbor(header.router_id)
@@ -486,7 +481,7 @@ impl<'a> OspfProcessor<'a> {
     /// 构建 LSU 响应报文
     fn build_lsu_response(
         &self,
-        neighbor_id: Ipv4Addr,
+        _neighbor_id: Ipv4Addr,
         ifindex: u32,
         lsas: &[Lsa],
     ) -> OspfResult<Vec<u8>> {
@@ -571,7 +566,7 @@ impl<'a> OspfProcessor<'a> {
                 &interfaces,
                 &neighbors,
             ) {
-                crate::protocols::ospf::FloodResult::InstalledAndFlood { targets, trigger_spf: should_trigger } => {
+                crate::protocols::ospf::FloodResult::InstalledAndFlood { targets: _, trigger_spf: should_trigger } => {
                     if should_trigger {
                         trigger_spf = true;
                     }
@@ -608,12 +603,12 @@ impl<'a> OspfProcessor<'a> {
     /// 处理 Link State Acknowledgment 报文
     ///
     /// RFC 2328 Section 10.8: 发送链路状态确认报文
-    fn process_lsack(&mut self, header: OspfHeader, data: &[u8], ifindex: u32) -> OspfResult<OspfProcessResult> {
+    fn process_lsack(&mut self, header: OspfHeader, data: &[u8], _ifindex: u32) -> OspfResult<OspfProcessResult> {
         let lsack_data = &data.get(OspfHeader::LENGTH..).unwrap_or(&[]);
         let lsack = OspfLinkStateAck::from_bytes(lsack_data)?;
 
         // 获取邻居
-        let mut ospf_mgr = self.context.ospf_manager.lock()
+        let ospf_mgr = self.context.ospf_manager.lock()
             .map_err(|e| OspfError::Other { reason: format!("锁定 OSPF 管理器失败: {}", e) })?;
 
         let neighbor = ospf_mgr.get_v2_neighbor(header.router_id)
@@ -642,37 +637,6 @@ impl<'a> OspfProcessor<'a> {
         let _ = destination;
     }
 
-    /// 构建 LSAck 报文
-    fn build_lsack_packet(
-        &self,
-        _destination: Ipv4Addr,
-        ifindex: u32,
-        lsa_headers: &[LsaHeader],
-    ) -> OspfResult<Vec<u8>> {
-        // 获取接口信息
-        let interface = self.get_interface(ifindex)?;
-
-        // 构建 LSAck 报文
-        let mut lsack = OspfLinkStateAck::new();
-        for lsa_hdr in lsa_headers {
-            lsack.add_lsa_header(lsa_hdr.clone());
-        }
-
-        // 构建 OSPF 头部
-        let mut header = OspfHeader::new(OspfType::LinkStateAck, self.router_id, interface.area_id);
-        let lsack_bytes = lsack.to_bytes();
-        header.length = (OspfHeader::LENGTH + lsack_bytes.len()) as u16;
-
-        // 计算校验和
-        header.calculate_checksum(&lsack_bytes);
-
-        // 组装完整报文
-        let mut packet = header.to_bytes();
-        packet.extend_from_slice(&lsack_bytes);
-
-        Ok(packet)
-    }
-
     /// 获取接口（从 OspfManager）
     fn get_interface(&self, ifindex: u32) -> OspfResult<OspfInterface> {
         let ospf_mgr = self.context.ospf_manager.lock()
@@ -682,23 +646,7 @@ impl<'a> OspfProcessor<'a> {
             .ok_or_else(|| OspfError::Other {
                 reason: format!("Interface {} not found", ifindex),
             })
-            .map(|iface| iface.clone())
-    }
-
-    /// 获取可变接口引用（通过回调）
-    fn with_interface_mut<F, R>(&self, ifindex: u32, f: F) -> OspfResult<R>
-    where
-        F: FnOnce(&mut OspfInterface) -> OspfResult<R>,
-    {
-        let mut ospf_mgr = self.context.ospf_manager.lock()
-            .map_err(|e| OspfError::Other { reason: format!("锁定 OSPF 管理器失败: {}", e) })?;
-
-        let iface = ospf_mgr.get_v2_interface_mut(ifindex)
-            .ok_or_else(|| OspfError::Other {
-                reason: format!("Interface {} not found", ifindex),
-            })?;
-
-        f(iface)
+            .cloned()
     }
 }
 
@@ -773,7 +721,6 @@ pub fn process_ospfv2_packet(
 mod tests {
     use super::*;
     use crate::context::SystemContext;
-    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_ospf_processor_with_context() {
@@ -819,7 +766,7 @@ mod tests {
 
     #[test]
     fn test_encapsulate_ospfv2_hello() {
-        let mut interface = OspfInterface::new(
+        let interface = OspfInterface::new(
             "eth0".to_string(),
             1,
             Ipv4Addr::new(192, 168, 1, 1),

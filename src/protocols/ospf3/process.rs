@@ -44,7 +44,7 @@ impl<'a> Ospfv3Processor<'a> {
 
     /// 创建新的 OSPFv3 处理器（向后兼容，但不推荐使用）
     #[deprecated(note = "请使用 with_context 方法")]
-    pub fn new(router_id: u32) -> Self {
+    pub fn new(_router_id: u32) -> Self {
         panic!("Ospfv3Processor::new() 已废弃，请使用 with_context() 方法并传入 SystemContext");
     }
 
@@ -110,9 +110,6 @@ impl<'a> Ospfv3Processor<'a> {
         let current_bdr = interface.bdr;
         let local_is_dr = interface.is_dr(self.router_id);
         let local_is_bdr = interface.is_bdr(self.router_id);
-
-        // 释放接口锁后获取或创建邻居
-        drop(interface);
 
         // 获取或创建邻居（使用 OspfManager）
         let neighbor = ospf_mgr.get_or_create_v3_neighbor(ifindex, header.router_id, source_ip, dead_interval);
@@ -193,7 +190,7 @@ impl<'a> Ospfv3Processor<'a> {
             .ok_or_else(|| Ospfv3Error::Other {
                 reason: format!("Interface {} not found", ifindex),
             })
-            .map(|iface| iface.clone())
+            .cloned()
     }
 }
 

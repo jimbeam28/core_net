@@ -4,16 +4,14 @@
 
 use core_net::testframework::TestHarness;
 use core_net::interface::{MacAddr, Ipv4Addr};
-use core_net::context::SystemContext;
 use core_net::protocols::ospf2::{OspfProcessResult, OspfInterface, OspfNeighbor, NeighborState, InterfaceState};
 use core_net::protocols::ospf::{InterfaceType};
-use core_net::common::Packet;
 
 use serial_test::serial;
 
 mod common;
 use common::{create_test_context, create_ospf_hello_packet, create_ospf_dd_packet,
-             inject_packet_to_context, verify_context_txq_count, clear_context_txq};
+             inject_packet_to_context};
 
 // 测试环境配置：
 // 本机接口 eth0: ifindex=0, MAC=00:11:22:33:44:55, IP=192.168.1.100

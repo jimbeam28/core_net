@@ -294,7 +294,7 @@ fn parse_prefix(data: &[u8]) -> Result<(IpPrefix, usize)> {
     }
 
     let prefix_len = data[0];
-    let byte_len = ((prefix_len as usize) + 7) / 8;
+    let byte_len = (prefix_len as usize).div_ceil(8);
 
     if 1 + byte_len > data.len() {
         return Err(BgpError::InvalidMessageLength("prefix overflow".to_string()));
@@ -305,7 +305,7 @@ fn parse_prefix(data: &[u8]) -> Result<(IpPrefix, usize)> {
     octets[..byte_len].copy_from_slice(&data[1..=byte_len]);
 
     // 清理多余位
-    if prefix_len % 8 != 0 {
+    if !prefix_len.is_multiple_of(8) {
         let mask = 0xFF << (8 - (prefix_len % 8));
         octets[byte_len - 1] &= mask;
     }
@@ -471,7 +471,7 @@ fn parse_as_path(data: &[u8]) -> Result<(Vec<u32>, Vec<u32>)> {
 
 /// 解析 NOTIFICATION 报文
 fn parse_notification(data: &[u8]) -> Result<BgpNotification> {
-    let error_code = if data.len() > 0 { data[0] } else { 0 };
+    let error_code = if !data.is_empty() { data[0] } else { 0 };
     let error_subcode = if data.len() > 1 { data[1] } else { 0 };
     let notification_data = if data.len() > 2 { data[2..].to_vec() } else { vec![] };
 
@@ -654,7 +654,7 @@ fn encapsulate_prefix(prefix: &IpPrefix) -> Vec<u8> {
 
     if let IpAddr::V4(ipv4) = prefix.prefix {
         let octets = ipv4.octets();
-        let byte_len = ((prefix.prefix_len as usize) + 7) / 8;
+        let byte_len = (prefix.prefix_len as usize).div_ceil(8);
         data.extend_from_slice(&octets[..byte_len]);
     }
 

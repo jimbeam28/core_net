@@ -387,7 +387,7 @@ impl SummaryLsa {
         network_mask: Ipv4Addr,
         metric: u32,
     ) -> Self {
-        let mut header = LsaHeader::new(lsa_type as u8, link_state_id, advertising_router);
+        let header = LsaHeader::new(lsa_type as u8, link_state_id, advertising_router);
 
         Self {
             header,

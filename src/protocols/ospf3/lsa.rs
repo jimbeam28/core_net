@@ -222,7 +222,7 @@ pub struct Prefix {
     /// 地址前缀
     pub address_prefix: Ipv6Addr,
     /// 度量值
-    pub metric: u24,
+    pub metric: U24,
 }
 
 impl IntraAreaPrefixLsa {
@@ -238,7 +238,7 @@ impl IntraAreaPrefixLsa {
 
     pub fn add_prefix(&mut self, prefix: Prefix) {
         // 计算 prefix 长度：(prefix_length + 7) / 8 字节，向上取整
-        let prefix_bytes = ((prefix.prefix_length as usize + 7) / 8) as usize;
+        let prefix_bytes = (prefix.prefix_length as usize).div_ceil(8);
         self.prefixes.push(prefix);
         self.prefix_count = self.prefixes.len() as u32;
         self.header.length = (LsaHeader::LENGTH + 4 + self.prefixes.len() * (4 + 16 + prefix_bytes + 3)) as u16;
@@ -254,12 +254,10 @@ impl IntraAreaPrefixLsa {
             bytes.push(prefix.prefix_length);
             bytes.push(prefix.prefix_options);
             // 只写入有效的前缀字节
-            let prefix_bytes = ((prefix.prefix_length as usize + 7) / 8) as usize;
+            let prefix_bytes = (prefix.prefix_length as usize).div_ceil(8);
             bytes.extend_from_slice(&prefix.address_prefix.as_bytes()[..prefix_bytes]);
             // 补齐到 16 字节边界
-            for _ in prefix_bytes..16 {
-                bytes.push(0);
-            }
+            bytes.extend(std::iter::repeat_n(0, 16 - prefix_bytes));
             bytes.extend_from_slice(&prefix.metric.to_be_bytes());
         }
 
@@ -273,15 +271,15 @@ impl IntraAreaPrefixLsa {
 
 /// u24 类型用于度量值
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct u24(pub u32);
+pub struct U24(pub u32);
 
-impl From<u32> for u24 {
+impl From<u32> for U24 {
     fn from(value: u32) -> Self {
-        u24(value & 0x00FFFFFF)
+        U24(value & 0x00FFFFFF)
     }
 }
 
-impl u24 {
+impl U24 {
     pub fn to_be_bytes(&self) -> [u8; 3] {
         [
             ((self.0 >> 16) & 0xFF) as u8,

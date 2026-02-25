@@ -174,13 +174,12 @@ impl BgpTimerManager {
     /// # 返回
     /// 是否成功重置
     pub fn reset_keepalive_timer(&mut self, peer_addr: &IpAddr, delay: Duration) -> bool {
-        if let Some(peer_timers) = self.peer_timers.get(peer_addr) {
-            if let Some(id) = peer_timers.keepalive_id {
-                if let Some(timer) = self.timers.get_mut(&id) {
-                    timer.reset(delay);
-                    return true;
-                }
-            }
+        if let Some(peer_timers) = self.peer_timers.get(peer_addr)
+            && let Some(id) = peer_timers.keepalive_id
+            && let Some(timer) = self.timers.get_mut(&id)
+        {
+            timer.reset(delay);
+            return true;
         }
         false
     }
@@ -194,13 +193,12 @@ impl BgpTimerManager {
     /// # 返回
     /// 是否成功重置
     pub fn reset_hold_timer(&mut self, peer_addr: &IpAddr, delay: Duration) -> bool {
-        if let Some(peer_timers) = self.peer_timers.get(peer_addr) {
-            if let Some(id) = peer_timers.hold_id {
-                if let Some(timer) = self.timers.get_mut(&id) {
-                    timer.reset(delay);
-                    return true;
-                }
-            }
+        if let Some(peer_timers) = self.peer_timers.get(peer_addr)
+            && let Some(id) = peer_timers.hold_id
+            && let Some(timer) = self.timers.get_mut(&id)
+        {
+            timer.reset(delay);
+            return true;
         }
         false
     }
@@ -211,20 +209,20 @@ impl BgpTimerManager {
     /// - `peer_addr`: 对等体地址
     pub fn deactivate_peer_timers(&mut self, peer_addr: &IpAddr) {
         if let Some(peer_timers) = self.peer_timers.get(peer_addr) {
-            if let Some(id) = peer_timers.keepalive_id {
-                if let Some(timer) = self.timers.get_mut(&id) {
-                    timer.deactivate();
-                }
+            if let Some(id) = peer_timers.keepalive_id
+                && let Some(timer) = self.timers.get_mut(&id)
+            {
+                timer.deactivate();
             }
-            if let Some(id) = peer_timers.hold_id {
-                if let Some(timer) = self.timers.get_mut(&id) {
-                    timer.deactivate();
-                }
+            if let Some(id) = peer_timers.hold_id
+                && let Some(timer) = self.timers.get_mut(&id)
+            {
+                timer.deactivate();
             }
-            if let Some(id) = peer_timers.connect_retry_id {
-                if let Some(timer) = self.timers.get_mut(&id) {
-                    timer.deactivate();
-                }
+            if let Some(id) = peer_timers.connect_retry_id
+                && let Some(timer) = self.timers.get_mut(&id)
+            {
+                timer.deactivate();
             }
         }
     }
@@ -238,7 +236,7 @@ impl BgpTimerManager {
     pub fn enable_established_timers(&mut self, peer_addr: IpAddr, keepalive_delay: Duration, hold_delay: Duration) {
         // 重置或创建 Keepalive 定时器
         if !self.reset_keepalive_timer(&peer_addr, keepalive_delay) {
-            self.add_keepalive_timer(peer_addr.clone(), keepalive_delay);
+            self.add_keepalive_timer(peer_addr, keepalive_delay);
         }
 
         // 重置或创建 Hold 定时器
@@ -247,12 +245,11 @@ impl BgpTimerManager {
         }
 
         // 停用 Connect Retry 定时器
-        if let Some(peer_timers) = self.peer_timers.get(&peer_addr) {
-            if let Some(id) = peer_timers.connect_retry_id {
-                if let Some(timer) = self.timers.get_mut(&id) {
-                    timer.deactivate();
-                }
-            }
+        if let Some(peer_timers) = self.peer_timers.get(&peer_addr)
+            && let Some(id) = peer_timers.connect_retry_id
+            && let Some(timer) = self.timers.get_mut(&id)
+        {
+            timer.deactivate();
         }
     }
 
@@ -336,7 +333,7 @@ mod tests {
         let mut mgr = BgpTimerManager::new();
         let addr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
 
-        mgr.add_keepalive_timer(addr.clone(), Duration::from_millis(10));
+        mgr.add_keepalive_timer(addr, Duration::from_millis(10));
 
         // 等待一点时间
         std::thread::sleep(Duration::from_millis(5));
@@ -357,9 +354,9 @@ mod tests {
         let mut mgr = BgpTimerManager::new();
         let addr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
 
-        mgr.add_keepalive_timer(addr.clone(), Duration::from_secs(60));
-        mgr.add_hold_timer(addr.clone(), Duration::from_secs(180));
-        mgr.add_connect_retry_timer(addr.clone(), Duration::from_secs(60));
+        mgr.add_keepalive_timer(addr, Duration::from_secs(60));
+        mgr.add_hold_timer(addr, Duration::from_secs(180));
+        mgr.add_connect_retry_timer(addr, Duration::from_secs(60));
 
         assert_eq!(mgr.len(), 3);
 
@@ -373,7 +370,7 @@ mod tests {
         let mut mgr = BgpTimerManager::new();
         let addr = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
 
-        mgr.add_keepalive_timer(addr.clone(), Duration::from_millis(10));
+        mgr.add_keepalive_timer(addr, Duration::from_millis(10));
 
         mgr.deactivate_peer_timers(&addr);
 

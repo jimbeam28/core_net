@@ -217,10 +217,10 @@ impl OspfTimerManager {
     pub fn reset_inactivity_timer(&mut self, ifindex: u32, neighbor_id: u32, dead_interval: u32, is_v3: bool) {
         // 移除旧的定时器
         let key = (ifindex, neighbor_id, is_v3);
-        if let Some(entry) = self.neighbor_timers.get_mut(&key) {
-            if let Some(old_id) = entry.inactivity_id.take() {
-                self.timers.remove(&old_id);
-            }
+        if let Some(entry) = self.neighbor_timers.get_mut(&key)
+            && let Some(old_id) = entry.inactivity_id.take()
+        {
+            self.timers.remove(&old_id);
         }
 
         // 添加新的定时器

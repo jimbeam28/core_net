@@ -243,13 +243,10 @@ impl SharedInterfaceConfig {
 
     /// 验证配置参数
     pub fn validate(&self) -> Result<(), String> {
-        if self.hello_interval < OspfInterfaceConstants::MIN_HELLO_INTERVAL
-            || self.hello_interval > OspfInterfaceConstants::MAX_HELLO_INTERVAL
-        {
+        if self.hello_interval < OspfInterfaceConstants::MIN_HELLO_INTERVAL {
             return Err(format!(
-                "Hello interval must be between {} and {}",
-                OspfInterfaceConstants::MIN_HELLO_INTERVAL,
-                OspfInterfaceConstants::MAX_HELLO_INTERVAL
+                "Hello interval must be at least {}",
+                OspfInterfaceConstants::MIN_HELLO_INTERVAL
             ));
         }
 
@@ -265,10 +262,6 @@ impl SharedInterfaceConfig {
             return Err(
                 "Dead interval should be at least 2x hello interval".to_string()
             );
-        }
-
-        if self.priority > 255 {
-            return Err("Priority must be between 0 and 255".to_string());
         }
 
         Ok(())

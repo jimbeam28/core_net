@@ -234,12 +234,10 @@ impl BgpPeer {
 
         // 检查环路
         if let Some(as_attr) = update.path_attributes.iter()
-            .find(|a| matches!(a, crate::protocols::bgp::message::PathAttribute::AsPath { .. })) {
-            if let crate::protocols::bgp::message::PathAttribute::AsPath { as_sequence, .. } = as_attr {
-                if as_sequence.contains(&local_as) {
-                    return Err(BgpError::AsPathLoop);
-                }
-            }
+            .find(|a| matches!(a, crate::protocols::bgp::message::PathAttribute::AsPath { .. }))
+            && let crate::protocols::bgp::message::PathAttribute::AsPath { as_sequence, .. } = as_attr
+            && as_sequence.contains(&local_as) {
+            return Err(BgpError::AsPathLoop);
         }
 
         // 处理撤销路由

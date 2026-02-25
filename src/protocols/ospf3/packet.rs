@@ -2,11 +2,7 @@
 //
 // OSPFv3 报文结构定义和解析/封装函数
 
-use crate::common::Ipv6Addr;
 use super::error::{Ospfv3Error, Ospfv3Result};
-
-// Ipv6Addr 未指定地址常量
-const IPV6_UNSPECIFIED: Ipv6Addr = Ipv6Addr { bytes: [0; 16] };
 
 /// OSPFv3 通用报文头部
 ///

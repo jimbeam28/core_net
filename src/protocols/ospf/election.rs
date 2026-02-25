@@ -82,7 +82,7 @@ impl DrBdrElection {
         let mut bdr_priority = 0;
         let mut bdr_id = Ipv4Addr::UNSPECIFIED;
 
-        for (router_id, priority, current_dr, _) in &candidates {
+        for (router_id, priority, _current_dr, _) in &candidates {
             // 跳过当前 DR
             if *router_id == old_dr {
                 continue;
@@ -170,7 +170,7 @@ impl DrBdrElection {
     }
 
     /// 判断路由器是否有资格参与 DR 选举
-    pub fn is_eligible(interface: &OspfInterface, router_id: Ipv4Addr) -> bool {
+    pub fn is_eligible(interface: &OspfInterface, _router_id: Ipv4Addr) -> bool {
         // 优先级必须大于 0
         if interface.priority == 0 {
             return false;

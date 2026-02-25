@@ -225,21 +225,15 @@ impl OspfInterfaceConfig {
             ));
         }
 
-        // 优先级范围检查
-        if self.priority > 255 {
-            return Err(format!("Priority must be 0-255, got {}", self.priority));
-        }
-
         // 认证配置检查
-        if self.auth_type == 2 {
-            if let Some(ref crypto) = self.crypto_auth {
-                if !crypto.is_valid_key_length() {
-                    return Err(format!(
-                        "Invalid key length for algorithm {:?}",
-                        crypto.algorithm
-                    ));
-                }
-            }
+        if self.auth_type == 2
+            && let Some(ref crypto) = self.crypto_auth
+            && !crypto.is_valid_key_length()
+        {
+            return Err(format!(
+                "Invalid key length for algorithm {:?}",
+                crypto.algorithm
+            ));
         }
 
         Ok(())
@@ -350,7 +344,7 @@ impl OspfConfig {
 
         // 选择所有接口中最大的 IP 地址
         self.interfaces.iter()
-            .filter_map(|iface| {
+            .filter_map(|_iface| {
                 // 这里假设接口有 IP 地址，实际实现需要从接口管理器获取
                 None  // 需要外部提供接口 IP 信息
             })

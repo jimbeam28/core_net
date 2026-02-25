@@ -698,7 +698,7 @@ impl PacketProcessor {
     /// - eth_hdr: 以太网头部
     /// - ip_hdr: IP 头部
     /// - packet: Packet（已去除 IP 头部）
-    fn handle_tcp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, mut packet: Packet) -> ProcessResult {
+    fn handle_tcp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
         // 获取接口索引
         let ifindex = packet.ifindex;
 

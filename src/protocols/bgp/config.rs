@@ -94,18 +94,10 @@ pub enum BgpPeerType {
 }
 
 /// BGP 路由策略（简化实现）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BgpPolicy {
     /// 策略语句列表
     pub statements: Vec<BgpPolicyStatement>,
-}
-
-impl Default for BgpPolicy {
-    fn default() -> Self {
-        Self {
-            statements: Vec::new(),
-        }
-    }
 }
 
 /// BGP 策略语句

@@ -96,14 +96,6 @@ impl OspfV2InterfaceConfig {
             });
         }
 
-        // 优先级范围检查
-        if self.priority > 255 {
-            return Err(super::error::OspfError::ConfigError {
-                parameter: "priority".to_string(),
-                reason: "must be 0-255".to_string(),
-            });
-        }
-
         Ok(())
     }
 }

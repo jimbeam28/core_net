@@ -120,10 +120,10 @@ impl LsaFlooder {
 
         // 3. 安装 LSA 到 LSDB
         let key = (header.lsa_type, header.link_state_id, header.advertising_router);
-        let is_new = !lsdb.lsas.contains_key(&key);
+        let _is_new = !lsdb.lsas.contains_key(&key);
 
         // 如果是新的 LSA 或更新的 LSA，需要安装
-        if let Err(_) = lsdb.install(lsa.clone()) {
+        if lsdb.install(lsa.clone()).is_err() {
             return FloodResult::Invalid;
         }
 
@@ -178,7 +178,7 @@ impl LsaFlooder {
     fn should_flood_to_neighbor(
         &self,
         lsa: &Lsa,
-        interface: &OspfInterface,
+        _interface: &OspfInterface,
         neighbor: &crate::protocols::ospf2::OspfNeighbor,
     ) -> bool {
         // 只洪泛到 Full 状态的邻居
@@ -272,15 +272,13 @@ mod tests {
 
     #[test]
     fn test_flooder_new() {
-        let flooder = LsaFlooder::new();
+        let _flooder = LsaFlooder::new();
         // 测试创建成功
-        assert!(true);
     }
 
     #[test]
     fn test_flooder_default() {
-        let flooder = LsaFlooder::default();
+        let _flooder = LsaFlooder::default();
         // 测试默认创建成功
-        assert!(true);
     }
 }

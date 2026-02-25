@@ -401,7 +401,7 @@ pub fn should_update_lsa(
     let diff = new.wrapping_sub(existing);
 
     // 如果差值在有效范围内且新序列号更大，则更新
-    diff > 0 && diff <= 0x7FFFFFFF
+    diff > 0
 }
 
 /// 验证 LSA 校验和（简化实现）

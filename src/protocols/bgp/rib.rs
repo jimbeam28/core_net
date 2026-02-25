@@ -49,15 +49,13 @@ impl BgpRib {
         let mut best_len = 0;
 
         for route in self.routes.values() {
-            if let IpAddr::V4(route_addr) = route.prefix.prefix {
-                if let IpAddr::V4(query_addr) = addr {
-                    if self::matches_prefix(*query_addr, route_addr, route.prefix.prefix_len) {
-                        if route.prefix.prefix_len > best_len {
-                            best_match = Some(route);
-                            best_len = route.prefix.prefix_len;
-                        }
-                    }
-                }
+            if let IpAddr::V4(route_addr) = route.prefix.prefix
+                && let IpAddr::V4(query_addr) = addr
+                && self::matches_prefix(*query_addr, route_addr, route.prefix.prefix_len)
+                && route.prefix.prefix_len > best_len
+            {
+                best_match = Some(route);
+                best_len = route.prefix.prefix_len;
             }
         }
 

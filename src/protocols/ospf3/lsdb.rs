@@ -95,7 +95,7 @@ impl LinkStateDatabasev3 {
 
         for (key, entry) in &self.lsas {
             if entry.is_expired() {
-                expired_keys.push(key.clone());
+                expired_keys.push(*key);
             }
         }
 

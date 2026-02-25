@@ -507,6 +507,12 @@ pub struct OspfLinkStateRequest {
     pub requests: Vec<LsaRequest>,
 }
 
+impl Default for OspfLinkStateRequest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OspfLinkStateRequest {
     /// 从字节解析 LSR 报文
     pub fn from_bytes(data: &[u8]) -> Result<Self, super::error::OspfError> {
@@ -555,6 +561,12 @@ pub struct OspfLinkStateUpdate {
     pub lsas: Vec<super::lsa::Lsa>,
 }
 
+impl Default for OspfLinkStateUpdate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OspfLinkStateUpdate {
     /// 创建新的 LSU 报文
     pub fn new() -> Self {
@@ -589,6 +601,12 @@ impl OspfLinkStateUpdate {
 pub struct OspfLinkStateAck {
     /// LSA 头部列表
     pub lsa_headers: Vec<super::lsa::LsaHeader>,
+}
+
+impl Default for OspfLinkStateAck {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OspfLinkStateAck {

@@ -436,7 +436,7 @@ fn test_ospfv3_hello_received_from_new_neighbor() {
     let ctx = create_test_context();
     let mut harness = TestHarness::with_context(ctx);
 
-    let source_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+    let _source_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
     let router_id: u32 = 0x01020304;
     let area_id: u32 = 0x00000001;
 
@@ -467,7 +467,7 @@ fn test_ospfv3_hello_with_bidirectional_communication() {
     let ctx = create_test_context();
     let mut harness = TestHarness::with_context(ctx);
 
-    let source_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+    let _source_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
     let router_id: u32 = 0x01020304;
     let area_id: u32 = 0x00000001;
 

@@ -3,13 +3,12 @@
 // 测试 BGP 协议的报文解析、封装、状态机、对等体管理
 
 use core_net::protocols::bgp::{
-    BgpHeader, BgpOpen, BgpUpdate, BgpNotification, BgpKeepalive, BgpRouteRefresh,
-    BgpMessage, BgpCapability, BgpState, BgpPeerType, BgpPeer, BgpPeerManager, BgpRib,
+    BgpHeader, BgpOpen, BgpUpdate, BgpNotification, BgpKeepalive,
+    BgpMessage, BgpState, BgpPeerType, BgpPeer, BgpPeerManager, BgpRib,
     parse_bgp_message, encapsulate_bgp_message, IpPrefix, BgpRoute, PathAttribute,
     BGP_VERSION, BGP_MSG_OPEN, BGP_MSG_UPDATE, BGP_MSG_NOTIFICATION,
     BGP_MSG_KEEPALIVE, DEFAULT_HOLD_TIME,
 };
-use core_net::common::addr::Ipv4Addr;
 use core_net::protocols::Ipv4Addr as CoreIpv4Addr;
 use serial_test::serial;
 use std::net::IpAddr;
@@ -225,7 +224,7 @@ fn test_bgp_route() {
 
     assert_eq!(route.prefix, prefix);
     assert_eq!(route.next_hop, next_hop);
-    assert_eq!(route.valid, true);
+    assert!(route.valid);
     assert_eq!(route.age, 0);
 }
 
@@ -284,7 +283,7 @@ fn test_bgp_peer_state_transitions() {
     assert_eq!(peer.state, BgpState::Connect);
 
     // TCP 连接成功应转换到 OpenSent
-    let open = peer.tcp_connection_established().unwrap();
+    let _open = peer.tcp_connection_established().unwrap();
 
     // 创建模拟的远程 OPEN（使用不同的 BGP ID）
     let remote_open = BgpOpen {

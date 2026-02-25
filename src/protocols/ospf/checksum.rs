@@ -99,7 +99,7 @@ pub fn calculate_ip_checksum(data: &[u8]) -> u16 {
 
     // 按 16 位处理数据
     let mut chunks = data.chunks_exact(2);
-    while let Some(chunk) = chunks.next() {
+    for chunk in chunks.by_ref() {
         let word = u16::from_be_bytes([chunk[0], chunk[1]]) as u32;
         sum += word;
     }

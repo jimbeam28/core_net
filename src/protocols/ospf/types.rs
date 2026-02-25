@@ -183,9 +183,9 @@ impl LsaSequenceNumber {
     /// 比较序列号是否更新（处理回卷情况）
     pub fn is_newer_than(&self, other: &Self) -> bool {
         // RFC 2328: 序列号比较逻辑
-        // 如果差值在 0x7FFFFFFF 范围内，则 self 更新
+        // 如果差值在有效范围内且为正数，则 self 更新
         let diff = self.0.wrapping_sub(other.0) as i32;
-        diff > 0 && diff <= 0x7FFFFFFF
+        diff > 0
     }
 }
 
@@ -252,21 +252,6 @@ impl OspfOptions {
         }
     }
 
-    /// 默认选项（支持外部路由）
-    pub fn default() -> Self {
-        Self {
-            dc: false,
-            o: false,
-            r: false,
-            ea: false,
-            n: false,
-            mc: false,
-            e: true,  // 默认支持外部路由
-            v: false,
-            v6: false,
-        }
-    }
-
     /// 从字节解析（OSPFv2）
     pub fn from_byte(value: u8) -> Self {
         Self {
@@ -326,7 +311,17 @@ impl OspfOptions {
 
 impl Default for OspfOptions {
     fn default() -> Self {
-        Self::default()
+        Self {
+            dc: false,
+            o: false,
+            r: false,
+            ea: false,
+            n: false,
+            mc: false,
+            e: true,  // 默认支持外部路由
+            v: false,
+            v6: false,
+        }
     }
 }
 
