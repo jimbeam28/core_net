@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, ospf2, ospf3, Ipv4Addr};
+use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, ospf2, ospf3, bgp, Ipv4Addr};
 use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
@@ -73,6 +73,7 @@ impl_from_protocol_error!(crate::protocols::ip::IpError);
 impl_from_protocol_error!(crate::protocols::ipv6::Ipv6Error);
 impl_from_protocol_error!(crate::protocols::tcp::TcpError, "TCP");
 impl_from_protocol_error!(crate::protocols::ospf3::Ospfv3Error, "OSPFv3");
+impl_from_protocol_error!(crate::protocols::bgp::BgpError, "BGP");
 
 impl From<String> for ProcessError {
     fn from(msg: String) -> Self {
@@ -697,16 +698,116 @@ impl PacketProcessor {
     /// - eth_hdr: 以太网头部
     /// - ip_hdr: IP 头部
     /// - packet: Packet（已去除 IP 头部）
-    fn handle_tcp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
+    fn handle_tcp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, mut packet: Packet) -> ProcessResult {
         // 获取接口索引
         let ifindex = packet.ifindex;
 
         // 获取本接口的 IP 地址（用作响应的源地址）
         let our_ip = self.get_interface_ip(ifindex)?;
 
+        // 解析 TCP 头部检查是否是 BGP 端口
+        let tcp_data = packet.peek(packet.remaining()).unwrap_or(&[]);
+        let dest_port = if tcp_data.len() >= 2 {
+            // TCP 目标端口在字节 2-3（源端口 0-1）
+            u16::from_be_bytes([tcp_data[2], tcp_data[3]])
+        } else {
+            0
+        };
+
+        let source_port = if tcp_data.len() >= 2 {
+            u16::from_be_bytes([tcp_data[0], tcp_data[1]])
+        } else {
+            0
+        };
+
+        // 检查是否是 BGP 端口 179
+        let is_bgp_port = dest_port == bgp::BGP_PORT || source_port == bgp::BGP_PORT;
+
         if self.verbose {
-            println!("TCP: 处理 TCP 报文 源={}:{} 目的={}:{}",
-                ip_hdr.source_addr, 0, ip_hdr.dest_addr, 0);
+            println!("TCP: 处理 TCP 报文 源={}:{} 目的={}:{} BGP={}",
+                ip_hdr.source_addr, source_port, ip_hdr.dest_addr, dest_port, is_bgp_port);
+        }
+
+        // 如果是 BGP 端口，尝试 BGP 处理
+        if is_bgp_port && tcp_data.len() > 20 {
+            // 跳过 TCP 头部（至少 20 字节）获取 BGP 数据
+            let tcp_header_len: usize = (((tcp_data[12] >> 4) & 0x0F) * 4) as usize;
+            if tcp_data.len() >= tcp_header_len {
+                let bgp_data = &tcp_data[tcp_header_len..];
+                let source_addr = std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                    ip_hdr.source_addr.bytes[0],
+                    ip_hdr.source_addr.bytes[1],
+                    ip_hdr.source_addr.bytes[2],
+                    ip_hdr.source_addr.bytes[3],
+                ));
+                let local_addr = std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                    our_ip.bytes[0],
+                    our_ip.bytes[1],
+                    our_ip.bytes[2],
+                    our_ip.bytes[3],
+                ));
+
+                match bgp::process_bgp_packet(bgp_data, source_addr, local_addr, &self.context) {
+                    Ok(bgp_result) => {
+                        // 根据 BGP 处理结果返回
+                        match bgp_result {
+                            bgp::BgpProcessResult::NoReply => {
+                                // BGP 处理完成，但无需响应
+                                // 仍然需要让 TCP 处理器处理连接状态
+                            }
+                            bgp::BgpProcessResult::SendData(bgp_bytes) |
+                            bgp::BgpProcessResult::Reply(bgp_bytes) => {
+                                // 需要发送 BGP 响应，通过 TCP 封装
+                                // 这里简化处理：直接返回 IP 数据包
+                                let our_mac = self.get_interface_mac(ifindex)?;
+                                let ip_reply = ip::Ipv4Header::new(
+                                    our_ip,
+                                    ip_hdr.source_addr,
+                                    ip::IP_PROTO_TCP,
+                                    bgp_bytes.len(),
+                                );
+                                let mut ip_packet = ip_reply.to_bytes();
+                                ip_packet.extend_from_slice(&bgp_bytes);
+
+                                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                                    eth_hdr.src_mac,
+                                    our_mac,
+                                    crate::protocols::ETH_P_IP,
+                                    &ip_packet,
+                                );
+                                return Ok(Some(Packet::from_bytes(frame_bytes)));
+                            }
+                            bgp::BgpProcessResult::CloseConnection(data) => {
+                                // 发送 NOTIFICATION 并关闭连接
+                                let our_mac = self.get_interface_mac(ifindex)?;
+                                let ip_reply = ip::Ipv4Header::new(
+                                    our_ip,
+                                    ip_hdr.source_addr,
+                                    ip::IP_PROTO_TCP,
+                                    data.len(),
+                                );
+                                let mut ip_packet = ip_reply.to_bytes();
+                                ip_packet.extend_from_slice(&data);
+
+                                let frame_bytes = crate::protocols::ethernet::build_ethernet_frame(
+                                    eth_hdr.src_mac,
+                                    our_mac,
+                                    crate::protocols::ETH_P_IP,
+                                    &ip_packet,
+                                );
+                                return Ok(Some(Packet::from_bytes(frame_bytes)));
+                            }
+                            _ => {}
+                        }
+                    }
+                    Err(e) => {
+                        if self.verbose {
+                            println!("BGP 处理失败: {}", e);
+                        }
+                        // BGP 处理失败，继续让 TCP 处理
+                    }
+                }
+            }
         }
 
         // 处理 TCP 报文

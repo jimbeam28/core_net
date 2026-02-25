@@ -323,13 +323,25 @@ fn parse_path_attribute(data: &[u8]) -> Result<(PathAttribute, usize)> {
 
     let flags = data[0];
     let type_code = data[1];
-    let length = data[2] as usize;
+    let extended_length = flags & 0x10 != 0;
 
-    if 3 + length > data.len() {
+    // 解析长度（可选扩展长度）
+    let (length, offset) = if extended_length {
+        if data.len() < 4 {
+            return Err(BgpError::InvalidMessageLength("extended length but data too short".to_string()));
+        }
+        let len = u16::from_be_bytes([data[2], data[3]]) as usize;
+        (len, 4)
+    } else {
+        let len = data[2] as usize;
+        (len, 3)
+    };
+
+    if offset + length > data.len() {
         return Err(BgpError::InvalidMessageLength("path attribute data overflow".to_string()));
     }
 
-    let attr_data = &data[3..3 + length];
+    let attr_data = &data[offset..offset + length];
 
     let attr = match type_code {
         1 => {
@@ -417,13 +429,8 @@ fn parse_path_attribute(data: &[u8]) -> Result<(PathAttribute, usize)> {
         }
     };
 
-    // 处理扩展长度（可选标志位）
-    let total_len = if flags & 0x10 != 0 && data.len() >= 4 {
-        let ext_len = u16::from_be_bytes([data[2], data[3]]) as usize;
-        4 + ext_len
-    } else {
-        3 + length
-    };
+    // 计算总长度（包括头部）
+    let total_len = offset + length;
 
     Ok((attr, total_len))
 }
@@ -554,8 +561,7 @@ fn encapsulate_optional_parameters(params: &[OptionalParameter]) -> Vec<u8> {
             OptionalParameter::Capabilities { capabilities } => {
                 let cap_data = encapsulate_capabilities(capabilities);
                 data.push(2); // 类型
-                data.push((cap_data.len() / 256) as u8);
-                data.push((cap_data.len() % 256) as u8);
+                data.extend_from_slice(&(cap_data.len() as u16).to_be_bytes());
                 data.extend_from_slice(&cap_data);
             }
         }
