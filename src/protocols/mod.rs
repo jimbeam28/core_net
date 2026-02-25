@@ -41,6 +41,9 @@ pub mod ospf2;
 // OSPFv3 协议（IPv6）
 pub mod ospf3;
 
+// IPsec 协议（AH 和 ESP）
+pub mod ipsec;
+
 // 从 common 模块重新导出类型
 pub use crate::common::{
     Packet,
@@ -199,4 +202,16 @@ pub use ospf2::{
     OSPFV2_VERSION, IP_PROTO_OSPF as OSPFV2_PROTO,
     OSPF_ALL_SPF_ROUTERS as OSPFV2_ALL_SPF_ROUTERS,
     OSPF_ALL_D_ROUTERS as OSPFV2_ALL_D_ROUTERS,
+};
+
+// IPsec 模块导出
+pub use ipsec::{
+    AhHeader, AhPacket, IP_PROTO_AH,
+    EspHeader, EspTrailer, EspPacket, IP_PROTO_ESP,
+    SecurityAssociation, SaDirection, IpsecMode, IpsecProtocol,
+    SecurityPolicy, PolicyAction, TrafficSelector,
+    CipherTransform, AuthTransform,
+    SadManager, SpdManager,
+    IpsecError, IpsecResult,
+    DEFAULT_REPLAY_WINDOW_SIZE,
 };

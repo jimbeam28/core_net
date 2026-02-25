@@ -4,7 +4,7 @@
 // 提供报文处理接口，负责逐层解析/分发报文
 
 use crate::common::{Packet, EthernetHeader, VlanTag};
-use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, ospf2, ospf3, bgp, Ipv4Addr};
+use crate::protocols::{arp, ip, icmp, icmpv6, ipv6, udp, tcp, ospf2, ospf3, bgp, ipsec, Ipv4Addr};
 use crate::context::SystemContext;
 
 pub type ProcessResult = Result<Option<Packet>, ProcessError>;
@@ -74,6 +74,7 @@ impl_from_protocol_error!(crate::protocols::ipv6::Ipv6Error);
 impl_from_protocol_error!(crate::protocols::tcp::TcpError, "TCP");
 impl_from_protocol_error!(crate::protocols::ospf3::Ospfv3Error, "OSPFv3");
 impl_from_protocol_error!(crate::protocols::bgp::BgpError, "BGP");
+impl_from_protocol_error!(crate::protocols::ipsec::IpsecError, "IPsec");
 
 impl From<String> for ProcessError {
     fn from(msg: String) -> Self {
@@ -314,6 +315,12 @@ impl PacketProcessor {
                     }
                     ip::IP_PROTO_OSPF => {
                         self.handle_ospf(eth_hdr, ip_hdr, protocol_packet)
+                    }
+                    ipsec::IP_PROTO_AH => {
+                        self.handle_ipsec_ah(eth_hdr, ip_hdr, protocol_packet)
+                    }
+                    ipsec::IP_PROTO_ESP => {
+                        self.handle_ipsec_esp(eth_hdr, ip_hdr, protocol_packet)
                     }
                     _ => {
                         Err(ProcessError::UnsupportedProtocol(
@@ -1008,6 +1015,98 @@ impl PacketProcessor {
             ospf2::OspfProcessResult::FloodLsa {..} | ospf2::OspfProcessResult::DatabaseSynced => {
                 // 这些结果类型不需要立即响应
                 Ok(None)
+            }
+        }
+    }
+
+    /// 处理 AH 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ip_hdr: IPv4 头部
+    /// - packet: Packet（已去除 IP 头部）
+    fn handle_ipsec_ah(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
+        let ifindex = packet.ifindex;
+
+        if self.verbose {
+            println!("IPsec AH: 处理 AH 报文 源={} 目的={}",
+                ip_hdr.source_addr, ip_hdr.dest_addr);
+        }
+
+        // 简化实现：直接记录 AH 包信息
+        // 实际应用中需要：
+        // 1. 查找 SA（通过 SPI）
+        // 2. 验证 ICV
+        // 3. 检查重放
+        // 4. 去除 AH 头，提交上层协议
+
+        // 解析 AH 报文
+        let data = packet.peek(packet.remaining()).unwrap_or(&[]);
+        match ipsec::AhPacket::parse(data) {
+            Ok(ah_packet) => {
+                if self.verbose {
+                    println!("IPsec AH: SPI={} Seq={} NextHeader={}",
+                        ah_packet.header.spi,
+                        ah_packet.header.sequence_number,
+                        ah_packet.header.next_header);
+                }
+
+                // TODO: 查找 SA 并验证
+                // 暂时返回 Ok(None)
+                Ok(None)
+            }
+            Err(e) => {
+                if self.verbose {
+                    println!("IPsec AH: 解析失败 - {}", e);
+                }
+                Err(ProcessError::ParseError(format!("AH解析失败: {}", e)))
+            }
+        }
+    }
+
+    /// 处理 ESP 报文
+    ///
+    /// # 参数
+    /// - eth_hdr: 以太网头部
+    /// - ip_hdr: IPv4 头部
+    /// - packet: Packet（已去除 IP 头部）
+    fn handle_ipsec_esp(&self, eth_hdr: EthernetHeader, ip_hdr: ip::Ipv4Header, packet: Packet) -> ProcessResult {
+        let ifindex = packet.ifindex;
+
+        if self.verbose {
+            println!("IPsec ESP: 处理 ESP 报文 源={} 目的={}",
+                ip_hdr.source_addr, ip_hdr.dest_addr);
+        }
+
+        // 简化实现：直接记录 ESP 包信息
+        // 实际应用中需要：
+        // 1. 查找 SA（通过 SPI）
+        // 2. 验证 ICV（如果有）
+        // 3. 检查重放
+        // 4. 解密数据
+        // 5. 去除 ESP 头尾，提交上层协议
+
+        // 解析 ESP 报文（假设无 ICV）
+        let data = packet.peek(packet.remaining()).unwrap_or(&[]);
+        match ipsec::EspPacket::parse(data, 0) {
+            Ok(esp_packet) => {
+                if self.verbose {
+                    println!("IPsec ESP: SPI={} Seq={} NextHeader={} PayloadLen={}",
+                        esp_packet.header.spi,
+                        esp_packet.header.sequence_number,
+                        esp_packet.trailer.next_header,
+                        esp_packet.encrypted_data.len());
+                }
+
+                // TODO: 查找 SA 并解密
+                // 暂时返回 Ok(None)
+                Ok(None)
+            }
+            Err(e) => {
+                if self.verbose {
+                    println!("IPsec ESP: 解析失败 - {}", e);
+                }
+                Err(ProcessError::ParseError(format!("ESP解析失败: {}", e)))
             }
         }
     }

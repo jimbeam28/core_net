@@ -26,6 +26,12 @@ pub const IP_PROTO_UDP: u8 = 17;
 /// IP 协议号：OSPF
 pub const IP_PROTO_OSPF: u8 = 89;
 
+/// IP 协议号：ESP (Encapsulating Security Payload)
+pub const IP_PROTO_ESP: u8 = 50;
+
+/// IP 协议号：AH (Authentication Header)
+pub const IP_PROTO_AH: u8 = 51;
+
 /// 默认 TTL 值
 pub const DEFAULT_TTL: u8 = 64;
 

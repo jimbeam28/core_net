@@ -28,6 +28,8 @@ pub use header::{
     IP_PROTO_TCP,
     IP_PROTO_UDP,
     IP_PROTO_OSPF,
+    IP_PROTO_ESP,
+    IP_PROTO_AH,
     DEFAULT_TTL,
 };
 pub use protocol::Ipv4Protocol;
