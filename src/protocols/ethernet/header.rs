@@ -94,10 +94,8 @@ impl EthernetHeader {
                         .ok_or_else(|| CoreError::parse_error("读取VLAN标签失败"))?;
 
                     // 提取 VLAN ID (低 12 位)
-                    let vid = u16::from_be_bytes([vlan_tag_bytes[2], vlan_tag_bytes[3]]) & 0x0FFF;
-
-                    // 保存 VLAN ID 到 Packet（最内层的 VLAN ID）
-                    packet.vlan_id = vid;
+                    // VLAN ID 的设置统一由 VLAN 模块处理
+                    let _vid = u16::from_be_bytes([vlan_tag_bytes[2], vlan_tag_bytes[3]]) & 0x0FFF;
 
                     // 读取实际的协议类型
                     let next_ether_type_bytes = packet.read(2)

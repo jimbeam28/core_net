@@ -236,12 +236,16 @@ impl EspPacket {
         buffer
     }
 
-    /// 获取载荷数据（解密后的原始数据）
+    /// 获取加密后的负载数据（未解密）
     ///
-    /// 注意：此方法需要 SA 的加密密钥和算法
+    /// 注意：此方法返回的是加密数据，如需解密请使用 decrypt_payload()
+    pub fn get_encrypted_payload(&self) -> &[u8] {
+        &self.encrypted_data
+    }
+
+    /// 已废弃：请使用 get_encrypted_payload() 或 decrypt_payload()
+    #[deprecated(since = "0.1.0", note = "使用 get_encrypted_payload() 获取加密数据，或 decrypt_payload() 解密")]
     pub fn get_payload(&self) -> Vec<u8> {
-        // 在模拟环境中，我们假设"加密"数据就是原始数据
-        // 实际应用中需要使用 SA 的加密密钥解密
         self.encrypted_data.clone()
     }
 

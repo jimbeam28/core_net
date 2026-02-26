@@ -2,6 +2,7 @@
 //
 // TCP 传输控制块（TCB）和连接状态定义
 
+use std::time::Instant;
 use crate::protocols::Ipv4Addr;
 use super::error::TcpError;
 
@@ -147,13 +148,13 @@ pub struct SentSegment {
     pub seq: u32,
     /// 数据长度
     pub len: usize,
-    /// 发送时间（微秒）
-    pub send_time: u64,
+    /// 发送时间
+    pub send_time: Instant,
 }
 
 impl SentSegment {
     /// 创建新的已发送段记录
-    pub fn new(seq: u32, len: usize, send_time: u64) -> Self {
+    pub fn new(seq: u32, len: usize, send_time: Instant) -> Self {
         Self {
             seq,
             len,
@@ -413,11 +414,27 @@ impl Tcb {
         hash
     }
 
-    /// 检查序列号是否在接收窗口内
+    /// 检查序列号是否在接收窗口内（RFC 793）
+    ///
+    /// RFC 793 Section 3.3: SEG.SEQ >= RCV.NXT && SEG.SEQ < RCV.NXT + RCV.WND
+    /// 需要处理 32 位序列号回绕的情况
     pub fn is_seq_in_window(&self, seq: u32) -> bool {
-        // 简化实现：检查 seq 是否等于 rcv_nxt
-        // 实际应考虑窗口大小和序列号回绕
-        seq == self.rcv_nxt
+        let rcv_nxt = self.rcv_nxt;
+        let wnd = self.rcv_wnd as u32;
+
+        // 处理窗口大小为 0 的情况（只接受 rcv_nxt）
+        if wnd == 0 {
+            return seq == rcv_nxt;
+        }
+
+        // 检查 seq >= rcv_nxt（使用 wrapping_sub 处理回绕）
+        let after_start = seq.wrapping_sub(rcv_nxt) as i32 >= 0;
+
+        // 检查 seq < rcv_nxt + wnd（处理回绕）
+        let window_end = rcv_nxt.wrapping_add(wnd);
+        let before_end = (seq.wrapping_sub(window_end) as i32) < 0;
+
+        after_start && before_end
     }
 
     /// 获取发送窗口大小（取通告窗口和拥塞窗口的较小值）
@@ -617,8 +634,7 @@ impl Tcb {
 
     /// 添加段到重传队列
     pub fn add_to_retransmit_queue(&mut self, seq: u32, len: usize) {
-        // 简化实现：使用当前时间
-        let send_time = 0; // 实际应使用真实时间戳
+        let send_time = Instant::now();
         self.retransmit_queue.push(SentSegment::new(seq, len, send_time));
     }
 

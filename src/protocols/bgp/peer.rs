@@ -14,6 +14,59 @@ use crate::protocols::bgp::{
 use crate::protocols::bgp::message::{BgpMessage, BgpOpen, IpPrefix, BgpUpdate, BgpNotification, PathAttribute};
 use crate::protocols::bgp::rib::BgpRoute;
 
+/// 提取的路径属性集合
+struct ExtractedAttributes {
+    next_hop: IpAddr,
+    local_pref: Option<u32>,
+    med: u32,
+    origin: u8,
+    as_path: Vec<u32>,
+    contains_local_as: bool,
+}
+
+/// 从路径属性列表中提取所需属性（单次遍历）
+fn extract_path_attributes(
+    attrs: &[PathAttribute],
+    local_as: u32,
+    default_next_hop: IpAddr,
+) -> ExtractedAttributes {
+    let mut result = ExtractedAttributes {
+        next_hop: default_next_hop,
+        local_pref: None,
+        med: 0,
+        origin: 0,
+        as_path: Vec::new(),
+        contains_local_as: false,
+    };
+
+    for attr in attrs {
+        match attr {
+            PathAttribute::NextHop { next_hop } => {
+                result.next_hop = IpAddr::V4(std::net::Ipv4Addr::new(
+                    next_hop.bytes[0], next_hop.bytes[1],
+                    next_hop.bytes[2], next_hop.bytes[3]
+                ));
+            }
+            PathAttribute::LocalPref { local_pref } => {
+                result.local_pref = Some(*local_pref);
+            }
+            PathAttribute::MultiExitDisc { med } => {
+                result.med = *med;
+            }
+            PathAttribute::Origin { origin } => {
+                result.origin = *origin;
+            }
+            PathAttribute::AsPath { as_sequence, .. } => {
+                result.as_path = as_sequence.clone();
+                result.contains_local_as = as_sequence.contains(&local_as);
+            }
+            _ => {}
+        }
+    }
+
+    result
+}
+
 /// BGP 对等体状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BgpState {
@@ -232,11 +285,10 @@ impl BgpPeer {
             )));
         }
 
-        // 检查环路
-        if let Some(as_attr) = update.path_attributes.iter()
-            .find(|a| matches!(a, crate::protocols::bgp::message::PathAttribute::AsPath { .. }))
-            && let crate::protocols::bgp::message::PathAttribute::AsPath { as_sequence, .. } = as_attr
-            && as_sequence.contains(&local_as) {
+        // 使用提取函数检查环路并获取属性
+        let attrs = extract_path_attributes(&update.path_attributes, local_as, self.config.address);
+
+        if attrs.contains_local_as {
             return Err(BgpError::AsPathLoop);
         }
 
@@ -247,68 +299,13 @@ impl BgpPeer {
 
         // 添加新路由
         for prefix in &update.nlri {
-            // 提取路径属性
-            let next_hop = update.path_attributes.iter()
-                .find_map(|a| {
-                    if let PathAttribute::NextHop { next_hop } = a {
-                        Some(IpAddr::V4(std::net::Ipv4Addr::new(
-                            next_hop.bytes[0], next_hop.bytes[1],
-                            next_hop.bytes[2], next_hop.bytes[3]
-                        )))
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(self.config.address);
-
-            let local_pref = update.path_attributes.iter()
-                .find_map(|a| {
-                    if let PathAttribute::LocalPref { local_pref } = a {
-                        Some(local_pref)
-                    } else {
-                        None
-                    }
-                });
-
-            let med = update.path_attributes.iter()
-                .find_map(|a| {
-                    if let PathAttribute::MultiExitDisc { med } = a {
-                        Some(med)
-                    } else {
-                        None
-                    }
-                })
-                .copied()
-                .unwrap_or(0);
-
-            let origin = update.path_attributes.iter()
-                .find_map(|a| {
-                    if let PathAttribute::Origin { origin } = a {
-                        Some(origin)
-                    } else {
-                        None
-                    }
-                })
-                .copied()
-                .unwrap_or(0);
-
-            let as_path = update.path_attributes.iter()
-                .find_map(|a| {
-                    if let PathAttribute::AsPath { as_sequence, .. } = a {
-                        Some(as_sequence.clone())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_default();
-
             let route = BgpRoute {
                 prefix: prefix.clone(),
-                next_hop,
-                local_pref: local_pref.copied(),
-                med,
-                as_path,
-                origin,
+                next_hop: attrs.next_hop,
+                local_pref: attrs.local_pref,
+                med: attrs.med,
+                as_path: attrs.as_path.clone(),
+                origin: attrs.origin,
                 peer: self.config.address,
                 valid: true,
                 age: 0,

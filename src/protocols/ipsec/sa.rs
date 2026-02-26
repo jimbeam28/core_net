@@ -3,6 +3,12 @@
 // IPsec 安全关联 (SA) 和安全策略数据库 (SPD)
 // RFC 4301: Security Architecture for the Internet Protocol
 
+// ⚠️ 警告：这是简化的教学实现
+// - 加密和 ICV 计算使用简化的 XOR 操作，不提供真实安全性
+// - 仅用于学习 IPsec 协议原理
+// - 禁止在生产环境中使用
+// - 生产环境应使用标准加密库（如 RustCrypto 的 aes-gcm、hmac 等）
+
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use crate::common::addr::IpAddr;
@@ -87,6 +93,17 @@ pub enum CipherTransform {
     Null,
 }
 
+/// 内部辅助函数：简化的混淆操作（仅用于教学）
+///
+/// 注意：这不是真正的加密，只是用于演示概念的教学实现
+fn xor_obfuscate(data: &[u8], key: &[u8]) -> Vec<u8> {
+    data.iter().enumerate().map(|(i, &byte)| {
+        let key_byte = key[i % key.len()];
+        let obfuscate = ((i as u8).wrapping_mul(17)).wrapping_add(73);
+        byte ^ key_byte ^ obfuscate
+    }).collect()
+}
+
 impl CipherTransform {
     /// 获取密钥长度
     pub fn key_size(&self) -> usize {
@@ -117,19 +134,7 @@ impl CipherTransform {
         if matches!(self, Self::Null) || key.is_empty() {
             return plaintext.to_vec();
         }
-
-        let mut ciphertext = Vec::with_capacity(plaintext.len());
-
-        // 简化的流加密：使用密钥进行 XOR 操作，加上简单的位置混淆
-        for (i, &byte) in plaintext.iter().enumerate() {
-            let key_byte = key[i % key.len()];
-            // 简单的位置混淆 + XOR
-            let obfuscate = ((i as u8).wrapping_mul(17)).wrapping_add(73);
-            let encrypted = byte ^ key_byte ^ obfuscate;
-            ciphertext.push(encrypted);
-        }
-
-        ciphertext
+        xor_obfuscate(plaintext, key)
     }
 
     /// 解密数据（简化实现）
@@ -139,18 +144,7 @@ impl CipherTransform {
         if matches!(self, Self::Null) || key.is_empty() {
             return ciphertext.to_vec();
         }
-
-        let mut plaintext = Vec::with_capacity(ciphertext.len());
-
-        // 简化的流解密：逆向加密操作
-        for (i, &byte) in ciphertext.iter().enumerate() {
-            let key_byte = key[i % key.len()];
-            let obfuscate = ((i as u8).wrapping_mul(17)).wrapping_add(73);
-            let decrypted = byte ^ key_byte ^ obfuscate;
-            plaintext.push(decrypted);
-        }
-
-        plaintext
+        xor_obfuscate(ciphertext, key)
     }
 }
 

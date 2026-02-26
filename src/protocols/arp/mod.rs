@@ -25,6 +25,18 @@ pub enum ArpOperation {
     Reply = 2,
 }
 
+/// 从 Packet 读取固定字节数到数组
+fn read_bytes<const N: usize>(packet: &mut Packet, field_name: &str) -> std::result::Result<[u8; N], CoreError> {
+    let mut bytes = [0u8; N];
+    for byte in &mut bytes {
+        *byte = match packet.read(1) {
+            Some(data) => data[0],
+            None => return Err(CoreError::parse_error(format!("读取{}失败", field_name))),
+        };
+    }
+    Ok(bytes)
+}
+
 impl ArpOperation {
     /// 从 u16 转换
     pub fn from_u16(value: u16) -> Option<Self> {
@@ -165,34 +177,13 @@ impl ArpPacket {
         }
 
         // 读取发送方硬件地址
-        let mut sender_hardware_bytes = [0u8; 6];
-        for sender_hardware_byte in &mut sender_hardware_bytes {
-            *sender_hardware_byte = match packet.read(1) {
-                Some(data) => data[0],
-                None => return Err(CoreError::parse_error("读取发送方硬件地址失败")),
-            };
-        }
-        let sender_hardware_addr = MacAddr::new(sender_hardware_bytes);
+        let sender_hardware_addr = MacAddr::new(read_bytes(packet, "发送方硬件地址")?);
 
         // 读取发送方协议地址
-        let mut sender_protocol_bytes = [0u8; 4];
-        for sender_protocol_byte in &mut sender_protocol_bytes {
-            *sender_protocol_byte = match packet.read(1) {
-                Some(data) => data[0],
-                None => return Err(CoreError::parse_error("读取发送方协议地址失败")),
-            };
-        }
-        let sender_protocol_addr = Ipv4Addr::from_bytes(sender_protocol_bytes);
+        let sender_protocol_addr = Ipv4Addr::from_bytes(read_bytes(packet, "发送方协议地址")?);
 
         // 读取目标硬件地址
-        let mut target_hardware_bytes = [0u8; 6];
-        for target_hardware_byte in &mut target_hardware_bytes {
-            *target_hardware_byte = match packet.read(1) {
-                Some(data) => data[0],
-                None => return Err(CoreError::parse_error("读取目标硬件地址失败")),
-            };
-        }
-        let target_hardware_addr = MacAddr::new(target_hardware_bytes);
+        let target_hardware_addr = MacAddr::new(read_bytes(packet, "目标硬件地址")?);
 
         // 验证 MAC 地址的有效性
         // 拒绝广播或组播 MAC 地址作为源地址
@@ -209,14 +200,7 @@ impl ArpPacket {
         }
 
         // 读取目标协议地址
-        let mut target_protocol_bytes = [0u8; 4];
-        for target_protocol_byte in &mut target_protocol_bytes {
-            *target_protocol_byte = match packet.read(1) {
-                Some(data) => data[0],
-                None => return Err(CoreError::parse_error("读取目标协议地址失败")),
-            };
-        }
-        let target_protocol_addr = Ipv4Addr::from_bytes(target_protocol_bytes);
+        let target_protocol_addr = Ipv4Addr::from_bytes(read_bytes(packet, "目标协议地址")?);
 
         Ok(ArpPacket {
             hardware_type,
@@ -376,15 +360,8 @@ pub fn handle_arp_packet(
                 return Ok(ArpHandleResult::no_reply());
             }
 
-            // 对于普通ARP请求：TPA是本机IP时响应
-            // 对于GARP请求：SPA=TPA且是本机IP时也需要响应
-            let should_reply = if is_garp {
-                // GARP: SPA == TPA，如果TPA是本机IP则需要响应
-                local_ips.contains(&packet.target_protocol_addr)
-            } else {
-                // 普通ARP请求：TPA是本机IP时响应
-                local_ips.contains(&packet.target_protocol_addr)
-            };
+            // 普通ARP请求和GARP请求的响应条件相同
+            let should_reply = local_ips.contains(&packet.target_protocol_addr);
 
             if should_reply {
                 // 需要响应

@@ -199,32 +199,34 @@ impl ReassemblyEntry {
         fragment: FragmentInfo,
         policy: FragmentOverlapPolicy,
     ) -> Result<(), IpError> {
-        // 检查重叠
-        for existing in &self.fragments {
-            if existing.overlaps(&fragment) {
-                match policy {
-                    FragmentOverlapPolicy::Drop => {
-                        return Err(IpError::FragmentOverlap {
-                            offset: fragment.offset,
-                        });
-                    }
-                    FragmentOverlapPolicy::First => {
-                        // 保留第一个，丢弃新的
-                        return Ok(());
-                    }
-                    FragmentOverlapPolicy::Last => {
-                        // 移除旧的，继续添加新的
-                        // 注意：这里需要特殊处理，暂时简化
-                    }
-                    FragmentOverlapPolicy::LogAndDrop => {
-                        // 记录并丢弃
-                        eprintln!(
-                            "警告: 检测到分片重叠 key={}, offset={}",
-                            self.key, fragment.offset
-                        );
-                        return Err(IpError::FragmentOverlap {
-                            offset: fragment.offset,
-                        });
+        // Last 策略：先移除所有重叠分片，然后添加新分片
+        if matches!(policy, FragmentOverlapPolicy::Last) {
+            self.fragments.retain(|f| !f.overlaps(&fragment));
+        } else {
+            // 其他策略：检查是否与现有分片重叠
+            for existing in &self.fragments {
+                if existing.overlaps(&fragment) {
+                    match policy {
+                        FragmentOverlapPolicy::Drop => {
+                            return Err(IpError::FragmentOverlap {
+                                offset: fragment.offset,
+                            });
+                        }
+                        FragmentOverlapPolicy::First => {
+                            return Ok(());
+                        }
+                        FragmentOverlapPolicy::LogAndDrop => {
+                            eprintln!(
+                                "警告: 检测到分片重叠 key={}, offset={}",
+                                self.key, fragment.offset
+                            );
+                            return Err(IpError::FragmentOverlap {
+                                offset: fragment.offset,
+                            });
+                        }
+                        FragmentOverlapPolicy::Last => {
+                            unreachable!("Last策略已在循环前处理");
+                        }
                     }
                 }
             }
@@ -234,11 +236,6 @@ impl ReassemblyEntry {
         let pos = self
             .fragments
             .partition_point(|f| f.offset < fragment.offset);
-
-        // 如果是 Last 策略且存在重叠，先移除旧的
-        if matches!(policy, FragmentOverlapPolicy::Last) {
-            self.fragments.retain(|f| !f.overlaps(&fragment));
-        }
 
         self.fragments.insert(pos, fragment);
         self.received_bytes = self.fragments.iter().map(|f| f.data.len() as u16).sum();
