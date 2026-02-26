@@ -97,32 +97,31 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 
 ## 协议支持
 
-### 已实现 ✅
-- **链路层**
-  - ✅ Ethernet - 帧解析/封装
-  - ✅ VLAN (802.1Q/802.1AD) - 单/双标签支持
-  - ✅ ARP - 缓存管理、响应生成、状态机
+### 链路层
+- Ethernet - 帧解析/封装
+- VLAN (802.1Q/802.1AD) - 单/双标签支持
+- ARP - 缓存管理、响应生成、状态机
 
-- **网络层**
-  - ✅ IPv4 - 头部解析、校验和、协议分发、分片与重组
-  - ✅ IPv6 - 头部解析、协议分发、分片与重组、扩展头支持
-  - ✅ ICMP - Echo Request/Reply、Destination Unreachable、Time Exceeded
-  - ✅ ICMPv6 - Echo Request/Reply、邻居发现(NDP)
-  - ✅ IPsec (AH/ESP/IKEv2) - SA/SPD管理、重放窗口保护、传输/隧道模式、入站处理、密钥交换
-  - ✅ 路由 - IPv4/IPv6路由表、最长前缀匹配
+### 网络层
+- IPv4 - 头部解析、校验和、协议分发、分片与重组
+- IPv6 - 头部解析、协议分发、分片与重组、扩展头支持
+- ICMP - Echo Request/Reply、Destination Unreachable、Time Exceeded
+- ICMPv6 - Echo Request/Reply、邻居发现(NDP)
+- IPsec (AH/ESP/IKEv2) - SA/SPD管理、重放窗口保护、传输/隧道模式、入站处理、密钥交换
+- 路由 - IPv4/IPv6路由表、最长前缀匹配
 
-- **传输层**
-  - ✅ UDP - 数据报收发、端口绑定、Socket API、回调机制
-  - ✅ TCP - 三次握手、四次挥手、滑动窗口、重传、Socket API、拥塞控制、定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
+### 传输层
+- UDP - 数据报收发、端口绑定、Socket API、回调机制
+- TCP - 三次握手、四次挥手、滑动窗口、重传、Socket API、拥塞控制、定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
 
-- **应用层**
-  - ✅ Socket API - POSIX风格API（socket、bind、listen、accept、connect、send、sendto、recv、recvfrom、close）
+### 应用层
+- Socket API - POSIX风格API（socket、bind、listen、accept、connect、send、sendto、recv、recvfrom、close）
 
-- **动态路由协议**
-  - ✅ OSPFv2 (RFC 2328) - Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
-  - ✅ OSPFv3 (RFC 5340) - OSPF for IPv6，支持链路本地地址、OSPFv3 LSA类型
-  - ✅ BGP-4 (RFC 4271) - Open/Update/Notification/Keepalive报文、状态机、对等体管理、RIB、路径属性
-  - ✅ IKEv2 (RFC 7296) - IKE_SA_INIT、IKE_AUTH、CREATE_CHILD_SA、INFORMATIONAL 交换
+### 动态路由协议
+- OSPFv2 (RFC 2328) - Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
+- OSPFv3 (RFC 5340) - OSPF for IPv6，支持链路本地地址、OSPFv3 LSA类型
+- BGP-4 (RFC 4271) - Open/Update/Notification/Keepalive报文、状态机、对等体管理、RIB、路径属性
+- IKEv2 (RFC 7296) - IKE_SA_INIT、IKE_AUTH、CREATE_CHILD_SA、INFORMATIONAL 交换
 
 ## 目录结构
 
@@ -179,22 +178,22 @@ core_net/
 │   │   ├── error.rs           # 路由错误
 │   │   └── mod.rs
 │   ├── protocols/             # 协议实现
-│   │   ├── ethernet/          # 以太网协议 ✅
-│   │   ├── vlan/              # VLAN 协议 ✅
-│   │   ├── arp/               # ARP 协议 ✅
-│   │   ├── ip/                # IPv4 协议 ✅
-│   │   ├── ipv6/              # IPv6 协议 ✅
-│   │   ├── icmp/              # ICMP 协议 ✅
-│   │   ├── icmpv6/            # ICMPv6 协议 ✅
-│   │   ├── udp/               # UDP 协议 ✅
-│   │   ├── tcp/               # TCP 协议 ✅
-│   │   ├── ospf/              # OSPF 共享核心模块 ✅
-│   │   ├── ospf2/             # OSPFv2 协议 ✅
-│   │   ├── ospf3/             # OSPFv3 协议 ✅
-│   │   ├── bgp/               # BGP-4 协议 ✅
-│   │   └── ipsec/             # IPsec 协议 ✅（AH/ESP、SA/SPD）
-│   │       └── ikev2/         # IKEv2 协议 ✅（密钥交换）
-│   ├── socket/                # Socket API ✅（完整 POSIX 实现）
+│   │   ├── ethernet/          # 以太网协议
+│   │   ├── vlan/              # VLAN 协议
+│   │   ├── arp/               # ARP 协议
+│   │   ├── ip/                # IPv4 协议
+│   │   ├── ipv6/              # IPv6 协议
+│   │   ├── icmp/              # ICMP 协议
+│   │   ├── icmpv6/            # ICMPv6 协议
+│   │   ├── udp/               # UDP 协议
+│   │   ├── tcp/               # TCP 协议
+│   │   ├── ospf/              # OSPF 共享核心模块
+│   │   ├── ospf2/             # OSPFv2 协议
+│   │   ├── ospf3/             # OSPFv3 协议
+│   │   ├── bgp/               # BGP-4 协议
+│   │   └── ipsec/             # IPsec 协议（AH/ESP、SA/SPD）
+│   │       └── ikev2/         # IKEv2 协议（密钥交换）
+│   ├── socket/                # Socket API（POSIX 风格实现）
 │   │   ├── types.rs           # Socket 类型定义
 │   │   ├── entry.rs           # Socket 表项
 │   │   ├── manager.rs         # Socket 管理器
@@ -312,150 +311,6 @@ cargo fmt
 cargo clippy
 ```
 
-## 实现计划
-
-### 阶段一：基础框架 ✅
-- [x] 目录结构创建
-- [x] common 模块实现（Packet、RingQueue、Error、Addr、Tables、Timer）
-- [x] engine 模块实现（薄层设计）
-- [x] testframework 模块实现
-- [x] poweron 模块实现
-- [x] interface 模块实现（多接口支持）
-- [x] scheduler 模块实现
-
-### 阶段二：基础协议 ✅
-- [x] 以太网层
-- [x] VLAN (802.1Q/802.1AD)
-- [x] ARP（含缓存、状态机）
-- [x] IPv4 基础（头部解析、校验和、协议分发）
-- [x] ICMP 协议（Echo、Dest Unreachable、Time Exceeded）
-
-**目标**：能够 ping 通网关 ✅ 已实现
-
-### 阶段三：传输层 ✅
-- [x] UDP 协议
-  - [x] 数据报解析/封装
-  - [x] 端口绑定机制
-  - [x] Socket API
-  - [x] 回调机制
-- [x] TCP 协议
-  - [x] 三次握手
-  - [x] 四次挥手
-  - [x] 滑动窗口
-  - [x] 重传机制
-  - [x] Socket API
-
-**目标**：能够建立 TCP 连接并传输数据 ✅ 已实现
-
-### 阶段四：IPv6 ✅
-- [x] IPv6 基础（头部解析、协议分发）
-- [x] ICMPv6（Echo Request/Reply）
-- [x] 路由模块（IPv4/IPv6路由表、最长前缀匹配）
-
-**目标**：支持 IPv6 基础通信 ✅ 已实现
-
-### 阶段五：高级功能 ✅
-- [x] IP 分片与重组（IPv4/IPv6）
-- [x] IPv6 扩展头（逐跳选项、路由、分片、目的选项）
-- [x] ND (Neighbor Discovery)
-- [x] Socket API（完整实现）
-  - [x] socket() - 创建 Socket
-  - [x] bind() - 绑定地址
-  - [x] listen() - 监听连接
-  - [x] accept() - 接受连接
-  - [x] connect() - 发起连接
-  - [x] send()/sendto() - 发送数据
-  - [x] recv()/recvfrom() - 接收数据
-  - [x] close() - 关闭 Socket
-  - [x] Socket 选项支持
-  - [x] TCP/UDP 数据分发
-
-**目标**：支持完整的 IP 分片重组、IPv6 扩展头和 Socket API ✅ 已实现
-
-### 阶段六：动态路由协议 ✅
-- [x] OSPFv2 协议
-  - [x] 报文解析/封装（Hello、DD、LSR、LSU、LSAck）
-  - [x] LSA 类型支持
-  - [x] 接口状态机
-  - [x] 邻居状态机
-  - [x] LSDB 管理
-  - [x] SPF 算法
-  - [x] DR/BDR 选举
-  - [x] 定时器管理
-- [x] OSPFv3 协议
-  - [x] 报文解析/封装
-  - [x] OSPFv3 LSA 类型
-  - [x] IPv6 支持
-  - [x] 接口/邻居状态机
-  - [x] LSDB 管理
-- [x] BGP-4 协议
-  - [x] 报文解析/封装
-  - [x] 状态机
-  - [x] 对等体管理
-  - [x] RIB 管理
-  - [x] 定时器管理
-
-**目标**：支持 OSPFv2、OSPFv3 和 BGP-4 动态路由协议 ✅ 已实现
-
-### 阶段七：高级网络功能（部分完成）✅
-- [x] IPsec 协议
-  - [x] AH 协议（RFC 4302）
-    - [x] 头部解析/封装
-    - [x] ICV 计算和验证
-    - [x] 抗重放保护
-  - [x] ESP 协议（RFC 4303）
-    - [x] 头部/尾部解析/封装
-    - [x] 加密/解密（简化模拟）
-    - [x] ICV 计算和验证
-    - [x] 载荷填充处理
-  - [x] SA/SPD 管理
-    - [x] 安全关联生命周期
-    - [x] 加密/认证算法支持
-    - [x] 流量选择器
-    - [x] 重放窗口
-  - [x] 传输模式和隧道模式
-  - [x] IPv4 入站报文处理
-  - [x] IKEv2 协议（RFC 7296）
-    - [x] IKE_SA_INIT 交换（密钥协商）
-    - [x] IKE_AUTH 交换（认证和 CHILD_SA 建立）
-    - [x] CREATE_CHILD_SA 交换
-    - [x] INFORMATIONAL 交换
-    - [x] IKE 消息解析和封装
-    - [x] IKE SA 状态机
-    - [x] Payload 类型（SA、KE、IDi/IDr、AUTH、Nonce、TSi/TSr等）
-    - [x] 密钥材料派生（PRF+、SKEYSEED、KEYMAT）
-    - [x] UDP 端口 500/4500 集成
-
-**目标**：支持 IPsec 基础功能 ✅ 部分实现（入站处理、密钥交换）
-
-### 阶段八：高级网络功能（计划中）
-- [ ] IPsec 出站报文流集成
-- [ ] 真实密码学算法集成
-
----
-
-## 完成度
-
-**各模块完成度**：
-- Common 模块: 100%
-- Interface 模块: 100%
-- Scheduler 模块: 100%
-- Engine 模块: 100%
-- Route 模块: 100%（IPv4/IPv6路由表、最长前缀匹配、默认路由）
-- Socket 模块: 100%（POSIX风格API，完整实现）
-- Ethernet 协议: 100%
-- VLAN 协议: 100%
-- ARP 协议: 100%
-- IPv4 协议: 100%（头部解析、校验和、协议分发、分片与重组、重叠检测）
-- IPv6 协议: 100%（头部解析、协议分发、分片与重组、扩展头、选项处理、原子分片拒绝、重叠检测）
-- ICMP 协议: 100%（Echo、Dest Unreachable、Time Exceeded、Parameter Problem）
-- ICMPv6 协议: 95%（Echo、NDP、邻居缓存、路由器发现）
-- UDP 协议: 100%（数据报解析/封装、端口绑定、Socket API、回调机制、端口不可达响应）
-- TCP 协议: 100%（完整状态机、拥塞控制、定时器管理）
-- IPsec 协议: 85%（AH/ESP报文解析、SA/SPD管理、重放窗口、入站处理、IKEv2密钥交换；缺出站集成、真实密码学）
-
-**整体项目完成度: ~95%**（不含 IKEv2 和真实密码学算法）
-
 ## 设计文档
 
 详细设计文档请查看 [docs/design/](docs/design/) 目录：
@@ -494,25 +349,25 @@ cargo clippy
 
 本项目遵循以下 RFC 标准：
 
-| 协议 | RFC | 描述 | 状态 |
-|------|-----|------|------|
-| Ethernet | IEEE 802.3 | 以太网标准 | ✅ 已实现 |
-| VLAN | IEEE 802.1Q | 虚拟局域网 | ✅ 已实现 |
-| ARP | RFC 826 | 地址解析协议 | ✅ 已实现 |
-| IPv4 | RFC 791 | 互联网协议 | ✅ 已实现（含分片/重组） |
-| IPv6 | RFC 8200 | 互联网协议第 6 版 | ✅ 已实现（含分片/重组/扩展头） |
-| ICMP | RFC 792 | 互联网控制报文协议 | ✅ 已实现 |
-| ICMPv6 | RFC 4443 | ICMPv6 | ✅ 已实现（Echo、NDP） |
-| TCP | RFC 793, RFC 9293 | 传输控制协议 | ✅ 已实现（完整状态机、拥塞控制、Socket API） |
-| UDP | RFC 768 | 用户数据报协议 | ✅ 已实现（Socket API、回调机制） |
-| IPsec (AH) | RFC 4302 | IP 认证头 | ✅ 部分实现（入站处理、SA/SPD） |
-| IPsec (ESP) | RFC 4303 | IP 封装安全载荷 | ✅ 部分实现（入站处理、SA/SPD） |
-| IPsec (架构) | RFC 4301 | IPsec 安全架构 | ✅ 部分实现 |
-| IKEv2 | RFC 7296 | Internet Key Exchange v2 | ✅ 已实现（密钥交换、状态机） |
-| OSPFv2 | RFC 2328 | 开放最短路径优先 v2 | ✅ 已实现（状态机、LSDB、SPF） |
-| OSPFv3 | RFC 5340 | OSPF for IPv6 | ✅ 已实现（状态机、LSDB、SPF） |
-| BGP-4 | RFC 4271 | 边界网关协议 4 | ✅ 已实现（状态机、RIB、对等体管理） |
-| Socket API | POSIX | Socket API | ✅ 已实现（完整 POSIX 风格 API） |
+| 协议 | RFC | 描述 |
+|------|-----|------|
+| Ethernet | IEEE 802.3 | 以太网标准 |
+| VLAN | IEEE 802.1Q | 虚拟局域网 |
+| ARP | RFC 826 | 地址解析协议 |
+| IPv4 | RFC 791 | 互联网协议 |
+| IPv6 | RFC 8200 | 互联网协议第 6 版 |
+| ICMP | RFC 792 | 互联网控制报文协议 |
+| ICMPv6 | RFC 4443 | ICMPv6 |
+| TCP | RFC 793, RFC 9293 | 传输控制协议 |
+| UDP | RFC 768 | 用户数据报协议 |
+| IPsec (AH) | RFC 4302 | IP 认证头 |
+| IPsec (ESP) | RFC 4303 | IP 封装安全载荷 |
+| IPsec (架构) | RFC 4301 | IPsec 安全架构 |
+| IKEv2 | RFC 7296 | Internet Key Exchange v2 |
+| OSPFv2 | RFC 2328 | 开放最短路径优先 v2 |
+| OSPFv3 | RFC 5340 | OSPF for IPv6 |
+| BGP-4 | RFC 4271 | 边界网关协议 4 |
+| Socket API | POSIX | Socket API |
 
 ## 开发日志
 

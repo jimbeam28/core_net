@@ -10,16 +10,6 @@
 - **可扩展性**: 模块化设计，便于添加新协议支持
 - **正确性**: 遵循RFC标准，实现正确的协议行为
 
-### 1.3 项目状态
-- ✅ 链路层完整实现（Ethernet、VLAN、ARP）
-- ✅ 网络层完整实现（IPv4、IPv6、ICMP、ICMPv6、NDP、IPsec）
-- ✅ 传输层完整实现（TCP、UDP）
-- ✅ 路由模块实现（IPv4/IPv6路由表、最长前缀匹配）
-- ✅ IP分片与重组（IPv4/IPv6）
-- ✅ IPv6扩展头（逐跳选项、路由、分片、目的选项）
-- ✅ Socket API（bind、connect、send、recv、close等）
-- ✅ 动态路由协议（OSPFv2、OSPFv3、BGP-4）
-
 ---
 
 ## 2. 整体架构
@@ -698,28 +688,19 @@ protocols/ipsec/
   - Payload 类型（SA、KE、IDi/IDr、CERT、AUTH、Nonce、Notify、Delete、TSi/TSr）
   - 密钥材料派生（SK_d、SK_ai、SK_ar、SK_ei、SK_er、SK_pi、SK_pr）
   - UDP 端口 500/4500 支持
-
-**已实现**：
-- ✅ AH 报文解析/封装
-- ✅ ESP 报文解析/封装
-- ✅ SA/SPD 管理
-- ✅ 重放窗口保护
-- ✅ 传输模式和隧道模式解封装
-- ✅ IPv4 入站报文处理
-- ✅ SystemContext 集成
-- ✅ 加密/认证算法（简化模拟）
-- ✅ IKEv2 报文解析/封装
-- ✅ IKEv2 状态机
-- ✅ IKEv2 Payload 类型
-- ✅ 密钥材料派生（PRF+、SKEYSEED、KEYMAT）
-- ✅ UDP 端口 500/4500 集成
-
-**未实现**：
-- ❌ 真实密码学算法（当前为简化实现）
-- ❌ IPv6 IPsec 完整处理
-- ❌ IPsec 出站报文流集成
-- ❌ IKEv2 完整 EAP 认证
-- ❌ IKEv2 NAT 穿透完整实现
+- AH 报文解析/封装
+- ESP 报文解析/封装
+- SA/SPD 管理
+- 重放窗口保护
+- 传输模式和隧道模式解封装
+- IPv4 入站报文处理
+- SystemContext 集成
+- 加密/认证算法（简化模拟实现）
+- IKEv2 报文解析/封装
+- IKEv2 状态机
+- IKEv2 Payload 类型
+- 密钥材料派生（PRF+、SKEYSEED、KEYMAT）
+- UDP 端口 500/4500 集成
 
 ---
 
@@ -1010,26 +991,26 @@ pub struct RingQueue<T> {
 
 ## 5. 协议分层
 
-| 层级 | 协议 | RFC | 状态 |
-|------|------|-----|------|
-| 应用层 | Socket API | - | ✅ 已实现（POSIX风格） |
-| 传输层 | TCP | RFC 793, RFC 9293 | ✅ 已实现（完整状态机、拥塞控制、定时器） |
-| 传输层 | UDP | RFC 768 | ✅ 已实现 |
-| 网络层 | IPv4 | RFC 791 | ✅ 已实现（含分片/重组） |
-| 网络层 | IPv6 | RFC 8200 | ✅ 已实现（含分片/重组/扩展头） |
-| 网络层 | ICMP | RFC 792 | ✅ 已实现 |
-| 网络层 | ICMPv6 | RFC 4443 | ✅ 已实现（Echo、NDP） |
-| 网络层 | IPsec (AH/ESP) | RFC 4302, 4303 | ✅ 部分实现（入站处理、SA/SPD） |
-| 网络层 | IKEv2 | RFC 7296 | ✅ 已实现（密钥交换、状态机） |
-| 路由 | 路由表 | - | ✅ 已实现（最长前缀匹配） |
-| 路由 | OSPFv2 | RFC 2328 | ✅ 已实现（状态机、LSDB、SPF） |
-| 路由 | OSPFv3 | RFC 5340 | ✅ 已实现（状态机、LSDB、SPF） |
-| 路由 | BGP-4 | RFC 4271 | ✅ 已实现（状态机、RIB） |
-| 链路层 | Ethernet | IEEE 802.3 | ✅ 已实现 |
-| 链路层 | VLAN | IEEE 802.1Q | ✅ 已实现 |
-| 链路层 | ARP | RFC 826 | ✅ 已实现 |
+| 层级 | 协议 | RFC |
+|------|------|-----|
+| 应用层 | Socket API | - |
+| 传输层 | TCP | RFC 793, RFC 9293 |
+| 传输层 | UDP | RFC 768 |
+| 网络层 | IPv4 | RFC 791 |
+| 网络层 | IPv6 | RFC 8200 |
+| 网络层 | ICMP | RFC 792 |
+| 网络层 | ICMPv6 | RFC 4443 |
+| 网络层 | IPsec (AH/ESP) | RFC 4302, 4303 |
+| 网络层 | IKEv2 | RFC 7296 |
+| 路由 | 路由表 | - |
+| 路由 | OSPFv2 | RFC 2328 |
+| 路由 | OSPFv3 | RFC 5340 |
+| 路由 | BGP-4 | RFC 4271 |
+| 链路层 | Ethernet | IEEE 802.3 |
+| 链路层 | VLAN | IEEE 802.1Q |
+| 链路层 | ARP | RFC 826 |
 
-**实现详情**：
+**功能说明**：
 - **TCP**: 三次握手、四次挥手、滑动窗口、重传机制、拥塞控制、Socket API、连接管理、MSS选项、定时器管理（重传、TimeWait、Keepalive、Delayed ACK）
 - **UDP**: 端口绑定、数据报收发、Socket API、回调机制、端口不可达响应
 - **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持、分片与重组、扩展头支持
@@ -1041,11 +1022,6 @@ pub struct RingQueue<T> {
 - **BGP-4**: Open/Update/Notification/Keepalive报文、状态机、对等体管理、RIB、路径属性
 - **Socket API**: POSIX风格API（socket, bind, listen, accept, connect, send, recv, close）
 - **IP分片**: IPv4/IPv6分片与重组（超时处理、重叠检测）
-
-**未实现功能**：
-- 真实密码学算法（IPsec/IKEv2 当前为简化模拟实现）
-- IPv6 IPsec 完整处理（仅识别扩展头）
-- IPsec 出站报文流集成
 
 ---
 
