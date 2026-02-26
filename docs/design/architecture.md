@@ -48,6 +48,7 @@
 │  │  │  Arc<Mutex<SocketManager>>    (Socket管理器)                │  │   │
 │  │  │  Arc<Mutex<SadManager>>       (IPsec SA数据库)              │  │   │
 │  │  │  Arc<Mutex<SpdManager>>       (IPsec策略数据库)             │  │   │
+│  │  │  Arc<Mutex<IkeSaManager>>     (IKEv2 SA管理器)              │  │   │
 │  │  │                   (依赖注入模式，支持 Clone)                  │  │   │
 │  │  └──────────────────────────────────────────────────────────────┘  │   │
 │  │       from_config() ──► 加载 interface.toml ──► 初始化所有组件      │   │
@@ -658,7 +659,15 @@ protocols/ipsec/
 ├── mod.rs       # 模块入口
 ├── ah.rs        # Authentication Header (AH) 协议
 ├── esp.rs       # Encapsulating Security Payload (ESP) 协议
-└── sa.rs        # SA (Security Association) 和 SPD (Security Policy Database)
+├── sa.rs        # SA (Security Association) 和 SPD (Security Policy Database)
+└── ikev2/       # IKEv2 密钥交换协议
+    ├── mod.rs       # 模块入口、常量、枚举定义
+    ├── message.rs   # IKE 消息结构
+    ├── payload.rs   # IKE Payload 类型（SA、KE、IDi/IDr、AUTH、Nonce、TSi/TSr等）
+    ├── sa.rs        # IKE SA 管理和密钥材料
+    ├── crypto.rs    # 加密和密钥派生（简化教学实现）
+    ├── state.rs     # IKE 状态机
+    └── processor.rs # IKE 协议处理逻辑
 ```
 
 **核心功能**：
@@ -679,6 +688,16 @@ protocols/ipsec/
   - `SaConfig` 构建器模式（简化 SA 创建）
 - 传输模式和隧道模式
 - 恒定时间比较（防时序攻击）
+- IKEv2 协议实现（RFC 7296）
+  - IKE_SA_INIT 交换（密钥协商）
+  - IKE_AUTH 交换（认证和 CHILD_SA 建立）
+  - CREATE_CHILD_SA 交换（额外 SA 创建/重协商）
+  - INFORMATIONAL 交换（通知和 SA 管理）
+  - IKE 消息解析和封装
+  - IKE SA 状态机（发起方/响应方）
+  - Payload 类型（SA、KE、IDi/IDr、CERT、AUTH、Nonce、Notify、Delete、TSi/TSr）
+  - 密钥材料派生（SK_d、SK_ai、SK_ar、SK_ei、SK_er、SK_pi、SK_pr）
+  - UDP 端口 500/4500 支持
 
 **已实现**：
 - ✅ AH 报文解析/封装
@@ -689,12 +708,18 @@ protocols/ipsec/
 - ✅ IPv4 入站报文处理
 - ✅ SystemContext 集成
 - ✅ 加密/认证算法（简化模拟）
+- ✅ IKEv2 报文解析/封装
+- ✅ IKEv2 状态机
+- ✅ IKEv2 Payload 类型
+- ✅ 密钥材料派生（PRF+、SKEYSEED、KEYMAT）
+- ✅ UDP 端口 500/4500 集成
 
 **未实现**：
-- ❌ IKEv2 协议（密钥交换）
 - ❌ 真实密码学算法（当前为简化实现）
 - ❌ IPv6 IPsec 完整处理
-- ❌ 出站报文流集成
+- ❌ IPsec 出站报文流集成
+- ❌ IKEv2 完整 EAP 认证
+- ❌ IKEv2 NAT 穿透完整实现
 
 ---
 
@@ -995,6 +1020,7 @@ pub struct RingQueue<T> {
 | 网络层 | ICMP | RFC 792 | ✅ 已实现 |
 | 网络层 | ICMPv6 | RFC 4443 | ✅ 已实现（Echo、NDP） |
 | 网络层 | IPsec (AH/ESP) | RFC 4302, 4303 | ✅ 部分实现（入站处理、SA/SPD） |
+| 网络层 | IKEv2 | RFC 7296 | ✅ 已实现（密钥交换、状态机） |
 | 路由 | 路由表 | - | ✅ 已实现（最长前缀匹配） |
 | 路由 | OSPFv2 | RFC 2328 | ✅ 已实现（状态机、LSDB、SPF） |
 | 路由 | OSPFv3 | RFC 5340 | ✅ 已实现（状态机、LSDB、SPF） |
@@ -1008,6 +1034,7 @@ pub struct RingQueue<T> {
 - **UDP**: 端口绑定、数据报收发、Socket API、回调机制、端口不可达响应
 - **IPv6**: 基础头部解析、协议分发、ICMPv6 Echo支持、分片与重组、扩展头支持
 - **IPsec**: AH/ESP报文解析/封装、SA/SPD管理、重放窗口保护、传输/隧道模式解封装、IPv4入站处理
+- **IKEv2**: IKE_SA_INIT/IKE_AUTH/CREATE_CHILD_SA/INFORMATIONAL交换、状态机、Payload类型、密钥材料派生、UDP端口500/4500
 - **路由**: IPv4/IPv6路由表、最长前缀匹配（LPM）
 - **OSPFv2**: Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
 - **OSPFv3**: 与OSPFv2类似功能，支持IPv6链路本地地址、OSPFv3 LSA类型
@@ -1016,8 +1043,7 @@ pub struct RingQueue<T> {
 - **IP分片**: IPv4/IPv6分片与重组（超时处理、重叠检测）
 
 **未实现功能**：
-- IKEv2 协议（IPsec 密钥交换）
-- 真实密码学算法（IPsec 当前为简化模拟实现）
+- 真实密码学算法（IPsec/IKEv2 当前为简化模拟实现）
 - IPv6 IPsec 完整处理（仅识别扩展头）
 - IPsec 出站报文流集成
 

@@ -108,7 +108,7 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
   - ✅ IPv6 - 头部解析、协议分发、分片与重组、扩展头支持
   - ✅ ICMP - Echo Request/Reply、Destination Unreachable、Time Exceeded
   - ✅ ICMPv6 - Echo Request/Reply、邻居发现(NDP)
-  - ✅ IPsec (AH/ESP) - SA/SPD管理、重放窗口保护、传输/隧道模式、入站处理
+  - ✅ IPsec (AH/ESP/IKEv2) - SA/SPD管理、重放窗口保护、传输/隧道模式、入站处理、密钥交换
   - ✅ 路由 - IPv4/IPv6路由表、最长前缀匹配
 
 - **传输层**
@@ -122,10 +122,7 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
   - ✅ OSPFv2 (RFC 2328) - Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
   - ✅ OSPFv3 (RFC 5340) - OSPF for IPv6，支持链路本地地址、OSPFv3 LSA类型
   - ✅ BGP-4 (RFC 4271) - Open/Update/Notification/Keepalive报文、状态机、对等体管理、RIB、路径属性
-
-### 计划中 ⏳
-- **网络层**
-  - ⏳ IKEv2 协议（IPsec 密钥交换）
+  - ✅ IKEv2 (RFC 7296) - IKE_SA_INIT、IKE_AUTH、CREATE_CHILD_SA、INFORMATIONAL 交换
 
 ## 目录结构
 
@@ -196,6 +193,7 @@ core_net/
 │   │   ├── ospf3/             # OSPFv3 协议 ✅
 │   │   ├── bgp/               # BGP-4 协议 ✅
 │   │   └── ipsec/             # IPsec 协议 ✅（AH/ESP、SA/SPD）
+│   │       └── ikev2/         # IKEv2 协议 ✅（密钥交换）
 │   ├── socket/                # Socket API ✅（完整 POSIX 实现）
 │   │   ├── types.rs           # Socket 类型定义
 │   │   ├── entry.rs           # Socket 表项
@@ -264,6 +262,7 @@ core_net/
 - `ospf3` - OSPFv3 协议（RFC 5340）
 - `bgp` - BGP-4 协议（RFC 4271）
 - `ipsec` - IPsec 协议（RFC 4301, 4302, 4303）- AH/ESP、SA/SPD管理、重放窗口保护
+- `ipsec/ikev2` - IKEv2 协议（RFC 7296）- 密钥交换、状态机、Payload类型
 
 ### socket
 POSIX风格 Socket API 实现（应用层网络接口）：
@@ -416,11 +415,22 @@ cargo clippy
     - [x] 重放窗口
   - [x] 传输模式和隧道模式
   - [x] IPv4 入站报文处理
+  - [x] IKEv2 协议（RFC 7296）
+    - [x] IKE_SA_INIT 交换（密钥协商）
+    - [x] IKE_AUTH 交换（认证和 CHILD_SA 建立）
+    - [x] CREATE_CHILD_SA 交换
+    - [x] INFORMATIONAL 交换
+    - [x] IKE 消息解析和封装
+    - [x] IKE SA 状态机
+    - [x] Payload 类型（SA、KE、IDi/IDr、AUTH、Nonce、TSi/TSr等）
+    - [x] 密钥材料派生（PRF+、SKEYSEED、KEYMAT）
+    - [x] UDP 端口 500/4500 集成
 
-**目标**：支持 IPsec 基础功能 ✅ 部分实现（入站处理）
+**目标**：支持 IPsec 基础功能 ✅ 部分实现（入站处理、密钥交换）
 
 ### 阶段八：高级网络功能（计划中）
-- [ ] IKEv2 协议（IPsec 密钥交换）
+- [ ] IPsec 出站报文流集成
+- [ ] 真实密码学算法集成
 
 ---
 
@@ -442,7 +452,7 @@ cargo clippy
 - ICMPv6 协议: 95%（Echo、NDP、邻居缓存、路由器发现）
 - UDP 协议: 100%（数据报解析/封装、端口绑定、Socket API、回调机制、端口不可达响应）
 - TCP 协议: 100%（完整状态机、拥塞控制、定时器管理）
-- IPsec 协议: 70%（AH/ESP报文解析、SA/SPD管理、重放窗口、入站处理；缺IKEv2、出站集成、真实密码学）
+- IPsec 协议: 85%（AH/ESP报文解析、SA/SPD管理、重放窗口、入站处理、IKEv2密钥交换；缺出站集成、真实密码学）
 
 **整体项目完成度: ~95%**（不含 IKEv2 和真实密码学算法）
 
@@ -498,6 +508,7 @@ cargo clippy
 | IPsec (AH) | RFC 4302 | IP 认证头 | ✅ 部分实现（入站处理、SA/SPD） |
 | IPsec (ESP) | RFC 4303 | IP 封装安全载荷 | ✅ 部分实现（入站处理、SA/SPD） |
 | IPsec (架构) | RFC 4301 | IPsec 安全架构 | ✅ 部分实现 |
+| IKEv2 | RFC 7296 | Internet Key Exchange v2 | ✅ 已实现（密钥交换、状态机） |
 | OSPFv2 | RFC 2328 | 开放最短路径优先 v2 | ✅ 已实现（状态机、LSDB、SPF） |
 | OSPFv3 | RFC 5340 | OSPF for IPv6 | ✅ 已实现（状态机、LSDB、SPF） |
 | BGP-4 | RFC 4271 | 边界网关协议 4 | ✅ 已实现（状态机、RIB、对等体管理） |
