@@ -7,17 +7,8 @@ use core_net::context::SystemContext;
 
 // 测试辅助函数
 
-/// 构造 VLAN TCI
-fn create_vlan_tci(pcp: u8, dei: bool, vid: u16) -> u16 {
-    let pcp_value = ((pcp & 0x07) as u16) << 13;
-    let dei_value = if dei { 1 << 12 } else { 0 };
-    let vid_value = vid & 0x0FFF;
-    pcp_value | dei_value | vid_value
-}
-
-/// 构造带 VLAN 标签的完整报文
-#[allow(clippy::too_many_arguments)]
-fn create_vlan_packet(
+/// VLAN 报文配置
+struct VlanPacketConfig {
     dst_mac: MacAddr,
     src_mac: MacAddr,
     vlan_tpid: u16,
@@ -26,21 +17,58 @@ fn create_vlan_packet(
     vid: u16,
     inner_type: u16,
     payload: Vec<u8>,
-) -> Packet {
-    let mut bytes = Vec::new();
+}
 
-    bytes.extend_from_slice(&dst_mac.bytes);
-    bytes.extend_from_slice(&src_mac.bytes);
-    bytes.extend_from_slice(&vlan_tpid.to_be_bytes());
+impl VlanPacketConfig {
+    fn new(
+        dst_mac: MacAddr,
+        src_mac: MacAddr,
+        vlan_tpid: u16,
+        vid: u16,
+        inner_type: u16,
+        payload: Vec<u8>,
+    ) -> Self {
+        Self {
+            dst_mac,
+            src_mac,
+            vlan_tpid,
+            pcp: 0,
+            dei: false,
+            vid,
+            inner_type,
+            payload,
+        }
+    }
 
-    let tci = create_vlan_tci(pcp, dei, vid);
-    bytes.extend_from_slice(&tci.to_be_bytes());
+    fn with_pcp(mut self, pcp: u8) -> Self {
+        self.pcp = pcp;
+        self
+    }
 
-    bytes.extend_from_slice(&inner_type.to_be_bytes());
+    fn with_dei(mut self, dei: bool) -> Self {
+        self.dei = dei;
+        self
+    }
 
-    bytes.extend_from_slice(&payload);
+    fn build(self) -> Packet {
+        let mut bytes = Vec::new();
 
-    Packet::from_bytes(bytes)
+        bytes.extend_from_slice(&self.dst_mac.bytes);
+        bytes.extend_from_slice(&self.src_mac.bytes);
+        bytes.extend_from_slice(&self.vlan_tpid.to_be_bytes());
+
+        let pcp_value = ((self.pcp & 0x07) as u16) << 13;
+        let dei_value = if self.dei { 1 << 12 } else { 0 };
+        let vid_value = self.vid & 0x0FFF;
+        let tci = pcp_value | dei_value | vid_value;
+        bytes.extend_from_slice(&tci.to_be_bytes());
+
+        bytes.extend_from_slice(&self.inner_type.to_be_bytes());
+
+        bytes.extend_from_slice(&self.payload);
+
+        Packet::from_bytes(bytes)
+    }
 }
 
 /// 构造 ARP 请求报文（带以太网头）
@@ -82,7 +110,10 @@ fn test_vlan_arp_full_flow() {
     bytes.extend_from_slice(&src_mac.bytes);
     bytes.extend_from_slice(&ETH_P_8021Q.to_be_bytes());
 
-    let tci = create_vlan_tci(3, true, 100);
+    let pcp_value = ((3 & 0x07) as u16) << 13;
+    let dei_value = if true { 1 << 12 } else { 0 };
+    let vid_value = 100u16 & 0x0FFF;
+    let tci = pcp_value | dei_value | vid_value;
     bytes.extend_from_slice(&tci.to_be_bytes());
 
     bytes.extend_from_slice(&ETH_P_ARP.to_be_bytes());
@@ -115,12 +146,20 @@ fn test_qinq_double_tag_processing() {
     bytes.extend_from_slice(&src_mac.bytes);
     bytes.extend_from_slice(&ETH_P_8021AD.to_be_bytes());
 
-    let outer_tci = create_vlan_tci(0, false, 10);
+    // 外层 VLAN TCI
+    let pcp_value = (0u16) << 13;
+    let dei_value = 0u16;
+    let vid_value = 10u16 & 0x0FFF;
+    let outer_tci = pcp_value | dei_value | vid_value;
     bytes.extend_from_slice(&outer_tci.to_be_bytes());
 
     bytes.extend_from_slice(&ETH_P_8021Q.to_be_bytes());
 
-    let inner_tci = create_vlan_tci(0, false, 20);
+    // 内层 VLAN TCI
+    let pcp_value = (0u16) << 13;
+    let dei_value = 0u16;
+    let vid_value = 20u16 & 0x0FFF;
+    let inner_tci = pcp_value | dei_value | vid_value;
     bytes.extend_from_slice(&inner_tci.to_be_bytes());
 
     bytes.extend_from_slice(&ETH_P_ARP.to_be_bytes());
@@ -194,16 +233,14 @@ fn test_multiple_vlan_packets_sequential() {
     let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
     for vid in [100, 200, 300, 400, 500] {
-        let packet = create_vlan_packet(
+        let packet = VlanPacketConfig::new(
             dst_mac,
             src_mac,
             ETH_P_8021Q,
-            0,
-            false,
             vid,
             ETH_P_IP,
             vec![0x01, 0x02, 0x03],
-        );
+        ).build();
 
         let result = processor.process(packet);
         assert!(result.is_err());
@@ -217,28 +254,24 @@ fn test_different_vlan_tpid() {
     let dst_mac = MacAddr::broadcast();
     let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
-    let packet1 = create_vlan_packet(
+    let packet1 = VlanPacketConfig::new(
         dst_mac,
         src_mac,
         ETH_P_8021Q,
-        0,
-        false,
         100,
         ETH_P_IP,
         vec![0x01],
-    );
+    ).build();
     assert!(processor.process(packet1).is_err());
 
-    let packet2 = create_vlan_packet(
+    let packet2 = VlanPacketConfig::new(
         dst_mac,
         src_mac,
         ETH_P_8021AD,
-        0,
-        false,
         100,
         ETH_P_IP,
         vec![0x01],
-    );
+    ).build();
     assert!(processor.process(packet2).is_err());
 }
 
@@ -251,16 +284,17 @@ fn test_vlan_pcp_and_dei() {
 
     for pcp in 0..=7 {
         for dei in [false, true] {
-            let packet = create_vlan_packet(
+            let packet = VlanPacketConfig::new(
                 dst_mac,
                 src_mac,
                 ETH_P_8021Q,
-                pcp,
-                dei,
                 100,
                 ETH_P_IP,
                 vec![0x01],
-            );
+            )
+            .with_pcp(pcp)
+            .with_dei(dei)
+            .build();
 
             let result = processor.process(packet);
             assert!(result.is_ok() || result.is_err());
@@ -354,16 +388,14 @@ fn test_processor_configuration() {
     let dst_mac = MacAddr::broadcast();
     let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
-    let packet = create_vlan_packet(
+    let packet = VlanPacketConfig::new(
         dst_mac,
         src_mac,
         ETH_P_8021Q,
-        0,
-        false,
         100,
         ETH_P_IP,
         vec![0x01],
-    );
+    ).build();
 
     let result = verbose_processor.process(packet);
     assert!(result.is_err());

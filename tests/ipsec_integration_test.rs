@@ -249,17 +249,19 @@ fn test_esp_invalid_length() {
 #[test]
 #[serial]
 fn test_security_association_creation() {
-    let sa = SecurityAssociation::new(
+    let config = SaConfig::new(
         SaDirection::Outbound,
         0x12345678,
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
         IpsecProtocol::Esp,
-        IpsecMode::Transport,
-        Some(CipherTransform::AesCbc { key_size: 128 }),
-        AuthTransform::HmacSha1,
-        std::time::Duration::from_secs(3600),
-    );
+    )
+    .with_mode(IpsecMode::Transport)
+    .with_cipher(Some(CipherTransform::AesCbc { key_size: 128 }))
+    .with_auth(AuthTransform::HmacSha1)
+    .with_lifetime(std::time::Duration::from_secs(3600));
+
+    let sa = SecurityAssociation::new(config);
 
     assert_eq!(sa.spi, 0x12345678);
     assert_eq!(sa.protocol, IpsecProtocol::Esp);
@@ -316,17 +318,15 @@ fn test_traffic_selector() {
 fn test_sad_manager() {
     let mut sad = SadManager::new();
 
-    let sa = SecurityAssociation::new(
+    let config = SaConfig::new(
         SaDirection::Outbound,
         0x12345678,
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
         IpsecProtocol::Esp,
-        IpsecMode::Transport,
-        None,
-        AuthTransform::Null,
-        std::time::Duration::from_secs(3600),
     );
+
+    let sa = SecurityAssociation::new(config);
 
     sad.add(sa.clone()).unwrap();
 
@@ -477,17 +477,16 @@ fn test_esp_no_padding() {
 #[test]
 #[serial]
 fn test_sa_expiration() {
-    let sa = SecurityAssociation::new(
+    let config = SaConfig::new(
         SaDirection::Outbound,
         0x12345678,
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
         IpsecProtocol::Esp,
-        IpsecMode::Transport,
-        None,
-        AuthTransform::Null,
-        std::time::Duration::from_nanos(1), // 非常短的生存时间
-    );
+    )
+    .with_lifetime(std::time::Duration::from_nanos(1)); // 非常短的生存时间
+
+    let sa = SecurityAssociation::new(config);
 
     // SA 应该已过期
     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -497,17 +496,15 @@ fn test_sa_expiration() {
 #[test]
 #[serial]
 fn test_sequence_number_increment() {
-    let mut sa = SecurityAssociation::new(
+    let config = SaConfig::new(
         SaDirection::Outbound,
         0x12345678,
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
         IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
         IpsecProtocol::Esp,
-        IpsecMode::Transport,
-        None,
-        AuthTransform::Null,
-        std::time::Duration::from_secs(3600),
     );
+
+    let mut sa = SecurityAssociation::new(config);
 
     assert_eq!(sa.next_sequence(), 1);
     assert_eq!(sa.next_sequence(), 2);

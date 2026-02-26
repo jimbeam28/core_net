@@ -1410,17 +1410,8 @@ mod tests {
 
     // --- 测试辅助函数 ---
 
-    /// 构造 VLAN TCI (Tag Control Information)
-    fn create_vlan_tci(pcp: u8, dei: bool, vid: u16) -> u16 {
-        let pcp_value = ((pcp & 0x07) as u16) << 13;
-        let dei_value = if dei { 1 << 12 } else { 0 };
-        let vid_value = vid & 0x0FFF;
-        pcp_value | dei_value | vid_value
-    }
-
-    /// 构造带 VLAN 标签的完整报文
-    #[allow(clippy::too_many_arguments)]
-    fn create_vlan_packet(
+    /// VLAN 报文配置
+    struct VlanPacketConfig {
         dst_mac: MacAddr,
         src_mac: MacAddr,
         vlan_tpid: u16,
@@ -1429,25 +1420,62 @@ mod tests {
         vid: u16,
         inner_type: u16,
         payload: Vec<u8>,
-    ) -> Packet {
-        let mut bytes = Vec::new();
+    }
 
-        // 以太网头（目标 MAC + 源 MAC + VLAN TPID）
-        bytes.extend_from_slice(&dst_mac.bytes);
-        bytes.extend_from_slice(&src_mac.bytes);
-        bytes.extend_from_slice(&vlan_tpid.to_be_bytes());
+    impl VlanPacketConfig {
+        fn new(
+            dst_mac: MacAddr,
+            src_mac: MacAddr,
+            vlan_tpid: u16,
+            vid: u16,
+            inner_type: u16,
+            payload: Vec<u8>,
+        ) -> Self {
+            Self {
+                dst_mac,
+                src_mac,
+                vlan_tpid,
+                pcp: 0,
+                dei: false,
+                vid,
+                inner_type,
+                payload,
+            }
+        }
 
-        // VLAN TCI
-        let tci = create_vlan_tci(pcp, dei, vid);
-        bytes.extend_from_slice(&tci.to_be_bytes());
+        fn with_pcp(mut self, pcp: u8) -> Self {
+            self.pcp = pcp;
+            self
+        }
 
-        // 内层以太网类型
-        bytes.extend_from_slice(&inner_type.to_be_bytes());
+        fn with_dei(mut self, dei: bool) -> Self {
+            self.dei = dei;
+            self
+        }
 
-        // 负载
-        bytes.extend_from_slice(&payload);
+        fn build(self) -> Packet {
+            let mut bytes = Vec::new();
 
-        Packet::from_bytes(bytes)
+            // 以太网头（目标 MAC + 源 MAC + VLAN TPID）
+            bytes.extend_from_slice(&self.dst_mac.bytes);
+            bytes.extend_from_slice(&self.src_mac.bytes);
+            bytes.extend_from_slice(&self.vlan_tpid.to_be_bytes());
+
+            // VLAN TCI
+            let pcp_value = ((self.pcp & 0x07) as u16) << 13;
+            let dei_value = if self.dei { 1 << 12 } else { 0 };
+            let vid_value = self.vid & 0x0FFF;
+            let tci = pcp_value | dei_value | vid_value;
+            bytes.extend_from_slice(&tci.to_be_bytes());
+
+            // 内层以太网类型
+            bytes.extend_from_slice(&self.inner_type.to_be_bytes());
+
+            // 负载
+            bytes.extend_from_slice(&self.payload);
+
+            Packet::from_bytes(bytes)
+        }
     }
 
     /// 构造 ARP 请求报文（带以太网头）
@@ -1501,14 +1529,20 @@ mod tests {
         bytes.extend_from_slice(&ETH_P_8021AD.to_be_bytes());  // 外层使用 802.1ad
 
         // 外层 VLAN TCI
-        let outer_tci = create_vlan_tci(0, false, outer_vid);
+        let pcp_value = (0u16) << 13;
+        let dei_value = 0u16;
+        let vid_value = outer_vid & 0x0FFF;
+        let outer_tci = pcp_value | dei_value | vid_value;
         bytes.extend_from_slice(&outer_tci.to_be_bytes());
 
         // 内层 VLAN TPID
         bytes.extend_from_slice(&ETH_P_8021Q.to_be_bytes());
 
         // 内层 VLAN TCI
-        let inner_tci = create_vlan_tci(0, false, inner_vid);
+        let pcp_value = (0u16) << 13;
+        let dei_value = 0u16;
+        let vid_value = inner_vid & 0x0FFF;
+        let inner_tci = pcp_value | dei_value | vid_value;
         bytes.extend_from_slice(&inner_tci.to_be_bytes());
 
         // 内层以太网类型
@@ -1581,16 +1615,14 @@ mod tests {
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
         // 构造带 VLAN 标签的报文（内层使用 IPv4，会返回不支持错误但验证解析流程）
-        let packet = create_vlan_packet(
+        let packet = VlanPacketConfig::new(
             dst_mac,
             src_mac,
             ETH_P_8021Q,
-            0,
-            false,
             100,
             ETH_P_IP,  // 内层 IPv4 (未实现)
             vec![0x01, 0x02, 0x03],
-        );
+        ).build();
 
         // VLAN 解析成功，但内层 IPv4 未实现
         let result = processor.process(packet);
@@ -1618,16 +1650,14 @@ mod tests {
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
         // 构造带 802.1ad VLAN 标签的报文（内层使用 IPv4）
-        let packet = create_vlan_packet(
+        let packet = VlanPacketConfig::new(
             dst_mac,
             src_mac,
             ETH_P_8021AD,
-            0,
-            false,
             200,
             ETH_P_IP,
             vec![0x01, 0x02, 0x03],
-        );
+        ).build();
 
         let result = processor.process(packet);
         assert!(result.is_err());
@@ -1745,16 +1775,17 @@ mod tests {
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
-        let packet = create_vlan_packet(
+        let packet = VlanPacketConfig::new(
             dst_mac,
             src_mac,
             ETH_P_8021Q,
-            3,  // PCP = 3
-            true,  // DEI = 1
             100,  // VID = 100
             ETH_P_IP,  // 内层 IPv4
             vec![0x01, 0x02, 0x03],
-        );
+        )
+        .with_pcp(3)  // PCP = 3
+        .with_dei(true)  // DEI = 1
+        .build();
 
         let result = processor.process(packet);
         // VLAN 标签解析成功，但内层 IPv4 未实现
@@ -1810,7 +1841,10 @@ mod tests {
         bytes.extend_from_slice(&ETH_P_8021Q.to_be_bytes());
 
         // VLAN TCI (VID=100)
-        let tci = create_vlan_tci(0, false, 100);
+        let pcp_value = (0u16) << 13;
+        let dei_value = 0u16;
+        let vid_value = 100u16 & 0x0FFF;
+        let tci = pcp_value | dei_value | vid_value;
         bytes.extend_from_slice(&tci.to_be_bytes());
 
         // 内层 ARP 类型
@@ -1841,16 +1875,14 @@ mod tests {
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
-        let packet = create_vlan_packet(
+        let packet = VlanPacketConfig::new(
             dst_mac,
             src_mac,
             ETH_P_8021Q,
-            0,
-            false,
             0,  // VID = 0 (边界值)
             0x0806,
             vec![0x01, 0x02, 0x03],
-        );
+        ).build();
 
         let result = processor.process(packet);
         // VID=0 可能被 VLAN 模块拒绝，也可能被接受
@@ -1866,16 +1898,14 @@ mod tests {
         let dst_mac = MacAddr::broadcast();
         let src_mac = MacAddr::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
 
-        let packet = create_vlan_packet(
+        let packet = VlanPacketConfig::new(
             dst_mac,
             src_mac,
             ETH_P_8021Q,
-            0,
-            false,
             4095,  // VID = 4095 (保留值)
             0x0806,
             vec![0x01, 0x02, 0x03],
-        );
+        ).build();
 
         let result = processor.process(packet);
         // VID=4095 可能被 VLAN 模块拒绝
@@ -2077,7 +2107,10 @@ mod tests {
         bytes.extend_from_slice(&ETH_P_8021Q.to_be_bytes());
 
         // VLAN 标签 (VID=100, PCP=3)
-        let tci = create_vlan_tci(3, false, 100);
+        let pcp_value = ((3 & 0x07) as u16) << 13;
+        let dei_value = 0u16;
+        let vid_value = 100u16 & 0x0FFF;
+        let tci = pcp_value | dei_value | vid_value;
         bytes.extend_from_slice(&tci.to_be_bytes());
 
         // 内层 ARP

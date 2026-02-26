@@ -84,6 +84,206 @@ struct SocketManagers {
     socket_mgr: Arc<Mutex<SocketManager>>,
 }
 
+/// 系统上下文配置组件（用于高级自定义）
+///
+/// 允许完全自定义所有组件，用于需要精细控制的场景。
+pub struct ContextComponents {
+    /// 接口管理器
+    pub interfaces: Arc<Mutex<InterfaceManager>>,
+    /// ARP 缓存
+    pub arp_cache: Arc<Mutex<ArpCache>>,
+    /// ICMP Echo 管理器
+    pub icmp_echo: Arc<Mutex<EchoManager>>,
+    /// TCP 连接管理器
+    pub tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+    /// TCP Socket 管理器
+    pub tcp_sockets: Option<Arc<Mutex<TcpSocketManager>>>,
+    /// UDP 端口管理器
+    pub udp_ports: Option<Arc<Mutex<UdpPortManager>>>,
+    /// TCP 定时器管理器
+    pub tcp_timers: Option<Arc<Mutex<TcpTimerManager>>>,
+    /// 定时器管理器
+    pub timers: Option<Arc<Mutex<TimerHandle>>>,
+    /// 路由表
+    pub route_table: Option<Arc<Mutex<RouteTable>>>,
+    /// ICMPv6 上下文
+    pub icmpv6_context: Option<Arc<Mutex<Icmpv6Context>>>,
+    /// IPv4 重组表
+    pub ip_reassembly: Option<Arc<Mutex<ReassemblyTable>>>,
+    /// IPv6 分片缓存
+    pub ipv6_fragment_cache: Option<Arc<Mutex<FragmentCache>>>,
+    /// Socket 管理器
+    pub socket_mgr: Option<Arc<Mutex<SocketManager>>>,
+    /// BGP 管理器
+    pub bgp_manager: Option<Arc<Mutex<BgpPeerManager>>>,
+    /// OSPF 管理器
+    pub ospf_manager: Option<Arc<Mutex<OspfManager>>>,
+    /// IPsec SAD 管理器
+    pub sad_mgr: Option<Arc<Mutex<SadManager>>>,
+    /// IPsec SPD 管理器
+    pub spd_mgr: Option<Arc<Mutex<SpdManager>>>,
+}
+
+impl ContextComponents {
+    /// 创建新的配置组件
+    pub fn new(
+        interfaces: Arc<Mutex<InterfaceManager>>,
+        arp_cache: Arc<Mutex<ArpCache>>,
+        icmp_echo: Arc<Mutex<EchoManager>>,
+        tcp_connections: Arc<Mutex<TcpConnectionManager>>,
+    ) -> Self {
+        Self {
+            interfaces,
+            arp_cache,
+            icmp_echo,
+            tcp_connections,
+            tcp_sockets: None,
+            udp_ports: None,
+            tcp_timers: None,
+            timers: None,
+            route_table: None,
+            icmpv6_context: None,
+            ip_reassembly: None,
+            ipv6_fragment_cache: None,
+            socket_mgr: None,
+            bgp_manager: None,
+            ospf_manager: None,
+            sad_mgr: None,
+            spd_mgr: None,
+        }
+    }
+
+    /// 设置 TCP Socket 管理器
+    pub fn with_tcp_sockets(mut self, tcp_sockets: Arc<Mutex<TcpSocketManager>>) -> Self {
+        self.tcp_sockets = Some(tcp_sockets);
+        self
+    }
+
+    /// 设置 UDP 端口管理器
+    pub fn with_udp_ports(mut self, udp_ports: Arc<Mutex<UdpPortManager>>) -> Self {
+        self.udp_ports = Some(udp_ports);
+        self
+    }
+
+    /// 设置 TCP 定时器管理器
+    pub fn with_tcp_timers(mut self, tcp_timers: Arc<Mutex<TcpTimerManager>>) -> Self {
+        self.tcp_timers = Some(tcp_timers);
+        self
+    }
+
+    /// 设置定时器管理器
+    pub fn with_timers(mut self, timers: Arc<Mutex<TimerHandle>>) -> Self {
+        self.timers = Some(timers);
+        self
+    }
+
+    /// 设置路由表
+    pub fn with_route_table(mut self, route_table: Arc<Mutex<RouteTable>>) -> Self {
+        self.route_table = Some(route_table);
+        self
+    }
+
+    /// 设置 ICMPv6 上下文
+    pub fn with_icmpv6_context(mut self, icmpv6_context: Arc<Mutex<Icmpv6Context>>) -> Self {
+        self.icmpv6_context = Some(icmpv6_context);
+        self
+    }
+
+    /// 设置 IPv4 重组表
+    pub fn with_ip_reassembly(mut self, ip_reassembly: Arc<Mutex<ReassemblyTable>>) -> Self {
+        self.ip_reassembly = Some(ip_reassembly);
+        self
+    }
+
+    /// 设置 IPv6 分片缓存
+    pub fn with_ipv6_fragment_cache(mut self, ipv6_fragment_cache: Arc<Mutex<FragmentCache>>) -> Self {
+        self.ipv6_fragment_cache = Some(ipv6_fragment_cache);
+        self
+    }
+
+    /// 设置 Socket 管理器
+    pub fn with_socket_mgr(mut self, socket_mgr: Arc<Mutex<SocketManager>>) -> Self {
+        self.socket_mgr = Some(socket_mgr);
+        self
+    }
+
+    /// 设置 BGP 管理器
+    pub fn with_bgp_manager(mut self, bgp_manager: Arc<Mutex<BgpPeerManager>>) -> Self {
+        self.bgp_manager = Some(bgp_manager);
+        self
+    }
+
+    /// 设置 OSPF 管理器
+    pub fn with_ospf_manager(mut self, ospf_manager: Arc<Mutex<OspfManager>>) -> Self {
+        self.ospf_manager = Some(ospf_manager);
+        self
+    }
+
+    /// 设置 IPsec SAD 管理器
+    pub fn with_sad_mgr(mut self, sad_mgr: Arc<Mutex<SadManager>>) -> Self {
+        self.sad_mgr = Some(sad_mgr);
+        self
+    }
+
+    /// 设置 IPsec SPD 管理器
+    pub fn with_spd_mgr(mut self, spd_mgr: Arc<Mutex<SpdManager>>) -> Self {
+        self.spd_mgr = Some(spd_mgr);
+        self
+    }
+
+    /// 构建系统上下文
+    pub fn build(self) -> SystemContext {
+        let tcp_sockets = self.tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
+        let udp_ports = self.udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new())));
+
+        let socket_mgr = self.socket_mgr.unwrap_or_else(|| {
+            Arc::new(Mutex::new(SocketManager::new(tcp_sockets.clone(), udp_ports.clone())))
+        });
+
+        let bgp_manager = self.bgp_manager.unwrap_or_else(|| {
+            Arc::new(Mutex::new(BgpPeerManager::new(
+                0,
+                crate::protocols::Ipv4Addr::new(127, 0, 0, 1),
+            )))
+        });
+
+        let ospf_manager = self.ospf_manager.unwrap_or_else(|| {
+            Arc::new(Mutex::new(OspfManager::new(0)))
+        });
+
+        let sad_mgr = self.sad_mgr.unwrap_or_else(|| {
+            Arc::new(Mutex::new(SadManager::new()))
+        });
+
+        let spd_mgr = self.spd_mgr.unwrap_or_else(|| {
+            Arc::new(Mutex::new(SpdManager::new()))
+        });
+
+        let tcp_timers = self.tcp_timers.unwrap_or_else(|| Arc::new(Mutex::new(TcpTimerManager::new())));
+        let timers = self.timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new())));
+
+        SystemContext {
+            interfaces: self.interfaces,
+            arp_cache: self.arp_cache,
+            icmp_echo: self.icmp_echo,
+            tcp_connections: self.tcp_connections,
+            tcp_sockets,
+            udp_ports,
+            tcp_timers,
+            timers,
+            route_table: self.route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
+            icmpv6_context: self.icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
+            ip_reassembly: self.ip_reassembly.unwrap_or_else(SystemContext::create_default_reassembly),
+            ipv6_fragment_cache: self.ipv6_fragment_cache.unwrap_or_else(SystemContext::create_default_ipv6_fragment_cache),
+            socket_mgr,
+            bgp_manager,
+            ospf_manager,
+            sad_mgr,
+            spd_mgr,
+        }
+    }
+}
+
 impl SystemContext {
     /// 创建默认的 Socket 管理器及其依赖组件
     fn create_default_socket_managers() -> SocketManagers {
@@ -113,32 +313,43 @@ impl SystemContext {
         Arc::new(Mutex::new(FragmentCache::new(DEFAULT_MAX_REASSEMBLY_ENTRIES)))
     }
 
-    /// 创建新的系统上下文（用于测试）
-    ///
-    /// 创建一个空的系统上下文，所有组件使用默认值。
-    pub fn new() -> Self {
-        let socket_mgrs = Self::create_default_socket_managers();
-
-        #[allow(clippy::arc_with_non_send_sync)]
+    /// 创建默认的协议管理器
+    #[expect(clippy::type_complexity)]
+    fn create_default_protocol_managers() -> (
+        Arc<Mutex<TimerHandle>>,
+        Arc<Mutex<TcpTimerManager>>,
+        Arc<Mutex<BgpPeerManager>>,
+        Arc<Mutex<OspfManager>>,
+        (Arc<Mutex<SadManager>>, Arc<Mutex<SpdManager>>),
+    ) {
         let timers = Arc::new(Mutex::new(TimerHandle::new()));
-
         let tcp_timers = Arc::new(Mutex::new(TcpTimerManager::new()));
-
-        // 创建默认 BGP 管理器
         let bgp_manager = Arc::new(Mutex::new(BgpPeerManager::new(
-            0, // 默认本地 AS
-            crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
+            0,
+            crate::protocols::Ipv4Addr::new(127, 0, 0, 1),
         )));
-
-        // 创建默认 OSPF 管理器
         let ospf_manager = Arc::new(Mutex::new(OspfManager::new(0)));
-
-        // 创建默认 IPsec 管理器
         let sad_mgr = Arc::new(Mutex::new(SadManager::new()));
         let spd_mgr = Arc::new(Mutex::new(SpdManager::new()));
+        (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr))
+    }
 
+    /// 构建系统上下文的核心组件
+    ///
+    /// 内部辅助函数，用于减少 `new()` 和 `from_config()` 之间的重复代码。
+    #[expect(clippy::too_many_arguments)]
+    fn build_core(
+        interfaces: InterfaceManager,
+        socket_mgrs: SocketManagers,
+        timers: Arc<Mutex<TimerHandle>>,
+        tcp_timers: Arc<Mutex<TcpTimerManager>>,
+        bgp_manager: Arc<Mutex<BgpPeerManager>>,
+        ospf_manager: Arc<Mutex<OspfManager>>,
+        sad_mgr: Arc<Mutex<SadManager>>,
+        spd_mgr: Arc<Mutex<SpdManager>>,
+    ) -> Self {
         Self {
-            interfaces: Arc::new(Mutex::new(InterfaceManager::default())),
+            interfaces: Arc::new(Mutex::new(interfaces)),
             arp_cache: Arc::new(Mutex::new(ArpCache::default())),
             icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
             tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
@@ -156,6 +367,26 @@ impl SystemContext {
             sad_mgr,
             spd_mgr,
         }
+    }
+
+    /// 创建新的系统上下文（用于测试）
+    ///
+    /// 创建一个空的系统上下文，所有组件使用默认值。
+    pub fn new() -> Self {
+        let socket_mgrs = Self::create_default_socket_managers();
+        let (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr)) =
+            Self::create_default_protocol_managers();
+
+        Self::build_core(
+            InterfaceManager::default(),
+            socket_mgrs,
+            timers,
+            tcp_timers,
+            bgp_manager,
+            ospf_manager,
+            sad_mgr,
+            spd_mgr,
+        )
     }
 
     /// 从配置文件创建系统上下文（生产环境使用）
@@ -175,44 +406,19 @@ impl SystemContext {
         };
 
         let socket_mgrs = Self::create_default_socket_managers();
+        let (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr)) =
+            Self::create_default_protocol_managers();
 
-        #[allow(clippy::arc_with_non_send_sync)]
-        let timers = Arc::new(Mutex::new(TimerHandle::new()));
-
-        let tcp_timers = Arc::new(Mutex::new(TcpTimerManager::new()));
-
-        // 创建默认 BGP 管理器
-        let bgp_manager = Arc::new(Mutex::new(BgpPeerManager::new(
-            0, // 默认本地 AS
-            crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
-        )));
-
-        // 创建默认 OSPF 管理器
-        let ospf_manager = Arc::new(Mutex::new(OspfManager::new(0)));
-
-        // 创建默认 IPsec 管理器
-        let sad_mgr = Arc::new(Mutex::new(SadManager::new()));
-        let spd_mgr = Arc::new(Mutex::new(SpdManager::new()));
-
-        Self {
-            interfaces: Arc::new(Mutex::new(interface_manager)),
-            arp_cache: Arc::new(Mutex::new(ArpCache::default())),
-            icmp_echo: Arc::new(Mutex::new(EchoManager::default())),
-            tcp_connections: Arc::new(Mutex::new(TcpConnectionManager::default())),
-            tcp_sockets: socket_mgrs.tcp_sockets,
-            udp_ports: socket_mgrs.udp_ports,
-            tcp_timers,
+        Self::build_core(
+            interface_manager,
+            socket_mgrs,
             timers,
-            route_table: Arc::new(Mutex::new(RouteTable::new())),
-            icmpv6_context: Arc::new(Mutex::new(Icmpv6Context::default())),
-            ip_reassembly: Self::create_default_reassembly(),
-            ipv6_fragment_cache: Self::create_default_ipv6_fragment_cache(),
-            socket_mgr: socket_mgrs.socket_mgr,
+            tcp_timers,
             bgp_manager,
             ospf_manager,
             sad_mgr,
             spd_mgr,
-        }
+        )
     }
 
     /// 使用指定组件创建系统上下文（高级用法）
@@ -221,99 +427,9 @@ impl SystemContext {
     ///
     /// # 参数
     ///
-    /// - `interfaces`: 接口管理器
-    /// - `arp_cache`: ARP 缓存
-    /// - `icmp_echo`: ICMP Echo 管理器
-    /// - `tcp_connections`: TCP 连接管理器
-    /// - `tcp_sockets`: TCP Socket 管理器（可选，默认为空）
-    /// - `udp_ports`: UDP 端口管理器（可选，默认为空）
-    /// - `tcp_timers`: TCP 定时器管理器（可选，默认为空）
-    /// - `timers`: 定时器管理器（可选，默认为空）
-    /// - `route_table`: 路由表（可选，默认为空）
-    /// - `icmpv6_context`: ICMPv6 上下文（可选，默认为空）
-    /// - `ip_reassembly`: IPv4 重组表（可选，默认为空）
-    /// - `ipv6_fragment_cache`: IPv6 分片缓存（可选，默认为空）
-    /// - `socket_mgr`: Socket 管理器（可选，默认为空）
-    /// - `bgp_manager`: BGP 管理器（可选，默认为空）
-    /// - `ospf_manager`: OSPF 管理器（可选，默认为空）
-    /// - `sad_mgr`: IPsec SAD 管理器（可选，默认为空）
-    /// - `spd_mgr`: IPsec SPD 管理器（可选，默认为空）
-    #[allow(clippy::too_many_arguments)]
-    pub fn with_components(
-        interfaces: Arc<Mutex<InterfaceManager>>,
-        arp_cache: Arc<Mutex<ArpCache>>,
-        icmp_echo: Arc<Mutex<EchoManager>>,
-        tcp_connections: Arc<Mutex<TcpConnectionManager>>,
-        tcp_sockets: Option<Arc<Mutex<TcpSocketManager>>>,
-        udp_ports: Option<Arc<Mutex<UdpPortManager>>>,
-        tcp_timers: Option<Arc<Mutex<TcpTimerManager>>>,
-        timers: Option<Arc<Mutex<TimerHandle>>>,
-        route_table: Option<Arc<Mutex<RouteTable>>>,
-        icmpv6_context: Option<Arc<Mutex<Icmpv6Context>>>,
-        ip_reassembly: Option<Arc<Mutex<ReassemblyTable>>>,
-        ipv6_fragment_cache: Option<Arc<Mutex<FragmentCache>>>,
-        socket_mgr: Option<Arc<Mutex<SocketManager>>>,
-        bgp_manager: Option<Arc<Mutex<BgpPeerManager>>>,
-        ospf_manager: Option<Arc<Mutex<OspfManager>>>,
-        sad_mgr: Option<Arc<Mutex<SadManager>>>,
-        spd_mgr: Option<Arc<Mutex<SpdManager>>>,
-    ) -> Self {
-        // 创建 TCP Socket 管理器和 UDP 端口管理器（如果未提供）
-        let tcp_sockets = tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
-        let udp_ports = udp_ports.unwrap_or_else(|| Arc::new(Mutex::new(UdpPortManager::new())));
-
-        // 创建或使用提供的 Socket 管理器
-        let socket_mgr = socket_mgr.unwrap_or_else(|| {
-            Arc::new(Mutex::new(SocketManager::new(tcp_sockets.clone(), udp_ports.clone())))
-        });
-
-        // 创建或使用提供的 BGP 管理器
-        let bgp_manager = bgp_manager.unwrap_or_else(|| {
-            Arc::new(Mutex::new(BgpPeerManager::new(
-                0, // 默认本地 AS
-                crate::protocols::Ipv4Addr::new(127, 0, 0, 1), // 默认 BGP ID
-            )))
-        });
-
-        // 创建或使用提供的 OSPF 管理器
-        let ospf_manager = ospf_manager.unwrap_or_else(|| {
-            Arc::new(Mutex::new(OspfManager::new(0)))
-        });
-
-        // 创建或使用提供的 IPsec 管理器
-        let sad_mgr = sad_mgr.unwrap_or_else(|| {
-            Arc::new(Mutex::new(SadManager::new()))
-        });
-
-        let spd_mgr = spd_mgr.unwrap_or_else(|| {
-            Arc::new(Mutex::new(SpdManager::new()))
-        });
-
-        #[allow(clippy::arc_with_non_send_sync)]
-        let tcp_timers = tcp_timers.unwrap_or_else(|| Arc::new(Mutex::new(TcpTimerManager::new())));
-
-        #[allow(clippy::arc_with_non_send_sync)]
-        let timers = timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new())));
-
-        Self {
-            interfaces,
-            arp_cache,
-            icmp_echo,
-            tcp_connections,
-            tcp_sockets,
-            udp_ports,
-            tcp_timers,
-            timers,
-            route_table: route_table.unwrap_or_else(|| Arc::new(Mutex::new(RouteTable::new()))),
-            icmpv6_context: icmpv6_context.unwrap_or_else(|| Arc::new(Mutex::new(Icmpv6Context::default()))),
-            ip_reassembly: ip_reassembly.unwrap_or_else(Self::create_default_reassembly),
-            ipv6_fragment_cache: ipv6_fragment_cache.unwrap_or_else(Self::create_default_ipv6_fragment_cache),
-            socket_mgr,
-            bgp_manager,
-            ospf_manager,
-            sad_mgr,
-            spd_mgr,
-        }
+    /// - `components`: 配置组件
+    pub fn with_components(components: ContextComponents) -> Self {
+        components.build()
     }
 
     /// 获取接口数量
@@ -398,31 +514,19 @@ mod tests {
     #[test]
     fn test_context_with_components() {
         let manager = create_test_manager();
-        let arp_cache = ArpCache::default();
-        let echo_mgr = EchoManager::default();
-        let tcp_mgr = TcpConnectionManager::default();
         let tcp_sockets = TcpSocketManager::new();
         let udp_mgr = UdpPortManager::new();
 
-        let ctx = SystemContext::with_components(
+        let components = ContextComponents::new(
             Arc::new(Mutex::new(manager)),
-            Arc::new(Mutex::new(arp_cache)),
-            Arc::new(Mutex::new(echo_mgr)),
-            Arc::new(Mutex::new(tcp_mgr)),
-            Some(Arc::new(Mutex::new(tcp_sockets))),
-            Some(Arc::new(Mutex::new(udp_mgr))),
-            None, // tcp_timers
-            None, // timers
-            None, // route_table
-            None, // icmpv6_context
-            None, // ip_reassembly
-            None, // ipv6_fragment_cache
-            None, // socket_mgr
-            None, // bgp_manager
-            None, // ospf_manager
-            None, // sad_mgr
-            None, // spd_mgr
-        );
+            Arc::new(Mutex::new(ArpCache::default())),
+            Arc::new(Mutex::new(EchoManager::default())),
+            Arc::new(Mutex::new(TcpConnectionManager::default())),
+        )
+        .with_tcp_sockets(Arc::new(Mutex::new(tcp_sockets)))
+        .with_udp_ports(Arc::new(Mutex::new(udp_mgr)));
+
+        let ctx = SystemContext::with_components(components);
 
         assert_eq!(ctx.interface_count(), 1);
     }

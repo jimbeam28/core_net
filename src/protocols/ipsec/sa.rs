@@ -195,6 +195,78 @@ impl AuthTransform {
 
 // ========== 安全关联 ==========
 
+/// SA 配置参数
+///
+/// 用于减少 SecurityAssociation::new() 的参数数量
+#[derive(Debug, Clone)]
+pub struct SaConfig {
+    /// SA 方向
+    pub direction: SaDirection,
+    /// SPI
+    pub spi: u32,
+    /// 源地址
+    pub src_addr: IpAddr,
+    /// 目的地址
+    pub dst_addr: IpAddr,
+    /// IPsec 协议
+    pub protocol: IpsecProtocol,
+    /// IPsec 模式
+    pub mode: IpsecMode,
+    /// 加密算法
+    pub cipher: Option<CipherTransform>,
+    /// 认证算法
+    pub auth: AuthTransform,
+    /// SA 生命周期
+    pub lifetime: Duration,
+}
+
+impl SaConfig {
+    /// 创建新的 SA 配置
+    pub fn new(
+        direction: SaDirection,
+        spi: u32,
+        src_addr: IpAddr,
+        dst_addr: IpAddr,
+        protocol: IpsecProtocol,
+    ) -> Self {
+        Self {
+            direction,
+            spi,
+            src_addr,
+            dst_addr,
+            protocol,
+            mode: IpsecMode::Transport,
+            cipher: None,
+            auth: AuthTransform::Null,
+            lifetime: Duration::from_secs(3600),
+        }
+    }
+
+    /// 设置 IPsec 模式
+    pub fn with_mode(mut self, mode: IpsecMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// 设置加密算法
+    pub fn with_cipher(mut self, cipher: Option<CipherTransform>) -> Self {
+        self.cipher = cipher;
+        self
+    }
+
+    /// 设置认证算法
+    pub fn with_auth(mut self, auth: AuthTransform) -> Self {
+        self.auth = auth;
+        self
+    }
+
+    /// 设置生命周期
+    pub fn with_lifetime(mut self, lifetime: Duration) -> Self {
+        self.lifetime = lifetime;
+        self
+    }
+}
+
 /// 安全关联 (Security Association)
 #[derive(Debug, Clone)]
 pub struct SecurityAssociation {
@@ -241,35 +313,25 @@ pub struct SecurityAssociation {
 }
 
 impl SecurityAssociation {
-    /// 创建新的 SA
-    pub fn new(
-        direction: SaDirection,
-        spi: u32,
-        src_addr: IpAddr,
-        dst_addr: IpAddr,
-        protocol: IpsecProtocol,
-        mode: IpsecMode,
-        cipher: Option<CipherTransform>,
-        auth: AuthTransform,
-        lifetime: Duration,
-    ) -> Self {
+    /// 从配置创建新的 SA
+    pub fn new(config: SaConfig) -> Self {
         Self {
-            direction,
-            spi,
-            src_addr,
-            dst_addr,
-            protocol,
-            mode,
+            direction: config.direction,
+            spi: config.spi,
+            src_addr: config.src_addr,
+            dst_addr: config.dst_addr,
+            protocol: config.protocol,
+            mode: config.mode,
             state: SaState::Mature,
             tx_sequence: 1,
             rx_sequence: 0,
             replay_window: ReplayWindow::new(64),
-            cipher,
+            cipher: config.cipher,
             cipher_key: None,
-            auth,
+            auth: config.auth,
             auth_key: Vec::new(),
             created: Instant::now(),
-            lifetime,
+            lifetime: config.lifetime,
             bytes_processed: 0,
             packets_processed: 0,
             tunnel_src_addr: None,
@@ -741,17 +803,19 @@ mod tests {
 
     #[test]
     fn test_sa_creation() {
-        let sa = SecurityAssociation::new(
+        let config = SaConfig::new(
             SaDirection::Outbound,
             0x12345678,
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
             IpsecProtocol::Esp,
-            IpsecMode::Transport,
-            Some(CipherTransform::AesCbc { key_size: 128 }),
-            AuthTransform::HmacSha1,
-            Duration::from_secs(3600),
-        );
+        )
+        .with_mode(IpsecMode::Transport)
+        .with_cipher(Some(CipherTransform::AesCbc { key_size: 128 }))
+        .with_auth(AuthTransform::HmacSha1)
+        .with_lifetime(Duration::from_secs(3600));
+
+        let sa = SecurityAssociation::new(config);
 
         assert_eq!(sa.spi, 0x12345678);
         assert_eq!(sa.protocol, IpsecProtocol::Esp);
@@ -814,17 +878,15 @@ mod tests {
     fn test_sad_manager() {
         let mut sad = SadManager::new();
 
-        let sa = SecurityAssociation::new(
+        let config = SaConfig::new(
             SaDirection::Outbound,
             0x12345678,
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
             IpsecProtocol::Esp,
-            IpsecMode::Transport,
-            None,
-            AuthTransform::Null,
-            Duration::from_secs(3600),
         );
+
+        let sa = SecurityAssociation::new(config);
 
         sad.add(sa.clone()).unwrap();
 

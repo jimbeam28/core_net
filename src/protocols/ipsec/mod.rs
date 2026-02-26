@@ -27,6 +27,7 @@ pub use sa::{
     SadManager, SpdManager,
     ReplayWindow,
     SaState,
+    SaConfig,
 };
 
 /// IPsec 错误类型

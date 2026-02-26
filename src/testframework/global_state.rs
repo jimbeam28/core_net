@@ -56,25 +56,14 @@ impl GlobalStateManager {
         };
 
         // 使用指定组件创建 SystemContext
-        SystemContext::with_components(
+        let components = crate::context::ContextComponents::new(
             Arc::new(std::sync::Mutex::new(interface_manager)),
             Arc::new(std::sync::Mutex::new(ArpCache::default())),
             Arc::new(std::sync::Mutex::new(EchoManager::default())),
             Arc::new(std::sync::Mutex::new(crate::protocols::tcp::TcpConnectionManager::default())),
-            None, // tcp_sockets: 使用默认值
-            None, // udp_ports: 使用默认值
-            None, // tcp_timers: 使用默认值
-            None, // timers: 使用默认值
-            None, // route_table: 使用默认值
-            None, // icmpv6_context: 使用默认值
-            None, // ip_reassembly: 使用默认值
-            None, // ipv6_fragment_cache: 使用默认值
-            None, // socket_mgr: 使用默认值
-            None, // bgp_manager: 使用默认值
-            None, // ospf_manager: 使用默认值
-            None, // sad_mgr: 使用默认值
-            None, // spd_mgr: 使用默认值
-        )
+        );
+
+        SystemContext::with_components(components)
     }
 
     /// 创建空的系统上下文

@@ -344,6 +344,13 @@ impl Default for TimerHandle {
     }
 }
 
+// 安全性：TimerHandle 在单线程环境中使用，通过 Arc<Mutex<T>> 保护访问
+// 这是教学性质的协议栈实现，不涉及真正的多线程并发
+unsafe impl Send for TimerHandle {}
+
+// 安全性：同上，通过 Arc<Mutex<T>> 保护访问
+unsafe impl Sync for TimerHandle {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
