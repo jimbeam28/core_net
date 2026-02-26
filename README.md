@@ -137,12 +137,23 @@ core_net/
 │   │   ├── packet.md          # 报文描述符设计
 │   │   ├── queue.md           # 环形队列设计
 │   │   ├── error.md           # 错误处理设计
-│   │   └── test_framework.md  # 测试框架设计
+│   │   ├── test_framework.md  # 测试框架设计
+│   │   ├── context.md         # 系统上下文设计
 │   │   └── protocols/         # 协议设计文档
 │   │       ├── vlan.md        # VLAN 协议设计
-│   │       └── arp.md         # ARP 协议设计
-│   └── log/                   # 开发日志
-│       └── dev_log.md         # 开发日志
+│   │       ├── arp.md         # ARP 协议设计
+│   │       ├── ip.md          # IPv4 协议设计
+│   │       ├── ipv6.md        # IPv6 协议设计
+│   │       ├── icmp.md        # ICMP 协议设计
+│   │       ├── icmpv6.md      # ICMPv6 协议设计
+│   │       ├── tcp.md         # TCP 协议设计
+│   │       ├── udp.md         # UDP 协议设计
+│   │       ├── ospf.md        # OSPFv2 协议设计
+│   │       ├── ospfv3.md      # OSPFv3 协议设计
+│   │       ├── bgp.md         # BGP 协议设计
+│   │       ├── ipsec.md       # IPsec 协议设计
+│   │       ├── socket.md      # Socket API 设计
+│   │       └── route.md       # 路由模块设计
 ├── src/                       # 源代码
 │   ├── main.rs                # 主入口
 │   ├── lib.rs                 # 库入口
@@ -368,10 +379,6 @@ cargo clippy
 | OSPFv3 | RFC 5340 | OSPF for IPv6 |
 | BGP-4 | RFC 4271 | 边界网关协议 4 |
 | Socket API | POSIX | Socket API |
-
-## 开发日志
-
-详细的开发进度和决策记录请查看 [开发日志](docs/log/dev_log.md)。
 
 ## 许可证
 
