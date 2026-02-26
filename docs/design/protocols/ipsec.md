@@ -471,6 +471,83 @@ IPsec SA 管理使用的定时器：
 
 IKEv2 使用 UDP 端口 500 (NAT 穿越时使用 4500)
 
+#### IKEv2 消息头部格式
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Initiator SPI                         |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Responder SPI                         |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Next Payload |  Vers |   Exchange Type   |        Flags     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Message ID                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Length                                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~                        Payloads                                ~
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**字段说明：**
+
+| 字段 | 大小 | 说明 | 常见值 |
+|------|------|------|--------|
+| Initiator SPI | 8 字节 | 发起方安全参数索引，唯一标识 IKE SA | 不能为 0 |
+| Responder SPI | 8 字节 | 响应方安全参数索引 | 初始消息为 0 |
+| Next Payload | 1 字节 | 紧随头部后的 Payload 类型 | 0-47 |
+| Version | 1 字节 | 主版本号(高4位) + 次版本号(低4位) | 0x20 (版本 2.0) |
+| Exchange Type | 1 字节 | 交换类型 | 34-37 |
+| Flags | 1 字节 | 消息标志位 | I/R/V 标志 |
+| Message ID | 4 字节 | 匹配请求-响应对 | 从 0 开始递增 |
+| Length | 4 字节 | 整个消息长度（头部+Payloads） | ≥28 字节 |
+
+**标志位说明：**
+- **I (Initiator, Bit 3)**: 由原始 IKE_SA 发起方设置为 1
+- **V (Version, Bit 4)**: IKEv2 中必须为 0
+- **R (Response, Bit 5)**: 响应消息设置为 1，请求消息为 0
+
+**交换类型：**
+| 值 | 名称 | 说明 |
+|----|------|------|
+| 34 | IKE_SA_INIT | 初始交换，协商加密参数 |
+| 35 | IKE_AUTH | 认证交换，建立第一个 CHILD_SA |
+| 36 | CREATE_CHILD_SA | 创建额外的 CHILD_SA 或重密钥 |
+| 37 | INFORMATIONAL | 控制消息，通知和删除 |
+
+#### Payload 通用格式
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Next Payload |  RESERVED   |         Payload Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~                       Payload Data                            ~
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**主要 Payload 类型：**
+
+| Payload 类型 | 值 | 说明 |
+|-------------|---|------|
+| No Next Payload | 0 | 最后一个 Payload |
+| SA (Security Association) | 33 | 协商安全参数 |
+| KE (Key Exchange) | 34 | DH 公钥交换 |
+| IDi/IDr (Identification) | 35/36 | 身份标识 |
+| CERT (Certificate) | 37 | 数字证书 |
+| CERTREQ | 38 | 证书请求 |
+| AUTH (Authentication) | 39 | 认证数据 |
+| Ni/Nr (Nonce) | 40 | 随机数 |
+| Notify (N) | 41 | 通知/错误消息 |
+| Delete (D) | 42 | SA 删除通知 |
+| Vendor ID (V) | 43 | 厂商扩展 |
+| TSi/TSr (Traffic Selector) | 44/45 | 流量选择器 |
+
 #### IKE SA 初始化交换
 
 ```
@@ -484,9 +561,27 @@ IKEv2 使用 UDP 端口 500 (NAT 穿越时使用 4500)
     |  <--  IKE_SA_INIT 响应 (HDR, SAr1, KEr, Nr)
     |                                   |
     |  1. 生成 DH 密钥                    |
-    |  2. 计算共享密钥                    |
+    |  2. 计算共享密钥 SKEYSEED           |
+    |  3. 派生加密/认证密钥               |
     |                                   |
 ```
+
+**IKE_SA_INIT 请求处理流程（发起方）：**
+1. 生成发起方 SPI (8 字节随机数)
+2. 构建 SA Payload：协商加密算法、完整性算法、PRF、DH 组
+3. 生成 DH 密钥对
+4. 生成 Nonce Ni (随机数)
+5. 发送 IKE_SA_INIT 请求
+6. 启动重传定时器
+
+**IKE_SA_INIT 响应处理流程（响应方）：**
+1. 验证消息格式（Responder SPI = 0）
+2. 解析 SA Payload，选择支持的算法套件
+3. 生成响应方 SPI
+4. 生成 DH 密钥对，计算共享密钥 (g^xy)
+5. 派生密钥材料（SKEYSEED → SK_d, SK_ai, SK_ar, SK_ei, SK_er, SK_pi, SK_pr）
+6. 生成 Nonce Nr
+7. 发送 IKE_SA_INIT 响应
 
 #### IKE AUTH 交换
 
@@ -495,14 +590,37 @@ IKEv2 使用 UDP 端口 500 (NAT 穿越时使用 4500)
     |                                   |
     |  IKE_AUTH 请求 (HDR, SK {IDi, AUTH, SAi2, TSi, TSr})  -->
     |                                   |
-    |                                   |  1. 验证 AUTH
+    |                                   |  1. 验证 AUTH payload
     |                                   |  2. 检查 TSi/TSr
     |  <--  IKE_AUTH 响应 (HDR, SK {IDr, AUTH, SAr2, TSi, TSr})
     |                                   |
     |  1. 验证 AUTH                      |
-    |  2. IKE SA 建立                    |  2. IKE SA 建立
+    |  2. 创建第一个 CHILD_SA            |  2. 创建第一个 CHILD_SA
+    |  3. IKE SA Established            |  3. IKE SA Established
     |                                   |
 ```
+
+**IKE_AUTH 请求处理流程（发起方）：**
+1. 准备认证数据（根据认证方法计算 AUTH payload）
+   - AUTH = prf(prf(Shared Secret, "Key Pad for IKEv2"), <msg octets>)
+2. 构建 IKE_AUTH 消息（使用 SK_ei 加密，SK_ai 保护完整性）
+3. 添加 Payloads：
+   - IDi Payload: 发起方身份
+   - AUTH Payload: 认证数据
+   - SA Payload: CHILD_SA 协商（加密算法等）
+   - TSi Payload: 发起方流量选择器
+   - TSr Payload: 响应方流量选择器
+4. 发送 IKE_AUTH 请求
+
+**IKE_AUTH 响应处理流程（响应方）：**
+1. 使用 SK_ei 解密消息
+2. 使用 SK_ai 验证完整性
+3. 解析 IDi Payload，获取对端身份
+4. 计算 AUTH，验证签名/PSK
+5. 解析 SA Payload，协商 CHILD_SA 参数
+6. 解析 TSi/TSr，确定流量选择器
+7. 创建第一个 CHILD_SA
+8. 发送 IKE_AUTH 响应
 
 #### CREATE_CHILD_SA 交换
 
@@ -515,6 +633,61 @@ IKEv2 使用 UDP 端口 500 (NAT 穿越时使用 4500)
     |                                   |
     |  Child SA (IPsec SA) 建立         |
 ```
+
+**用途：**
+- 创建额外的 CHILD_SA（一个 IKE SA 可以有多个 CHILD_SA）
+- 重密钥现有的 IKE SA 或 CHILD_SA
+- 可选包含新的 DH 交换（实现完美前向保密 PFS）
+
+#### INFORMATIONAL 交换
+
+**用途：**
+- 发送通知（Notify Payload）
+- 删除 SA（Delete Payload）
+- 配置参数（Configuration Payload）
+- 保活检测（DPD - Dead Peer Detection）
+
+#### IKEv2 状态机
+
+```
+                    ┌─────────────┐
+                    │    Idle     │
+                    └──────┬──────┘
+                           │
+                           │ 发起 IKE_SA_INIT
+                           ▼
+                   ┌───────────────┐
+                   │   InitSent    │
+                   └───────┬───────┘
+                           │
+                           │ 收到 IKE_SA_INIT 响应
+                           ▼
+                   ┌───────────────┐
+                   │  AuthSent     │
+                   └───────┬───────┘
+                           │
+                           │ 收到 IKE_AUTH 响应
+                           ▼
+                   ┌───────────────┐
+                   │  Established  │
+                   └───────────────┘
+                           │
+                           │ SA 过期 / 删除
+                           ▼
+                   ┌───────────────┐
+                   │  Deleted      │
+                   └───────────────┘
+```
+
+**状态说明：**
+
+| 状态 | 说明 |
+|------|------|
+| Idle | 初始状态，未建立 IKE SA |
+| InitSent | 已发送 IKE_SA_INIT 请求，等待响应 |
+| AuthSent | 已发送 IKE_AUTH 请求，等待响应 |
+| Established | IKE SA 已建立，可以进行 CHILD_SA 操作 |
+| Deleted | IKE SA 已删除 |
 
 ---
 
@@ -717,27 +890,39 @@ pub enum AuthTransform {
 ### 5.6 IKEv2 数据结构
 
 ```rust
-/// IKEv2 头
+/// IKEv2 消息头部
+#[derive(Debug, Clone)]
 pub struct IkeHeader {
-    /// 发起者 SPI
+    /// 发起方 SPI
     pub initiator_spi: [u8; 8],
-    /// 响应者 SPI
+    /// 响应方 SPI
     pub responder_spi: [u8; 8],
-    /// 下一个载荷
+    /// 下一个 Payload 类型
     pub next_payload: u8,
-    /// 版本
+    /// 主版本号 (高4位) + 次版本号 (低4位)
     pub version: u8,
     /// 交换类型
     pub exchange_type: IkeExchangeType,
-    /// 标志
-    pub flags: IkeFlags,
+    /// 标志位
+    pub flags: u8,
     /// 消息 ID
     pub message_id: u32,
-    /// 长度
+    /// 消息总长度
     pub length: u32,
 }
 
+/// IKEv2 消息
+#[derive(Debug, Clone)]
+pub struct IkeMessage {
+    /// 消息头部
+    pub header: IkeHeader,
+    /// Payload 列表
+    pub payloads: Vec<IkePayload>,
+}
+
 /// IKEv2 交换类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum IkeExchangeType {
     /// IKE_SA_INIT
     IkeSaInit = 34,
@@ -749,55 +934,352 @@ pub enum IkeExchangeType {
     Informational = 37,
 }
 
-/// IKEv2 载荷类型
+/// Payload 类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum IkePayloadType {
-    /// SA (安全关联)
-    Sa = 33,
-    /// KE (密钥交换)
-    Ke = 34,
-    /// IDi (发起者标识)
-    Idi = 35,
-    /// IDr (响应者标识)
-    Idr = 36,
-    /// AUTH (认证)
-    Auth = 39,
-    /// TSi (流量选择器-发起者)
+    None = 0,
+    SA = 33,
+    KE = 34,
+    IDi = 35,
+    IDr = 36,
+    CERT = 37,
+    CERTREQ = 38,
+    AUTH = 39,
+    Ni = 40,
+    Nr = 40,
+    Notify = 41,
+    Delete = 42,
+    Vendor = 43,
     TSi = 44,
-    /// TSr (流量选择器-响应者)
     TSr = 45,
 }
 
-/// IKE SA 状态
-pub struct IkeSa {
-    /// 发起者 SPI
-    pub initiator_spi: [u8; 8],
-    /// 响应者 SPI
-    pub responder_spi: [u8; 8],
-    /// 角色 (发起者/响应者)
-    pub role: IkeRole,
-    /// IKE SA 状态
-    pub state: IkeSaState,
-    /// 共享密钥材料
-    pub sk_ai: Vec<u8>,  // 发起者->响应者的加密密钥
-    pub sk_ar: Vec<u8>,  // 响应者->发起者的加密密钥
-    pub sk_ei: Vec<u8>,  // 发起者->响应者的认证密钥
-    pub sk_er: Vec<u8>,  // 响应者->发起者的认证密钥
-    /// 本地 SPI 范围
-    pub spi_range: Range<u32>,
-    /// 消息 ID
-    pub message_id: u32,
+/// Payload 枚举
+#[derive(Debug, Clone)]
+pub enum IkePayload {
+    /// Security Association
+    SA(IkeSaPayload),
+    /// Key Exchange (DH)
+    KE(IkeKePayload),
+    /// Identification - Initiator
+    IDi(IkeIdPayload),
+    /// Identification - Responder
+    IDr(IkeIdPayload),
+    /// Certificate
+    CERT(IkeCertPayload),
+    /// Certificate Request
+    CERTREQ(IkeCertReqPayload),
+    /// Authentication
+    AUTH(IkeAuthPayload),
+    /// Nonce
+    Nonce(IkeNoncePayload),
+    /// Notification
+    Notify(IkeNotifyPayload),
+    /// Delete
+    Delete(IkeDeletePayload),
+    /// Vendor ID
+    Vendor(IkeVendorPayload),
+    /// Traffic Selector - Initiator
+    TSi(IkeTsPayload),
+    /// Traffic Selector - Responder
+    TSr(IkeTsPayload),
+}
+
+/// SA Payload
+#[derive(Debug, Clone)]
+pub struct IkeSaPayload {
+    /// 协商提议列表
+    pub proposals: Vec<IkeProposal>,
+}
+
+/// SA Payload 中的提议
+#[derive(Debug, Clone)]
+pub struct IkeProposal {
+    /// 提议编号
+    pub proposal_num: u8,
+    /// 协议 ID (IKE/AH/ESP)
+    pub protocol_id: IkeProtocolId,
+    /// SPI 大小
+    pub spi_size: u8,
+    /// Transform 数量
+    pub num_transforms: u8,
+    /// SPI 值
+    pub spi: Vec<u8>,
+    /// Transform 列表
+    pub transforms: Vec<IkeTransform>,
+}
+
+/// Transform 子结构
+#[derive(Debug, Clone)]
+pub struct IkeTransform {
+    /// 是否为最后一个 Transform
+    pub last_transform: bool,
+    /// Transform 类型
+    pub transform_type: IkeTransformType,
+    /// Transform ID
+    pub transform_id: u16,
+    /// Transform 属性
+    pub attributes: Vec<IkeTransformAttribute>,
+}
+
+/// Transform 类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum IkeTransformType {
+    /// 加密算法
+    Encryption = 1,
+    /// PRF
+    Prf = 2,
+    /// 完整性算法
+    Integrity = 3,
+    /// DH 组
+    DhGroup = 4,
+    /// 扩展序列号
+    ESN = 5,
+}
+
+/// 协议 ID
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum IkeProtocolId {
+    /// IKE
+    Ike = 1,
+    /// AH
+    Ah = 2,
+    /// ESP
+    Esp = 3,
+}
+
+/// 身份 Payload
+#[derive(Debug, Clone)]
+pub struct IkeIdPayload {
+    /// ID 类型
+    pub id_type: IkeIdType,
+    /// 协议 ID (可选)
+    pub protocol_id: Option<u8>,
+    /// 端口 (可选)
+    pub port: Option<u16>,
+    /// 身份数据
+    pub id_data: Vec<u8>,
+}
+
+/// ID 类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum IkeIdType {
+    /// IPv4 地址
+    IdIpv4Addr = 1,
+    /// FQDN
+    IdFqdn = 2,
+    /// RFC822 邮箱
+    IdRfc822Addr = 3,
+    /// IPv6 地址
+    IdIpv6Addr = 5,
+    /// DER ASN1 DN
+    IdDerAsn1Dn = 9,
+    /// DER ASN1 GN
+    IdDerAsn1Gn = 10,
+}
+
+/// 认证 Payload
+#[derive(Debug, Clone)]
+pub struct IkeAuthPayload {
+    /// 认证方法
+    pub auth_method: IkeAuthMethod,
+    /// 认证数据
+    pub auth_data: Vec<u8>,
+}
+
+/// 认证方法
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum IkeAuthMethod {
+    /// 预共享密钥
+    Psk = 1,
+    /// RSA 签名
+    RsaSignature = 2,
+    /// DSA 签名
+    DssSignature = 3,
+    /// ECDSA 签名 (SHA-256)
+    EcdsaSha256 = 9,
+    /// ECDSA 签名 (SHA-384)
+    EcdsaSha384 = 10,
+    /// ECDSA 签名 (SHA-512)
+    EcdsaSha512 = 11,
+}
+
+/// Nonce Payload
+#[derive(Debug, Clone)]
+pub struct IkeNoncePayload {
+    /// Nonce 数据
+    pub nonce_data: Vec<u8>,
+}
+
+/// 流量选择器 Payload
+#[derive(Debug, Clone)]
+pub struct IkeTsPayload {
+    /// 流量选择器数量
+    pub num_ts: u8,
+    /// 流量选择器列表
+    pub traffic_selectors: Vec<TrafficSelector>,
+}
+
+/// 流量选择器
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrafficSelector {
+    /// TS 类型
+    pub ts_type: TsType,
+    /// IP 协议 ID
+    pub protocol_id: u8,
+    /// 起始端口
+    pub start_port: u16,
+    /// 结束端口
+    pub end_port: u16,
+    /// 起始地址
+    pub start_addr: Vec<u8>,
+    /// 结束地址
+    pub end_addr: Vec<u8>,
+}
+
+/// TS 类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TsType {
+    /// IPv4
+    Ipv4 = 7,
+    /// IPv6
+    Ipv6 = 8,
 }
 
 /// IKE SA 状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IkeSaState {
-    /// 初始状态
-    Init,
-    /// 等待 IKE_SA_INIT 响应
-    WaitInitResponse,
-    /// IKE SA 建立完成
+    /// 空闲状态
+    Idle,
+    /// 已发送 IKE_SA_INIT 请求
+    InitSent,
+    /// 已发送 IKE_AUTH 请求
+    AuthSent,
+    /// IKE SA 已建立
     Established,
-    /// 等待 IKE_AUTH 响应
-    WaitAuthResponse,
+    /// 已删除
+    Deleted,
+}
+
+/// 角色
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IkeRole {
+    /// 发起方
+    Initiator,
+    /// 响应方
+    Responder,
+}
+
+/// IKE SA 条目
+#[derive(Debug, Clone)]
+pub struct IkeSaEntry {
+    /// IKE SA 标识
+    pub id: IkeSaId,
+    /// 角色
+    pub role: IkeRole,
+    /// 当前状态
+    pub state: IkeSaState,
+    /// 发起方 SPI
+    pub initiator_spi: [u8; 8],
+    /// 响应方 SPI
+    pub responder_spi: [u8; 8],
+    /// 消息 ID（下一条消息的 ID）
+    pub message_id: u32,
+    /// 本地 SPI
+    pub local_spi: [u8; 8],
+    /// 远端 SPI
+    pub remote_spi: [u8; 8],
+    /// DH 组
+    pub dh_group: IkeDhGroup,
+    /// 密钥材料
+    pub keymat: IkeKeyMaterial,
+    /// 对端地址
+    pub remote_addr: IpAddr,
+    /// 本地地址
+    pub local_addr: IpAddr,
+    /// 创建时间
+    pub created_at: Instant,
+    /// 生命周期（秒）
+    pub lifetime: Duration,
+    /// 关联的 CHILD SA
+    pub child_sas: Vec<[u8; 8]>,
+}
+
+/// IKE SA 标识
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IkeSaId {
+    /// 发起方 SPI
+    pub initiator_spi: [u8; 8],
+    /// 响应方 SPI
+    pub responder_spi: [u8; 8],
+}
+
+/// DH 组
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IkeDhGroup {
+    /// 2048-bit MODP Group (RFC 3526)
+    Dh14 = 14,
+    /// 3072-bit MODP Group (RFC 3526)
+    Dh15 = 15,
+    /// 4096-bit MODP Group (RFC 3526)
+    Dh16 = 16,
+    /// 256-bit ECP Group (RFC 5903)
+    Ecp256 = 19,
+    /// 384-bit ECP Group (RFC 5903)
+    Ecp384 = 20,
+}
+
+/// IKE 密钥材料
+#[derive(Debug, Clone)]
+pub struct IkeKeyMaterial {
+    /// 用于派生密钥的材料
+    pub sk_d: Vec<u8>,
+    /// 发起方->响应方 完整性密钥
+    pub sk_ai: Vec<u8>,
+    /// 响应方->发起方 完整性密钥
+    pub sk_ar: Vec<u8>,
+    /// 发起方->响应方 加密密钥
+    pub sk_ei: Vec<u8>,
+    /// 响应方->发起方 加密密钥
+    pub sk_er: Vec<u8>,
+    /// 发起方->响应方 PRF 密钥
+    pub sk_pi: Vec<u8>,
+    /// 响应方->发起方 PRF 密钥
+    pub sk_pr: Vec<u8>,
+}
+
+/// 通知 Payload
+#[derive(Debug, Clone)]
+pub struct IkeNotifyPayload {
+    /// 协议 ID
+    pub protocol_id: u8,
+    /// SPI 大小
+    pub spi_size: u8,
+    /// 通知消息类型
+    pub notify_type: u16,
+    /// SPI
+    pub spi: Vec<u8>,
+    /// 通知数据
+    pub notify_data: Vec<u8>,
+}
+
+/// 删除 Payload
+#[derive(Debug, Clone)]
+pub struct IkeDeletePayload {
+    /// 协议 ID
+    pub protocol_id: u8,
+    /// SPI 大小
+    pub spi_size: u8,
+    /// SPI 数量
+    pub num_spi: u16,
+    /// SPI 列表
+    pub spis: Vec<Vec<u8>>,
 }
 ```
 
@@ -993,8 +1475,47 @@ pub struct IpsecConfig {
     /// DPD (Dead Peer Detection) 间隔 (秒)
     pub dpd_interval_secs: u64,  // 默认: 30
 
-    /// IKE SA 重协商间隔 (秒)
-    pub ike_rekey_interval_secs: u64,  // 默认: 14400 (4 小时)
+    /// DPD 超时时间 (秒)
+    pub dpd_timeout_secs: u64,  // 默认: 120
+
+    /// IKE SA 软生命周期 (秒，建议重密钥)
+    pub ike_lifetime_soft_secs: u64,  // 默认: 14400 (4 小时)
+
+    /// IKE SA 硬生命周期 (秒，强制删除)
+    pub ike_lifetime_hard_secs: u64,  // 默认: 28800 (8 小时)
+
+    /// 重传初始超时 (毫秒)
+    pub ike_retransmit_timeout_ms: u64,  // 默认: 500
+
+    /// 最大重传次数
+    pub ike_max_retransmit: u32,  // 默认: 3
+
+    /// 支持 IKEv2 的加密算法 (优先级从高到低)
+    pub ike_encryption_algos: Vec<IkeEncryptionAlgo>,
+
+    /// 支持 IKEv2 的完整性算法
+    pub ike_integrity_algos: Vec<IkeIntegrityAlgo>,
+
+    /// 支持 IKEv2 的 PRF 算法
+    pub ike_prf_algos: Vec<IkePrfAlgo>,
+
+    /// 支持 IKEv2 的 DH 组
+    pub ike_dh_groups: Vec<IkeDhGroup>,
+
+    /// 认证方法
+    pub ike_auth_method: IkeAuthMethodConfig,
+
+    /// 最大 IKE SA 数量
+    pub max_ike_sas: usize,  // 默认: 100
+
+    /// 每个 IKE SA 的最大 CHILD SA 数量
+    pub max_child_sas: usize,  // 默认: 10
+
+    /// 是否支持 NAT 穿透
+    pub nat_traversal_enabled: bool,  // 默认: true
+
+    /// 是否启用 Cookie 机制 (DoS 防护)
+    pub cookie_enabled: bool,  // 默认: true
 
     // ========== 性能配置 ==========
     /// SAD 最大容量
@@ -1027,12 +1548,84 @@ impl Default for IpsecConfig {
             ikev2_port: 500,
             ikev2_nat_port: 4500,
             dpd_interval_secs: 30,
-            ike_rekey_interval_secs: 14400,
+            dpd_timeout_secs: 120,
+            ike_lifetime_soft_secs: 14400,
+            ike_lifetime_hard_secs: 28800,
+            ike_retransmit_timeout_ms: 500,
+            ike_max_retransmit: 3,
+            ike_encryption_algos: vec![
+                IkeEncryptionAlgo::AesCbc128,
+                IkeEncryptionAlgo::AesCbc256,
+            ],
+            ike_integrity_algos: vec![
+                IkeIntegrityAlgo::HmacSha256,
+                IkeIntegrityAlgo::HmacSha1,
+            ],
+            ike_prf_algos: vec![
+                IkePrfAlgo::PrfHmacSha256,
+                IkePrfAlgo::PrfHmacSha1,
+            ],
+            ike_dh_groups: vec![
+                IkeDhGroup::Dh14,
+                IkeDhGroup::Dh15,
+                IkeDhGroup::Dh16,
+            ],
+            ike_auth_method: IkeAuthMethodConfig::Psk,
+            max_ike_sas: 100,
+            max_child_sas: 10,
+            nat_traversal_enabled: true,
+            cookie_enabled: true,
             sad_max_entries: 10000,
             spd_max_entries: 10000,
             sa_max_bytes: 0,
         }
     }
+}
+
+/// IKEv2 加密算法
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IkeEncryptionAlgo {
+    /// AES-CBC 128位
+    AesCbc128,
+    /// AES-CBC 256位
+    AesCbc256,
+    /// AES-GCM 128位
+    AesGcm128,
+    /// AES-GCM 256位
+    AesGcm256,
+}
+
+/// IKEv2 完整性算法
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IkeIntegrityAlgo {
+    /// HMAC-SHA1
+    HmacSha1,
+    /// HMAC-SHA2-256
+    HmacSha256,
+    /// HMAC-SHA2-384
+    HmacSha384,
+    /// HMAC-SHA2-512
+    HmacSha512,
+}
+
+/// IKEv2 PRF 算法
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IkePrfAlgo {
+    /// PRF with HMAC-SHA1
+    PrfHmacSha1,
+    /// PRF with HMAC-SHA2-256
+    PrfHmacSha256,
+}
+
+/// IKEv2 认证方法配置
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IkeAuthMethodConfig {
+    /// 预共享密钥
+    PSK { key: Vec<u8> },
+    /// RSA 签名
+    RsaSignature { cert_path: String, key_path: String },
+    /// ECDSA 签名
+    EcdsaSignature { cert_path: String, key_path: String },
 }
 ```
 

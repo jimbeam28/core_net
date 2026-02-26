@@ -5,6 +5,8 @@
 use crate::common::{CoreError, Packet, Result};
 use crate::protocols::Ipv4Addr;
 use crate::context::SystemContext;
+use crate::protocols::ipsec::ikev2::{IKEV2_PORT, IKEV2_NAT_PORT, IkeMessage, IkeProcessor, IkeSaConfig, IkeRole, IkeAuthMethod, IkeDhGroup};
+use crate::common::addr::IpAddr;
 
 use super::packet::UdpDatagram;
 use super::config::UdpConfig;
@@ -80,6 +82,16 @@ pub fn process_udp_packet(
 
     let dest_port = datagram.header.destination_port;
 
+    // 检查是否为 IKEv2 端口
+    if dest_port == IKEV2_PORT || dest_port == IKEV2_NAT_PORT {
+        return process_ikev2_packet(
+            datagram,
+            source_addr,
+            dest_addr,
+            context,
+        );
+    }
+
     // 查找目标端口
     let port_entry = {
         let port_manager = context.udp_ports.lock().unwrap();
@@ -137,6 +149,60 @@ pub fn encapsulate_udp_datagram(
 ) -> Vec<u8> {
     let datagram = UdpDatagram::create(source_port, destination_port, payload);
     datagram.to_bytes(source_addr, dest_addr, calculate_checksum)
+}
+
+/// 处理 IKEv2 数据包
+///
+/// IKEv2 使用 UDP 端口 500（标准）或 4500（NAT 穿透）
+///
+/// # 参数
+/// - datagram: UDP 数据报
+/// - source_addr: 源 IP 地址
+/// - dest_addr: 目标 IP 地址
+/// - context: 系统上下文
+///
+/// # 返回
+/// - Ok(UdpProcessResult): 处理结果
+/// - Err(CoreError): 处理失败
+fn process_ikev2_packet(
+    datagram: UdpDatagram,
+    source_addr: Ipv4Addr,
+    dest_addr: Ipv4Addr,
+    context: &SystemContext,
+) -> Result<UdpProcessResult> {
+    use crate::common::addr::IpAddr;
+
+    // 解析 IKE 消息
+    let ike_bytes = datagram.payload;
+    let ike_message = IkeMessage::from_bytes(ike_bytes)
+        .map_err(|e| CoreError::ParseError(format!("IKEv2 解析失败: {}", e)))?;
+
+    // 创建 IKE 处理器
+    let config = IkeSaConfig::new(
+        IkeRole::Responder,
+        IpAddr::V4(dest_addr),
+        IpAddr::V4(source_addr),
+        IkeDhGroup::MODP2048,
+        IkeAuthMethod::SHARED_KEY,
+    );
+
+    let processor = IkeProcessor::new(
+        context.ike_manager.clone(),
+        IpAddr::V4(dest_addr),
+        config,
+    );
+
+    // 处理 IKE 消息
+    let response = processor.process_message(&ike_message, IpAddr::V4(source_addr))
+        .map_err(|e| CoreError::ParseError(format!("IKEv2 处理失败: {}", e)))?;
+
+    // 如果有响应，需要发送（在实际实现中会通过某种机制通知发送层）
+    if response.is_some() {
+        // 简化实现：记录响应
+        // 在真实实现中，需要将响应数据包放入发送队列
+    }
+
+    Ok(UdpProcessResult::NoReply)
 }
 
 /// 创建 ICMP 端口不可达消息

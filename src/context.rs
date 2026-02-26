@@ -15,6 +15,7 @@ use crate::protocols::ip::fragment::{ReassemblyTable, DEFAULT_REASSEMBLY_TIMEOUT
 use crate::protocols::ospf::OspfManager;
 use crate::protocols::ipv6::FragmentCache;
 use crate::protocols::ipsec::{SadManager, SpdManager};
+use crate::protocols::ipsec::ikev2::IkeSaManager;
 use crate::common::timer::TimerHandle;
 use crate::route::RouteTable;
 use crate::socket::SocketManager;
@@ -75,6 +76,9 @@ pub struct SystemContext {
 
     /// IPsec SPD 管理器
     pub spd_mgr: Arc<Mutex<SpdManager>>,
+
+    /// IKEv2 SA 管理器
+    pub ike_manager: Arc<Mutex<IkeSaManager>>,
 }
 
 /// Socket 管理器及其依赖组件
@@ -122,6 +126,8 @@ pub struct ContextComponents {
     pub sad_mgr: Option<Arc<Mutex<SadManager>>>,
     /// IPsec SPD 管理器
     pub spd_mgr: Option<Arc<Mutex<SpdManager>>>,
+    /// IKEv2 SA 管理器
+    pub ike_manager: Option<Arc<Mutex<IkeSaManager>>>,
 }
 
 impl ContextComponents {
@@ -150,6 +156,7 @@ impl ContextComponents {
             ospf_manager: None,
             sad_mgr: None,
             spd_mgr: None,
+            ike_manager: None,
         }
     }
 
@@ -231,6 +238,12 @@ impl ContextComponents {
         self
     }
 
+    /// 设置 IKEv2 SA 管理器
+    pub fn with_ike_manager(mut self, ike_manager: Arc<Mutex<IkeSaManager>>) -> Self {
+        self.ike_manager = Some(ike_manager);
+        self
+    }
+
     /// 构建系统上下文
     pub fn build(self) -> SystemContext {
         let tcp_sockets = self.tcp_sockets.unwrap_or_else(|| Arc::new(Mutex::new(TcpSocketManager::new())));
@@ -259,6 +272,10 @@ impl ContextComponents {
             Arc::new(Mutex::new(SpdManager::new()))
         });
 
+        let ike_manager = self.ike_manager.unwrap_or_else(|| {
+            Arc::new(Mutex::new(IkeSaManager::new()))
+        });
+
         let tcp_timers = self.tcp_timers.unwrap_or_else(|| Arc::new(Mutex::new(TcpTimerManager::new())));
         let timers = self.timers.unwrap_or_else(|| Arc::new(Mutex::new(TimerHandle::new())));
 
@@ -280,6 +297,7 @@ impl ContextComponents {
             ospf_manager,
             sad_mgr,
             spd_mgr,
+            ike_manager,
         }
     }
 }
@@ -321,6 +339,7 @@ impl SystemContext {
         Arc<Mutex<BgpPeerManager>>,
         Arc<Mutex<OspfManager>>,
         (Arc<Mutex<SadManager>>, Arc<Mutex<SpdManager>>),
+        Arc<Mutex<IkeSaManager>>,
     ) {
         let timers = Arc::new(Mutex::new(TimerHandle::new()));
         let tcp_timers = Arc::new(Mutex::new(TcpTimerManager::new()));
@@ -331,7 +350,8 @@ impl SystemContext {
         let ospf_manager = Arc::new(Mutex::new(OspfManager::new(0)));
         let sad_mgr = Arc::new(Mutex::new(SadManager::new()));
         let spd_mgr = Arc::new(Mutex::new(SpdManager::new()));
-        (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr))
+        let ike_manager = Arc::new(Mutex::new(IkeSaManager::new()));
+        (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr), ike_manager)
     }
 
     /// 构建系统上下文的核心组件
@@ -347,6 +367,7 @@ impl SystemContext {
         ospf_manager: Arc<Mutex<OspfManager>>,
         sad_mgr: Arc<Mutex<SadManager>>,
         spd_mgr: Arc<Mutex<SpdManager>>,
+        ike_manager: Arc<Mutex<IkeSaManager>>,
     ) -> Self {
         Self {
             interfaces: Arc::new(Mutex::new(interfaces)),
@@ -366,6 +387,7 @@ impl SystemContext {
             ospf_manager,
             sad_mgr,
             spd_mgr,
+            ike_manager,
         }
     }
 
@@ -374,7 +396,7 @@ impl SystemContext {
     /// 创建一个空的系统上下文，所有组件使用默认值。
     pub fn new() -> Self {
         let socket_mgrs = Self::create_default_socket_managers();
-        let (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr)) =
+        let (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr), ike_manager) =
             Self::create_default_protocol_managers();
 
         Self::build_core(
@@ -386,6 +408,7 @@ impl SystemContext {
             ospf_manager,
             sad_mgr,
             spd_mgr,
+            ike_manager,
         )
     }
 
@@ -406,7 +429,7 @@ impl SystemContext {
         };
 
         let socket_mgrs = Self::create_default_socket_managers();
-        let (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr)) =
+        let (timers, tcp_timers, bgp_manager, ospf_manager, (sad_mgr, spd_mgr), ike_manager) =
             Self::create_default_protocol_managers();
 
         Self::build_core(
@@ -418,6 +441,7 @@ impl SystemContext {
             ospf_manager,
             sad_mgr,
             spd_mgr,
+            ike_manager,
         )
     }
 
