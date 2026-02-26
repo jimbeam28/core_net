@@ -64,7 +64,7 @@ impl IkeProcessor {
 
     /// 查找或创建 IKE SA
     fn lookup_or_create_sa(&self, message: &IkeMessage, remote_addr: IpAddr) -> IkeResult<(IkeSaEntry, bool)> {
-        let mut manager = self.sa_manager.lock().unwrap();
+        let manager = self.sa_manager.lock().unwrap();
 
         // 尝试通过 SPI 查找现有 SA
         let spi = if message.header.responder_spi == [0u8; 8] {
@@ -99,7 +99,7 @@ impl IkeProcessor {
     }
 
     /// 验证消息
-    fn validate_message(&self, message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<()> {
+    fn validate_message(&self, message: &IkeMessage, _sa_entry: &IkeSaEntry) -> IkeResult<()> {
         // 验证版本
         if message.header.version != IKEV2_VERSION {
             return Err(IkeError::ParseError("不支持的 IKE 版本".to_string()));
@@ -119,9 +119,9 @@ impl IkeProcessor {
     }
 
     /// 更新 SA
-    fn update_sa(&self, message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<()> {
+    fn update_sa(&self, _message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<()> {
         let mut manager = self.sa_manager.lock().unwrap();
-        if let Some(sa) = manager.get_mut(&sa_entry.id) {
+        if let Some(_sa) = manager.get_mut(&sa_entry.id) {
             // 更新 SA 状态（在具体交换处理中设置）
         }
         Ok(())
@@ -139,7 +139,7 @@ impl IkeProcessor {
     }
 
     /// 处理 IKE_SA_INIT 请求
-    fn handle_init_request(&self, message: &IkeMessage, sa_entry: &IkeSaEntry, is_new: bool) -> IkeResult<Option<IkeMessage>> {
+    fn handle_init_request(&self, message: &IkeMessage, _sa_entry: &IkeSaEntry, _is_new: bool) -> IkeResult<Option<IkeMessage>> {
         // 提取发起方参数
         let sa_payload = message.get_payload(IkePayloadType::SA)
             .and_then(|p| if let IkePayload::SA(sa) = p { Some(sa) } else { None });
@@ -167,7 +167,7 @@ impl IkeProcessor {
 
         // 派生密钥材料
         let ni = &nonce_payload.unwrap().nonce_data;
-        let keymat = compute_key_material(
+        let _keymat = compute_key_material(
             ni,
             &nr,
             &dh_shared,
@@ -178,29 +178,27 @@ impl IkeProcessor {
         )?;
 
         // 构建响应消息
-        let mut response_payloads = Vec::new();
-
-        // SA Payload（接受提议）
-        response_payloads.push(IkePayload::SA(IkeSaPayload {
-            next_payload: IkePayloadType::KE,
-            critical: false,
-            proposals: vec![selected_proposal.clone()],
-        }));
-
-        // KE Payload
-        response_payloads.push(IkePayload::KE(IkeKePayload {
-            next_payload: IkePayloadType::Nonce,
-            critical: false,
-            dh_group: self.config.dh_group,
-            public_key: dh_public,
-        }));
-
-        // Nonce Payload
-        response_payloads.push(IkePayload::Nonce(IkeNoncePayload {
-            next_payload: IkePayloadType::None,
-            critical: false,
-            nonce_data: nr,
-        }));
+        let response_payloads = vec![
+            // SA Payload（接受提议）
+            IkePayload::SA(IkeSaPayload {
+                next_payload: IkePayloadType::KE,
+                critical: false,
+                proposals: vec![selected_proposal.clone()],
+            }),
+            // KE Payload
+            IkePayload::KE(IkeKePayload {
+                next_payload: IkePayloadType::Nonce,
+                critical: false,
+                dh_group: self.config.dh_group,
+                public_key: dh_public,
+            }),
+            // Nonce Payload
+            IkePayload::Nonce(IkeNoncePayload {
+                next_payload: IkePayloadType::None,
+                critical: false,
+                nonce_data: nr,
+            }),
+        ];
 
         let mut header = message.header.response(IkePayloadType::SA, 0);
         header.responder_spi = responder_spi;
@@ -211,7 +209,7 @@ impl IkeProcessor {
     }
 
     /// 处理 IKE_SA_INIT 响应
-    fn handle_init_response(&self, message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
+    fn handle_init_response(&self, message: &IkeMessage, _sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
         // 提取响应方参数
         let ke_payload = message.get_payload(IkePayloadType::KE)
             .and_then(|p| if let IkePayload::KE(ke) = p { Some(ke) } else { None });
@@ -239,7 +237,7 @@ impl IkeProcessor {
     }
 
     /// 处理 IKE_AUTH 请求
-    fn handle_auth_request(&self, message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
+    fn handle_auth_request(&self, message: &IkeMessage, _sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
         // 验证认证 Payload
         let auth_payload = message.get_payload(IkePayloadType::AUTH)
             .and_then(|p| if let IkePayload::AUTH(a) = p { Some(a) } else { None });
@@ -254,18 +252,18 @@ impl IkeProcessor {
         // 构建响应消息
         let id_payload = IkeIdPayload::new(
             IkePayloadType::AUTH,
-            IkeIdType::ID_IPV4_ADDR,
+            IkeIdType::IdIpv4Addr,
             vec![0x0A, 0x00, 0x00, 0x01], // 10.0.0.1
         );
 
         let auth_data = vec![0u8; 32]; // 简化：假的认证数据
         let auth_payload = IkeAuthPayload::new(
             IkePayloadType::None,
-            IkeAuthMethod::SHARED_KEY,
+            IkeAuthMethod::SharedKey,
             auth_data,
         );
 
-        let mut header = message.header.response(IkePayloadType::IDr, 0);
+        let header = message.header.response(IkePayloadType::IDr, 0);
 
         let response = IkeMessage::new(
             header,
@@ -279,7 +277,7 @@ impl IkeProcessor {
     }
 
     /// 处理 IKE_AUTH 响应
-    fn handle_auth_response(&self, message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
+    fn handle_auth_response(&self, message: &IkeMessage, _sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
         // 验证认证 Payload
         let auth_payload = message.get_payload(IkePayloadType::AUTH)
             .and_then(|p| if let IkePayload::AUTH(a) = p { Some(a) } else { None });
@@ -293,7 +291,7 @@ impl IkeProcessor {
     }
 
     /// 处理 CREATE_CHILD_SA 交换
-    fn handle_create_child_sa(&self, message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
+    fn handle_create_child_sa(&self, message: &IkeMessage, _sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
         // 简化实现：返回确认响应
         let header = message.header.response(IkePayloadType::None, IKE_HEADER_LEN as u32);
         let response = IkeMessage::new(header, vec![]);
@@ -301,7 +299,7 @@ impl IkeProcessor {
     }
 
     /// 处理 INFORMATIONAL 交换
-    fn handle_informational(&self, message: &IkeMessage, sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
+    fn handle_informational(&self, message: &IkeMessage, _sa_entry: &IkeSaEntry) -> IkeResult<Option<IkeMessage>> {
         // 检查是否有删除 Payload
         let delete_payload = message.get_payload(IkePayloadType::Delete);
 
@@ -328,7 +326,7 @@ impl IkeProcessor {
         let sa_entry = IkeSaEntry::new(config, initiator_spi);
 
         // 生成 DH 密钥对和 Nonce
-        let (dh_private, dh_public) = generate_dh_keypair(self.config.dh_group)?;
+        let (_dh_private, dh_public) = generate_dh_keypair(self.config.dh_group)?;
         let ni = generate_random_nonce(32);
 
         // 构建 SA Payload
@@ -403,7 +401,7 @@ impl IkeProcessor {
 
         // 保存 SA
         let mut manager = self.sa_manager.lock().unwrap();
-        manager.add(sa_entry);
+        let _ = manager.add(sa_entry);
 
         Ok(message)
     }
@@ -422,7 +420,7 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
             IkeDhGroup::MODP2048,
-            IkeAuthMethod::SHARED_KEY,
+            IkeAuthMethod::SharedKey,
         );
 
         let processor = IkeProcessor::new(
@@ -446,7 +444,7 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
             IkeDhGroup::MODP2048,
-            IkeAuthMethod::SHARED_KEY,
+            IkeAuthMethod::SharedKey,
         );
 
         let processor = IkeProcessor::new(

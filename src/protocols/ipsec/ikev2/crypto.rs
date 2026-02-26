@@ -162,9 +162,9 @@ pub fn generate_random_spi() -> [u8; SPI_LEN] {
         .as_nanos() as u64;
 
     let mut seed = timestamp.wrapping_mul(0x9E3779B9);
-    for i in 0..SPI_LEN {
+    for byte in spi.iter_mut() {
         seed = seed.wrapping_mul(0x9E3779B9).wrapping_add(0x243F6A88);
-        spi[i] = (seed >> 24) as u8;
+        *byte = (seed >> 24) as u8;
     }
 
     // 确保 SPI 不为全 0
@@ -184,9 +184,9 @@ pub fn generate_random_nonce(size: usize) -> Vec<u8> {
         .as_nanos() as u64;
 
     let mut seed = timestamp.wrapping_mul(0x9E3779B9);
-    for i in 0..size {
+    for byte in nonce.iter_mut() {
         seed = seed.wrapping_mul(0x9E3779B9).wrapping_add(0x243F6A88);
-        nonce[i] = (seed >> 24) as u8;
+        *byte = (seed >> 24) as u8;
     }
 
     nonce
@@ -351,7 +351,10 @@ impl IkeCrypto {
         let key = IkePseudoRandomFunction::simple_prf(shared_secret, KEY_PAD);
 
         // prf(key, <MsgOctets>)
-        IkePseudoRandomFunction::simple_prf(&key, msg_octets)
+        let result = IkePseudoRandomFunction::simple_prf(&key, msg_octets);
+
+        // 截取到指定长度
+        result.into_iter().take(output_len).collect()
     }
 }
 

@@ -251,29 +251,29 @@ impl IkeTransformType {
 #[repr(u8)]
 pub enum IkeIdType {
     /// IPv4 地址
-    ID_IPV4_ADDR = 1,
+    IdIpv4Addr = 1,
     /// FQDN
-    ID_FQDN = 2,
+    IdFqdn = 2,
     /// RFC822 邮箱
-    ID_RFC822_ADDR = 3,
+    IdRfc822Addr = 3,
     /// IPv6 地址
-    ID_IPV6_ADDR = 5,
+    IdIpv6Addr = 5,
     /// DER ASN1 DN
-    ID_DER_ASN1_DN = 9,
+    IdDerAsn1Dn = 9,
     /// DER ASN1 GN
-    ID_DER_ASN1_GN = 10,
+    IdDerAsn1Gn = 10,
 }
 
 impl IkeIdType {
     /// 从 u8 创建 ID 类型
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
-            1 => Some(Self::ID_IPV4_ADDR),
-            2 => Some(Self::ID_FQDN),
-            3 => Some(Self::ID_RFC822_ADDR),
-            5 => Some(Self::ID_IPV6_ADDR),
-            9 => Some(Self::ID_DER_ASN1_DN),
-            10 => Some(Self::ID_DER_ASN1_GN),
+            1 => Some(Self::IdIpv4Addr),
+            2 => Some(Self::IdFqdn),
+            3 => Some(Self::IdRfc822Addr),
+            5 => Some(Self::IdIpv6Addr),
+            9 => Some(Self::IdDerAsn1Dn),
+            10 => Some(Self::IdDerAsn1Gn),
             _ => None,
         }
     }
@@ -291,29 +291,29 @@ impl IkeIdType {
 #[repr(u8)]
 pub enum IkeAuthMethod {
     /// 预共享密钥
-    SHARED_KEY = 1,
+    SharedKey = 1,
     /// RSA 签名
-    RSA_SIG = 2,
+    RsaSig = 2,
     /// DSA 签名
-    DSS_SIG = 3,
+    DssSig = 3,
     /// ECDSA 签名 (SHA-256)
-    ECDSA_SHA256 = 9,
+    EcdsaSha256 = 9,
     /// ECDSA 签名 (SHA-384)
-    ECDSA_SHA384 = 10,
+    EcdsaSha384 = 10,
     /// ECDSA 签名 (SHA-512)
-    ECDSA_SHA512 = 11,
+    EcdsaSha512 = 11,
 }
 
 impl IkeAuthMethod {
     /// 从 u8 创建认证方法
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
-            1 => Some(Self::SHARED_KEY),
-            2 => Some(Self::RSA_SIG),
-            3 => Some(Self::DSS_SIG),
-            9 => Some(Self::ECDSA_SHA256),
-            10 => Some(Self::ECDSA_SHA384),
-            11 => Some(Self::ECDSA_SHA512),
+            1 => Some(Self::SharedKey),
+            2 => Some(Self::RsaSig),
+            3 => Some(Self::DssSig),
+            9 => Some(Self::EcdsaSha256),
+            10 => Some(Self::EcdsaSha384),
+            11 => Some(Self::EcdsaSha512),
             _ => None,
         }
     }
@@ -497,8 +497,8 @@ mod tests {
 
     #[test]
     fn test_auth_method_conversion() {
-        assert_eq!(IkeAuthMethod::from_u8(1), Some(IkeAuthMethod::SHARED_KEY));
-        assert_eq!(IkeAuthMethod::SHARED_KEY.as_u8(), 1);
+        assert_eq!(IkeAuthMethod::from_u8(1), Some(IkeAuthMethod::SharedKey));
+        assert_eq!(IkeAuthMethod::SharedKey.as_u8(), 1);
         assert_eq!(IkeAuthMethod::from_u8(99), None);
     }
 

@@ -234,7 +234,7 @@ impl Default for IkeSaConfig {
             local_addr: IpAddr::V4(crate::common::addr::Ipv4Addr::new(0, 0, 0, 0)),
             remote_addr: IpAddr::V4(crate::common::addr::Ipv4Addr::new(0, 0, 0, 0)),
             dh_group: IkeDhGroup::MODP2048,
-            auth_method: IkeAuthMethod::SHARED_KEY,
+            auth_method: IkeAuthMethod::SharedKey,
             psk: None,
             lifetime_soft: Duration::from_secs(14400),
             lifetime_hard: Duration::from_secs(28800),
@@ -451,7 +451,7 @@ impl IkeSaManager {
         // 添加到地址映射
         self.addr_to_id
             .entry(sa.remote_addr)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(id);
 
         self.sas.insert(id, sa);
@@ -466,7 +466,7 @@ impl IkeSaManager {
 
     /// 获取可变的 IKE SA（通过 SPI）
     pub fn get_by_spi_mut(&mut self, spi: &[u8; SPI_LEN]) -> Option<&mut IkeSaEntry> {
-        let id = self.spi_to_id.get(spi)?.clone();
+        let id = *self.spi_to_id.get(spi)?;
         self.sas.get_mut(&id)
     }
 
@@ -605,7 +605,7 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
             IkeDhGroup::MODP2048,
-            IkeAuthMethod::SHARED_KEY,
+            IkeAuthMethod::SharedKey,
         );
 
         let spi = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
@@ -630,7 +630,7 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)),
             IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)),
             IkeDhGroup::MODP2048,
-            IkeAuthMethod::SHARED_KEY,
+            IkeAuthMethod::SharedKey,
         );
 
         let spi = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
@@ -652,7 +652,7 @@ mod tests {
         let config = IkeSaConfig::default();
         assert_eq!(config.role, IkeRole::Initiator);
         assert_eq!(config.dh_group, IkeDhGroup::MODP2048);
-        assert_eq!(config.auth_method, IkeAuthMethod::SHARED_KEY);
+        assert_eq!(config.auth_method, IkeAuthMethod::SharedKey);
         assert_eq!(config.lifetime_soft, Duration::from_secs(14400));
         assert_eq!(config.lifetime_hard, Duration::from_secs(28800));
     }

@@ -6,7 +6,6 @@ use crate::common::{CoreError, Packet, Result};
 use crate::protocols::Ipv4Addr;
 use crate::context::SystemContext;
 use crate::protocols::ipsec::ikev2::{IKEV2_PORT, IKEV2_NAT_PORT, IkeMessage, IkeProcessor, IkeSaConfig, IkeRole, IkeAuthMethod, IkeDhGroup};
-use crate::common::addr::IpAddr;
 
 use super::packet::UdpDatagram;
 use super::config::UdpConfig;
@@ -183,7 +182,7 @@ fn process_ikev2_packet(
         IpAddr::V4(dest_addr),
         IpAddr::V4(source_addr),
         IkeDhGroup::MODP2048,
-        IkeAuthMethod::SHARED_KEY,
+        IkeAuthMethod::SharedKey,
     );
 
     let processor = IkeProcessor::new(
