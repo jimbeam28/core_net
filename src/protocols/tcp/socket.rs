@@ -5,7 +5,7 @@
 
 use crate::protocols::Ipv4Addr;
 use super::tcb::TcpConnectionId;
-use super::error::TcpError;
+use super::TcpError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 

@@ -8,7 +8,7 @@ use crate::protocols::Ipv4Addr;
 use crate::context::SystemContext;
 
 use super::header::Ipv4Header;
-use super::protocol::Ipv4Protocol;
+use super::Ipv4Protocol;
 use super::error::IpError;
 use super::verify_checksum;
 use super::fragment::{ReassemblyKey, FragmentInfo, FragmentOverlapPolicy, DEFAULT_MAX_FRAGMENTS_PER_DATAGRAM};

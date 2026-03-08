@@ -4,13 +4,11 @@
 // 负责802.1Q VLAN标签的解析和封装
 
 mod tag;
-mod frame;
 mod error;
 mod parse;
 mod filter;
 
-pub use tag::VlanTag;
-pub use frame::VlanFrame;
+pub use tag::{VlanTag, VlanFrame};
 pub use error::VlanError;
 pub use filter::VlanFilter;
 

@@ -7,7 +7,7 @@ use crate::common::Packet;
 use crate::protocols::Ipv6Addr;
 
 use super::types::*;
-use super::error::{Icmpv6Error, Icmpv6Result};
+use super::{Icmpv6Error, Icmpv6Result};
 
 // ========== ICMPv6 通用头部 ==========
 

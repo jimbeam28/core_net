@@ -4,7 +4,7 @@
 
 use super::tcb::{Tcb, TcpConnectionId, TcpState};
 use super::config::TcpConfig;
-use super::error::TcpError;
+use super::TcpError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

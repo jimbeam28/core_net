@@ -7,8 +7,7 @@ use crate::protocols::Ipv6Addr;
 
 use super::packet::*;
 use super::neighbor::*;
-use super::config::*;
-use super::error::Icmpv6Result;
+use super::*;
 use super::checksum::verify_icmpv6_checksum;
 
 /// ICMPv6 处理结果

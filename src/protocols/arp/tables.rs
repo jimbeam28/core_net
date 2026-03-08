@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::time::Instant;
 use crate::protocols::{MacAddr, Ipv4Addr, Packet};
-use crate::common::tables::Table;
+use crate::common::Table;
 
 // ========== ARP 状态枚举 ==========
 

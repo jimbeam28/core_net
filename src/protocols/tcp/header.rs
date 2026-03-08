@@ -3,7 +3,7 @@
 // TCP 头部结构定义
 
 use crate::common::{CoreError, Result};
-use super::constant::{TCP_MIN_DATA_OFFSET, TCP_MAX_HEADER_LEN};
+use super::{TCP_MIN_DATA_OFFSET, TCP_MAX_HEADER_LEN};
 use super::flags;
 
 /// TCP 头部结构

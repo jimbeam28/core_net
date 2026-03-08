@@ -6,9 +6,8 @@ use crate::common::{CoreError, Result};
 use crate::protocols::Ipv4Addr;
 use crate::protocols::ip::{add_ipv4_pseudo_header, fold_carry};
 use super::header::TcpHeader;
-use super::constant::TCP_MIN_HEADER_LEN;
+use super::{TCP_MIN_HEADER_LEN, TcpError};
 use super::connection::TcpOption;
-use super::error::TcpError;
 
 /// TCP 报文段
 ///

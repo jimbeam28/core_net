@@ -6,7 +6,6 @@
 // 公共模块声明
 pub mod common;
 pub mod context;
-pub mod poweron;
 pub mod engine;
 pub mod scheduler;
 pub mod protocols;
@@ -34,9 +33,6 @@ pub use common::{
     MIN_QUEUE_CAPACITY,
     MAX_QUEUE_CAPACITY,
 };
-
-// 重新导出上电启动模块
-pub use poweron::shutdown;
 
 // 重新导出系统上下文（新的依赖注入方式）
 pub use context::SystemContext as Context;
@@ -86,4 +82,3 @@ pub use route::{
     RouteLookup,
     RouteError,
 };
-

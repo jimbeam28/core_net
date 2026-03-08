@@ -5,6 +5,36 @@
 use crate::protocols::Packet;
 use super::error::VlanError;
 
+// ==================== frame.rs 内容 ====================
+
+/// VLAN帧封装信息
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VlanFrame {
+    /// VLAN标签
+    pub tag: VlanTag,
+
+    /// 标签协议标识符 (Tag Protocol Identifier)
+    /// 0x8100: 标准802.1Q
+    /// 0x9100: Q-in-Q
+    /// 0x88A8: 802.1ad Provider Bridge
+    pub tpid: u16,
+}
+
+impl VlanFrame {
+    /// 创建新的VLAN帧封装信息
+    pub fn new(tag: VlanTag, tpid: u16) -> Self {
+        VlanFrame { tag, tpid }
+    }
+
+    /// 创建标准802.1Q VLAN帧 (TPID=0x8100)
+    pub fn standard_8021q(tag: VlanTag) -> Self {
+        VlanFrame {
+            tag,
+            tpid: 0x8100,
+        }
+    }
+}
+
 /// 802.1Q VLAN标签
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VlanTag {

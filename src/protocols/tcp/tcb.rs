@@ -4,7 +4,7 @@
 
 use std::time::Instant;
 use crate::protocols::Ipv4Addr;
-use super::error::TcpError;
+use super::TcpError;
 
 /// TCP 连接四元组（标识符）
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

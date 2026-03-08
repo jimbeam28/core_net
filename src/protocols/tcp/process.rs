@@ -13,7 +13,7 @@ use super::tcb::{Tcb, TcpConnectionId, TcpState};
 use super::segment::TcpSegment;
 use super::header::TcpHeader;
 use super::connection::{TcpConnectionManager, TcpOption};
-use super::error::TcpError;
+use super::TcpError;
 
 /// TCP 处理结果
 #[derive(Debug, Clone, PartialEq)]

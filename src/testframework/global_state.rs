@@ -19,7 +19,7 @@ use crate::interface::InterfaceManager;
 use crate::protocols::arp::ArpCache;
 use crate::protocols::icmp::EchoManager;
 use crate::context::SystemContext;
-use crate::common::tables::Table;
+use crate::common::Table;
 
 /// 全局状态管理器
 ///

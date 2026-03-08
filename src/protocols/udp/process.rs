@@ -7,7 +7,7 @@ use crate::protocols::Ipv4Addr;
 use crate::context::SystemContext;
 
 use super::packet::UdpDatagram;
-use super::config::UdpConfig;
+use super::UdpConfig;
 
 #[cfg(test)]
 use super::UdpSocket;
