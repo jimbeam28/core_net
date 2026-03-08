@@ -1,10 +1,10 @@
 // src/protocols/bgp/message.rs
 //
-// BGP 报文结构定义
+// BGP 报文结构定义（简化版）
 
 use std::net::{IpAddr, Ipv4Addr};
 use crate::common::addr::Ipv4Addr as CoreIpv4Addr;
-use crate::protocols::bgp::{BGP_MARKER_SIZE, BGP_MIN_MESSAGE_SIZE, BGP_MAX_MESSAGE_SIZE};
+use crate::protocols::bgp::BGP_MARKER_SIZE;
 
 /// IP 前缀（用于 NLRI 和 Withdrawn Routes）
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -33,7 +33,7 @@ impl IpPrefix {
 /// BGP 报文头部（所有 BGP 报文通用）
 #[derive(Debug, Clone)]
 pub struct BgpHeader {
-    /// 同步标记（16 字节），用于认证或同步
+    /// 同步标记（16 字节）
     pub marker: [u8; BGP_MARKER_SIZE],
     /// 报文总长度（包含头部）
     pub length: u16,
@@ -55,12 +55,6 @@ impl BgpHeader {
             msg_type,
         }
     }
-
-    /// 验证长度
-    pub fn validate_length(&self) -> bool {
-        self.length >= BGP_MIN_MESSAGE_SIZE as u16
-            && self.length <= BGP_MAX_MESSAGE_SIZE as u16
-    }
 }
 
 /// BGP OPEN 报文
@@ -72,7 +66,7 @@ pub struct BgpOpen {
     pub my_as: u16,
     /// 保活时间（秒）
     pub hold_time: u16,
-    /// BGP 标识符（通常是路由器 IP）
+    /// BGP 标识符
     pub bgp_identifier: CoreIpv4Addr,
     /// 可选参数
     pub optional_parameters: Vec<OptionalParameter>,
@@ -81,32 +75,32 @@ pub struct BgpOpen {
 /// 可选参数
 #[derive(Debug, Clone)]
 pub enum OptionalParameter {
-    /// 认证信息（RFC 4271）
+    /// 认证信息
     Authentication {
         auth_code: u8,
         data: Vec<u8>,
     },
-    /// 能力通告（RFC 5492）
+    /// 能力通告
     Capabilities {
         capabilities: Vec<BgpCapability>,
     },
 }
 
-/// BGP 能力类型（RFC 5492）
+/// BGP 能力类型
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BgpCapability {
-    /// 多协议扩展（MP-BGP, RFC 4760）
+    /// 多协议扩展
     MultiProtocol {
         afi: u16,
         safi: u8,
     },
-    /// 路由刷新（RFC 2918）
+    /// 路由刷新
     RouteRefresh,
-    /// 支持 4 字节 AS 号（RFC 6793）
+    /// 支持 4 字节 AS 号
     FourOctetAsNumber {
         as_number: u32,
     },
-    /// 支持 Capability 参数（RFC 5492）
+    /// 支持 Capability 参数
     CapabilityNegotiation,
     /// 其他未知能力
     Unknown {
@@ -122,61 +116,33 @@ pub struct BgpUpdate {
     pub withdrawn_routes: Vec<IpPrefix>,
     /// 路径属性
     pub path_attributes: Vec<PathAttribute>,
-    /// 网络层可达性信息（通告的路由前缀）
+    /// 网络层可达性信息
     pub nlri: Vec<IpPrefix>,
 }
 
 /// 路径属性
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathAttribute {
-    /// ORIGIN（必须）：路由起源
-    Origin {
-        /// 0=IGP, 1=EGP, 2=INCOMPLETE
-        origin: u8,
-    },
-    /// AS_PATH（必须）：AS 路径
-    AsPath {
-        /// AS 序列段（严格）
-        as_sequence: Vec<u32>,
-        /// AS 集合段（松散）
-        as_set: Vec<u32>,
-    },
-    /// NEXT_HOP（必须）：下一跳 IP
-    NextHop {
-        next_hop: CoreIpv4Addr,
-    },
-    /// MULTI_EXIT_DISC（可选）：MED，用于 AS 内路由选择
-    MultiExitDisc {
-        med: u32,
-    },
-    /// LOCAL_PREF（可选）：本地优先级，用于出站选路
-    LocalPref {
-        local_pref: u32,
-    },
-    /// ATOMIC_AGGREGATE（可选）：聚合路由标志
+    /// ORIGIN：路由起源
+    Origin { origin: u8 },
+    /// AS_PATH：AS 路径
+    AsPath { as_sequence: Vec<u32>, as_set: Vec<u32> },
+    /// NEXT_HOP：下一跳 IP
+    NextHop { next_hop: CoreIpv4Addr },
+    /// MULTI_EXIT_DISC：MED
+    MultiExitDisc { med: u32 },
+    /// LOCAL_PREF：本地优先级
+    LocalPref { local_pref: u32 },
+    /// ATOMIC_AGGREGATE：聚合路由标志
     AtomicAggregate,
-    /// AGGREGATOR（可选）：聚合者信息
-    Aggregator {
-        as_number: u32,
-        router_id: CoreIpv4Addr,
-    },
-    /// COMMUNITY（可选）：BGP 团体（RFC 1997）
-    Community {
-        communities: Vec<u32>,
-    },
-    /// MP_REACH_NLRI（可选）：多协议可达 NLRI（RFC 4760）
-    MpReachNlri {
-        afi: u16,           // 地址族标识
-        safi: u8,           // 子地址族标识
-        next_hop: Vec<u8>,  // 下一跳（可能是 IPv6）
-        nlri: Vec<Vec<u8>>, // 多协议 NLRI
-    },
-    /// MP_UNREACH_NLRI（可选）：多协议不可达 NLRI（RFC 4760）
-    MpUnreachNlri {
-        afi: u16,
-        safi: u8,
-        nlri: Vec<Vec<u8>>,
-    },
+    /// AGGREGATOR：聚合者信息
+    Aggregator { as_number: u32, router_id: CoreIpv4Addr },
+    /// COMMUNITY：BGP 团体
+    Community { communities: Vec<u32> },
+    /// MP_REACH_NLRI：多协议可达 NLRI
+    MpReachNlri { afi: u16, safi: u8, next_hop: Vec<u8>, nlri: Vec<Vec<u8>> },
+    /// MP_UNREACH_NLRI：多协议不可达 NLRI
+    MpUnreachNlri { afi: u16, safi: u8, nlri: Vec<Vec<u8>> },
 }
 
 /// BGP NOTIFICATION 报文
@@ -194,70 +160,26 @@ pub struct BgpNotification {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum BgpErrorCode {
-    /// 消息头错误
     MessageHeaderError = 1,
-    /// OPEN 消息错误
     OpenMessageError = 2,
-    /// UPDATE 消息错误
     UpdateMessageError = 3,
-    /// 保活定时器超时
     HoldTimerExpired = 4,
-    /// 有限状态机错误
     FiniteStateMachineError = 5,
-    /// 停止
     Cease = 6,
 }
 
-/// 消息头错误子码
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum MessageHeaderErrorSubcode {
-    ConnectionNotSynchronized = 1,
-    BadMessageLength = 2,
-    BadMessageType = 3,
-}
-
-/// OPEN 消息错误子码
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum OpenMessageErrorSubcode {
-    UnsupportedVersionNumber = 1,
-    BadPeerAs = 2,
-    BadBgpIdentifier = 3,
-    UnsupportedOptionalParameter = 4,
-    AuthenticationFailure = 5,
-    UnacceptableHoldTime = 6,
-    UnsupportedCapability = 7,
-}
-
-/// UPDATE 消息错误子码
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum UpdateMessageErrorSubcode {
-    MalformedAttributeList = 1,
-    UnrecognizedWellKnownAttribute = 2,
-    MissingWellKnownAttribute = 3,
-    AttributeFlagsError = 4,
-    AttributeLengthError = 5,
-    InvalidOriginAttribute = 6,
-    InvalidNextHopAttribute = 8,
-    OptionalAttributeError = 9,
-    InvalidNetworkField = 10,
-    MalformedAsPath = 11,
-}
-
-/// BGP KEEPALIVE 报文（仅包含头部，无数据）
+/// BGP KEEPALIVE 报文
 #[derive(Debug, Clone)]
 pub struct BgpKeepalive;
 
-/// BGP ROUTE-REFRESH 报文（RFC 2918）
+/// BGP ROUTE-REFRESH 报文
 #[derive(Debug, Clone)]
 pub struct BgpRouteRefresh {
-    /// 地址族标识（1=IPv4, 2=IPv6）
+    /// 地址族标识
     pub afi: u16,
-    /// 保留（必须为 0）
+    /// 保留
     pub reserved: u8,
-    /// 子地址族标识（1=Unicast, 2=Multicast）
+    /// 子地址族标识
     pub safi: u8,
 }
 

@@ -1,20 +1,16 @@
 // src/protocols/bgp/peer.rs
 //
-// BGP 对等体状态机和管理实现（精简版）
+// BGP 对等体状态机和管理（简化版）
 
 use std::net::IpAddr;
 use crate::protocols::bgp::config::BgpPeerConfig;
-use crate::protocols::bgp::error::Result;
 use crate::protocols::DEFAULT_HOLD_TIME;
 
-/// BGP 对等体状态（精简版）
+/// BGP 对等体状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BgpState {
-    /// 空闲状态
     Idle,
-    /// 连接中
     Connecting,
-    /// 已建立
     Established,
 }
 
@@ -29,7 +25,7 @@ impl BgpState {
     }
 }
 
-/// BGP 对等体（精简版）
+/// BGP 对等体
 #[derive(Debug, Clone)]
 pub struct BgpPeer {
     /// 对等体地址
@@ -56,40 +52,13 @@ impl BgpPeer {
         }
     }
 
-    /// 从配置创建对等体（简化版）
+    /// 从配置创建对等体
     pub fn from_config(config: &BgpPeerConfig, local_as: u32) -> Self {
         Self::new(config.address, local_as, config.remote_as)
     }
-
-    /// 获取对等体地址
-    pub fn peer_addr(&self) -> IpAddr {
-        self.peer_addr
-    }
-
-    /// 获取本地 AS
-    pub fn local_as(&self) -> u32 {
-        self.local_as
-    }
-
-    /// 获取远程 AS
-    pub fn remote_as(&self) -> u32 {
-        self.remote_as
-    }
-
-    /// 获取当前状态
-    pub fn state(&self) -> BgpState {
-        self.state
-    }
-
-    /// 状态转移
-    pub fn transition_to(&mut self, new_state: BgpState) {
-        println!("BGP: Peer {} state transition: {} -> {}",
-            self.peer_addr, self.state.name(), new_state.name());
-        self.state = new_state;
-    }
 }
 
-/// BGP 对等体管理器（精简版）
+/// BGP 对等体管理器
 #[derive(Debug, Clone)]
 pub struct BgpPeerManager {
     /// 本地 AS 号
@@ -111,9 +80,8 @@ impl BgpPeerManager {
     }
 
     /// 添加对等体
-    pub fn add_peer(&mut self, peer: BgpPeer) -> Result<()> {
+    pub fn add_peer(&mut self, peer: BgpPeer) {
         self.peers.push(peer);
-        Ok(())
     }
 
     /// 获取对等体数量

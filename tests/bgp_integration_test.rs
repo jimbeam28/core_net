@@ -3,7 +3,7 @@
 // 测试 BGP 协议的报文头部创建、Open报文
 
 use core_net::protocols::bgp::{
-    BgpHeader, BgpOpen, BGP_VERSION, BGP_MARKER_SIZE, BGP_MIN_MESSAGE_SIZE,
+    BgpHeader, BgpOpen, BGP_VERSION, BGP_MARKER_SIZE,
 };
 use core_net::interface::Ipv4Addr;
 use serial_test::serial;
@@ -19,19 +19,7 @@ fn test_bgp_header_creation() {
     assert_eq!(header.msg_type, 4);
 }
 
-// 测试2：BGP头部验证
-#[test]
-#[serial]
-fn test_bgp_header_validation() {
-    let header = BgpHeader::new(19, 4);
-    assert!(header.validate_length());
-
-    // 过短的头部
-    let short_header = BgpHeader::new(10, 4);
-    assert!(!short_header.validate_length());
-}
-
-// 测试3：BGP Open报文创建
+// 测试2：BGP Open报文创建
 #[test]
 #[serial]
 fn test_bgp_open_message() {
