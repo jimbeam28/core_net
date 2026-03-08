@@ -1,5 +1,18 @@
 # OSPF（Open Shortest Path First）协议详细设计文档
 
+> **实现状态：简化版 - 仅类型定义**
+>
+> 本协议模块当前仅保留了类型定义和常量，包括：
+> - 报文格式类型定义（Hello、DD、LSR、LSU、LSAck）
+> - LSA 类型定义（Router-LSA、Network-LSA、Summary-LSA、AS-External-LSA）
+> - 接口状态类型定义（Down、Loopback、Waiting、Point-to-Point、DR、BDR、Other）
+> - 邻居状态类型定义（Down、Attempt、Init、2-Way、ExStart、Exchange、Loading、Full）
+> - LSDB 数据结构类型
+> - SPF 算法类型定义
+> - DR/BDR 选举类型定义
+>
+> 内部算法实现、状态机转换、详细处理流程均已删除。
+
 ## 1. 协议概述
 
 ### 1.1 背景与历史

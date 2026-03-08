@@ -551,26 +551,16 @@ protocols/ospf/   # 共享核心模块
 └── checksum.rs   # 校验和计算
 ```
 
-**核心功能**：
-- OSPF 报文解析和封装（Hello、DD、LSR、LSU、LSAck）
-- LSA 类型支持（Router-LSA、Network-LSA、Summary-LSA、AS-External-LSA）
-- 接口状态机（Down、Loopback、Waiting、Point-to-Point、DR、BDR、Other）
-- 邻居状态机（Down、Attempt、Init、2-Way、ExStart、Exchange、Loading、Full）
-- 链路状态数据库（LSDB）管理
-- SPF 算法实现（Dijkstra）
-- DR/BDR 选举算法
-- LSA 洪泛机制
-- 定时器管理（Hello、Dead、Poll、Retransmit）
+**实现状态：简化版 - 仅类型定义**
 
-**已实现**：
-- ✅ 报文解析/封装
-- ✅ LSA 类型
-- ✅ 接口状态机
-- ✅ 邻居状态机
-- ✅ LSDB 管理
-- ✅ SPF 算法
-- ✅ DR/BDR 选举
-- ✅ 定时器管理
+**已定义的类型：**
+- ✅ OSPF 报文结构（Hello、DD、LSR、LSU、LSAck）
+- ✅ LSA 类型（Router-LSA、Network-LSA、Summary-LSA、AS-External-LSA）
+- ✅ 接口状态类型（Down、Loopback、Waiting、Point-to-Point、DR、BDR、Other）
+- ✅ 邻居状态类型（Down、Attempt、Init、2-Way、ExStart、Exchange、Loading、Full）
+- ✅ LSDB 数据结构
+- ✅ SPF 算法类型定义
+- ✅ DR/BDR 选举类型定义
 
 ---
 
@@ -589,22 +579,15 @@ protocols/ospf3/
 └── process.rs   # 报文处理
 ```
 
-**核心功能**：
-- OSPFv3 报文解析和封装（Hello、DD、LSR、LSU、LSAck）
-- OSPFv3 LSA 类型（Router-LSA、Network-LSA、Inter-Area-Prefix-LSA、Inter-Area-Router-LSA、AS-External-LSA、Link-LSA、Intra-Area-Prefix-LSA）
-- IPv6 链路本地地址支持
-- 接口状态机（与 OSPFv2 类似）
-- 邻居状态机（与 OSPFv2 类似）
-- 链路状态数据库管理
-- 定时器管理
+**实现状态：简化版 - 仅类型定义**
 
-**已实现**：
-- ✅ 报文解析/封装
-- ✅ LSA 类型
-- ✅ 接口状态机
-- ✅ 邻居状态机
-- ✅ LSDB 管理
-- ✅ 定时器管理
+**已定义的类型：**
+- ✅ OSPFv3 报文结构（Hello、DD、LSR、LSU、LSAck）
+- ✅ OSPFv3 LSA 类型（Router-LSA、Network-LSA、Inter-Area-Prefix-LSA、Inter-Area-Router-LSA、AS-External-LSA、Link-LSA、Intra-Area-Prefix-LSA）
+- ✅ IPv6 链路本地地址类型
+- ✅ 接口状态类型（与 OSPFv2 类似）
+- ✅ 邻居状态类型（与 OSPFv2 类似）
+- ✅ 链路状态数据库类型
 
 ---
 
@@ -623,22 +606,15 @@ protocols/bgp/
 └── process.rs   # 报文处理
 ```
 
-**核心功能**：
-- BGP-4 报文解析和封装（Open、Update、Notification、Keepalive、Route-Refresh）
-- BGP 状态机（Idle、Connect、Active、OpenSent、OpenConfirm、Established）
-- 对等体管理（IBGP/EBGP）
-- 路径属性处理（AS_PATH、NEXT_HOP、LOCAL_PREF、MED 等）
-- RIB 管理（Adj-RIB-In、Loc-RIB、Adj-RIB-Out）
-- 路由策略和过滤
-- 定时器管理（Connect Retry、Keepalive、Hold）
-- 路由通告和撤销
+**实现状态：简化版 - 仅类型定义**
 
-**已实现**：
-- ✅ 报文解析/封装
-- ✅ 状态机
-- ✅ 对等体管理
-- ✅ RIB 管理
-- ✅ 定时器管理
+**已定义的类型：**
+- ✅ BGP-4 报文结构（Open、Update、Notification、Keepalive、Route-Refresh）
+- ✅ BGP 状态机类型（Idle、Connect、Active、OpenSent、OpenConfirm、Established）
+- ✅ 对等体类型（IBGP/EBGP）
+- ✅ 路径属性类型（AS_PATH、NEXT_HOP、LOCAL_PREF、MED 等）
+- ✅ RIB 数据结构（Adj-RIB-In、Loc-RIB、Adj-RIB-Out）
+- ✅ 定时器类型（Connect Retry、Keepalive、Hold）
 
 ---
 
@@ -660,47 +636,18 @@ protocols/ipsec/
     └── processor.rs # IKE 协议处理逻辑
 ```
 
-**核心功能**：
-- AH 协议实现（RFC 4302）
-  - 头部解析和封装
-  - ICV (Integrity Check Value) 计算和验证
-  - 抗重放保护
-- ESP 协议实现（RFC 4303）
-  - 头部和尾部解析/封装
-  - 加密/解密（简化模拟实现）
-  - ICV 计算和验证
-  - 载荷填充处理
-- SA 和 SPD 管理
-  - 安全关联生命周期（Larval、Mature、Dying、Dead）
-  - 加密/认证算法支持（AES、3DES、HMAC-SHA、HMAC-MD5）
-  - 流量选择器
-  - 重放窗口（滑动窗口算法）
-  - `SaConfig` 构建器模式（简化 SA 创建）
-- 传输模式和隧道模式
-- 恒定时间比较（防时序攻击）
-- IKEv2 协议实现（RFC 7296）
-  - IKE_SA_INIT 交换（密钥协商）
-  - IKE_AUTH 交换（认证和 CHILD_SA 建立）
-  - CREATE_CHILD_SA 交换（额外 SA 创建/重协商）
-  - INFORMATIONAL 交换（通知和 SA 管理）
-  - IKE 消息解析和封装
-  - IKE SA 状态机（发起方/响应方）
-  - Payload 类型（SA、KE、IDi/IDr、CERT、AUTH、Nonce、Notify、Delete、TSi/TSr）
-  - 密钥材料派生（SK_d、SK_ai、SK_ar、SK_ei、SK_er、SK_pi、SK_pr）
-  - UDP 端口 500/4500 支持
-- AH 报文解析/封装
-- ESP 报文解析/封装
-- SA/SPD 管理
-- 重放窗口保护
-- 传输模式和隧道模式解封装
-- IPv4 入站报文处理
-- SystemContext 集成
-- 加密/认证算法（简化模拟实现）
-- IKEv2 报文解析/封装
-- IKEv2 状态机
-- IKEv2 Payload 类型
-- 密钥材料派生（PRF+、SKEYSEED、KEYMAT）
-- UDP 端口 500/4500 集成
+**实现状态：简化版 - 仅类型定义**
+
+**已定义的类型：**
+- ✅ AH 协议报文类型定义（头部格式、ICV 类型）
+- ✅ ESP 协议报文类型定义（头部、尾部、ICV 类型）
+- ✅ SA 类型定义（生命周期、加密/认证算法、重放窗口）
+- ✅ SPD 类型定义（流量选择器、策略动作）
+- ✅ IKEv2 消息类型定义（头部格式、交换类型）
+- ✅ IKEv2 Payload 类型定义（SA、KE、IDi/IDr、CERT、AUTH、Nonce、Notify、Delete、TSi/TSr）
+- ✅ IKE SA 状态机类型定义（Idle、InitSent、AuthSent、Established、Deleted）
+- ✅ 密钥材料类型定义（SK_d、SK_ai、SK_ar、SK_ei、SK_er、SK_pi、SK_pr）
+- ✅ 加密/认证算法类型定义
 
 ---
 
@@ -1076,9 +1023,9 @@ pub struct RingQueue<T> {
 - [ICMPv6 协议设计](protocols/icmpv6.md) - ICMPv6 协议实现
 - [TCP 协议设计](protocols/tcp.md) - TCP 协议实现
 - [UDP 协议设计](protocols/udp.md) - UDP 协议实现
-- [OSPFv2 协议设计](protocols/ospf.md) - OSPFv2 协议实现
-- [OSPFv3 协议设计](protocols/ospfv3.md) - OSPFv3 协议实现
-- [BGP 协议设计](protocols/bgp.md) - BGP-4 协议实现
-- [IPsec 协议设计](protocols/ipsec.md) - IPsec 协议实现（AH/ESP、SA/SPD）
+- [OSPFv2 协议设计](protocols/ospf.md) - OSPFv2 协议类型定义（简化版）
+- [OSPFv3 协议设计](protocols/ospfv3.md) - OSPFv3 协议类型定义（简化版）
+- [BGP 协议设计](protocols/bgp.md) - BGP-4 协议类型定义（简化版）
+- [IPsec 协议设计](protocols/ipsec.md) - IPsec 协议类型定义（简化版）
 - [路由模块设计](route.md) - 路由表和最长前缀匹配
 - [Socket API 设计](socket.md) - Socket API 实现

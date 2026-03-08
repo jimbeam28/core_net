@@ -1,5 +1,17 @@
 # BGP（边界网关协议）详细设计文档
 
+> **实现状态：简化版 - 仅类型定义**
+>
+> 本协议模块当前仅保留了类型定义和常量，包括：
+> - 报文格式类型定义（Open、Update、Notification、Keepalive、Route-Refresh）
+> - 状态机类型定义（Idle、Connect、Active、OpenSent、OpenConfirm、Established）
+> - 对等体类型定义（IBGP/EBGP）
+> - 路径属性类型定义（AS_PATH、NEXT_HOP、LOCAL_PREF、MED 等）
+> - RIB 数据结构类型（Adj-RIB-In、Loc-RIB、Adj-RIB-Out）
+> - 定时器类型定义（Connect Retry、Keepalive、Hold）
+>
+> 内部算法实现、状态机转换、详细处理流程均已删除。
+
 ## 1. 协议概述
 
 ### 1.1 背景与历史

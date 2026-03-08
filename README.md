@@ -108,7 +108,7 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 - IPv6 - 头部解析、协议分发、分片与重组、扩展头支持
 - ICMP - Echo Request/Reply、Destination Unreachable、Time Exceeded
 - ICMPv6 - Echo Request/Reply、邻居发现(NDP)
-- IPsec (AH/ESP/IKEv2) - SA/SPD管理、重放窗口保护、传输/隧道模式、入站处理、密钥交换
+- IPsec (AH/ESP/IKEv2) - 报文格式定义、类型定义（SA/SPD、重放窗口）
 - 路由 - IPv4/IPv6路由表、最长前缀匹配
 
 ### 传输层
@@ -119,10 +119,10 @@ CoreNet 是一个**纯模拟**的网络协议栈实现，支持完整的 TCP/IP 
 - Socket API - POSIX风格API（socket、bind、listen、accept、connect、send、sendto、recv、recvfrom、close）
 
 ### 动态路由协议
-- OSPFv2 (RFC 2328) - Hello/DD/LSR/LSU/LSAck报文、LSA类型、接口/邻居状态机、LSDB、SPF算法、DR/BDR选举
-- OSPFv3 (RFC 5340) - OSPF for IPv6，支持链路本地地址、OSPFv3 LSA类型
-- BGP-4 (RFC 4271) - Open/Update/Notification/Keepalive报文、状态机、对等体管理、RIB、路径属性
-- IKEv2 (RFC 7296) - IKE_SA_INIT、IKE_AUTH、CREATE_CHILD_SA、INFORMATIONAL 交换
+- OSPFv2 (RFC 2328) - 报文格式定义、类型定义（LSA、接口/邻居状态）
+- OSPFv3 (RFC 5340) - 报文格式定义、类型定义（OSPFv3 LSA类型）
+- BGP-4 (RFC 4271) - 报文格式定义、类型定义（消息类型、路径属性、RIB）
+- IKEv2 (RFC 7296) - 报文格式定义、类型定义（Payload类型、状态机）
 
 ## 目录结构
 
@@ -268,12 +268,15 @@ core_net/
 - `icmpv6` - ICMPv6 协议（Echo、NDP、错误报告）
 - `udp` - UDP 协议、UdpSocket、UdpPortManager（RFC 768）
 - `tcp` - TCP 协议、TcpSocket、连接管理、拥塞控制（RFC 793, RFC 9293）
-- `ospf` - OSPF 共享核心模块（SPF算法、DR/BDR选举、LSA洪泛）
-- `ospf2` - OSPFv2 协议（RFC 2328）
-- `ospf3` - OSPFv3 协议（RFC 5340）
-- `bgp` - BGP-4 协议（RFC 4271）
-- `ipsec` - IPsec 协议（RFC 4301, 4302, 4303）- AH/ESP、SA/SPD管理、重放窗口保护
-- `ipsec/ikev2` - IKEv2 协议（RFC 7296）- 密钥交换、状态机、Payload类型
+- `ospf` - OSPF 共享核心模块（类型定义、常量）
+- `ospf2` - OSPFv2 协议（报文格式定义、类型定义）
+- `ospf3` - OSPFv3 协议（报文格式定义、类型定义）
+- `bgp` - BGP-4 协议（报文格式定义、类型定义）
+- `ipsec` - IPsec 协议（报文格式定义、类型定义）
+  - SA/SPD 类型定义
+  - 重放窗口保护类型定义
+  - IKEv2 报文格式定义
+  - 加密/认证算法类型定义
 
 ### socket
 POSIX风格 Socket API 实现（应用层网络接口）：

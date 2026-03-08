@@ -1,5 +1,20 @@
 # IPsec (IP Security) 协议详细设计文档
 
+> **实现状态：简化版 - 仅类型定义**
+>
+> 本协议模块当前仅保留了类型定义和常量，包括：
+> - AH 协议报文类型定义（头部格式、ICV 类型）
+> - ESP 协议报文类型定义（头部、尾部、ICV 类型）
+> - SA 类型定义（生命周期、加密/认证算法、重放窗口）
+> - SPD 类型定义（流量选择器、策略动作）
+> - IKEv2 消息类型定义（头部格式、交换类型）
+> - IKEv2 Payload 类型定义（SA、KE、IDi/IDr、CERT、AUTH、Nonce、Notify、Delete、TSi/TSr）
+> - IKE SA 状态机类型定义（Idle、InitSent、AuthSent、Established、Deleted）
+> - 密钥材料类型定义（SK_d、SK_ai、SK_ar、SK_ei、SK_er、SK_pi、SK_pr）
+> - 加密/认证算法类型定义
+>
+> 内部算法实现、状态机转换、详细处理流程均已删除。
+
 ## 1. 协议概述
 
 ### 1.1 背景与历史
