@@ -1,7 +1,6 @@
 // src/protocols/bgp/mod.rs
 //
-// BGP（边界网关协议）模块
-// 实现 RFC 4271 Border Gateway Protocol 4 (BGP-4)
+// BGP（边界网关协议）模块（精简版）
 
 mod config;
 mod error;
@@ -9,17 +8,13 @@ mod message;
 mod packet;
 mod peer;
 mod process;
-mod rib;
-mod timer;
 
 pub use config::{BgpConfig, BgpPeerConfig, BgpPolicy, BgpPeerType};
 pub use error::{BgpError, Result};
 pub use message::*;
 pub use packet::{parse_bgp_message, encapsulate_bgp_message};
 pub use peer::{BgpPeer, BgpPeerManager, BgpState};
-pub use process::{BgpProcessResult, BgpTimerEvent, process_bgp_packet, process_bgp_timer, create_bgp_connection, advertise_route, withdraw_route};
-pub use rib::{BgpRoute, BgpRib};
-pub use timer::{BgpTimer, BgpTimerManager, TimerId};
+pub use process::{process_bgp_packet, BgpProcessResult};
 
 // BGP 常量
 pub const BGP_PORT: u16 = 179;

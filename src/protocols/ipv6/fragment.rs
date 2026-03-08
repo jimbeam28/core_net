@@ -1,10 +1,50 @@
 // src/protocols/ipv6/fragment.rs
 //
-// IPv6 分片与重组实现
+// IPv6 分片与重组实现（精简版）
 
 use crate::protocols::Ipv6Addr;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+
+// --- 分片头（从 extension.rs 简化迁移）---
+
+/// IPv6 分片扩展头（简化版）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FragmentHeader {
+    /// 下一个头部类型
+    pub next_header: u8,
+    /// 保留字段（8位）
+    pub reserved: u8,
+    /// 分片偏移量（13位）+ 保留位（2位）+ M标志（1位）
+    pub fragment_offset_and_flags: u16,
+    /// 分片标识符
+    pub identification: u32,
+}
+
+impl FragmentHeader {
+    /// 创建新的分片头
+    pub fn new(next_header: u8, offset: u16, more_fragments: bool, identification: u32) -> Self {
+        let m_flag = if more_fragments { 1 } else { 0 };
+        let fragment_offset_and_flags = (offset << 3) | m_flag;
+
+        Self {
+            next_header,
+            reserved: 0,
+            fragment_offset_and_flags,
+            identification,
+        }
+    }
+
+    /// 序列化为字节
+    pub fn as_bytes(&self) -> [u8; 8] {
+        let mut bytes = [0u8; 8];
+        bytes[0] = self.next_header;
+        bytes[1] = self.reserved;
+        bytes[2..4].copy_from_slice(&self.fragment_offset_and_flags.to_be_bytes());
+        bytes[4..8].copy_from_slice(&self.identification.to_be_bytes());
+        bytes
+    }
+}
 
 // --- 分片重组相关常量 ---
 
@@ -450,7 +490,7 @@ pub fn create_fragments(
         let more_fragments = pos + chunk_size < fragmentable.len();
 
         // 构造分片头
-        let frag_header = super::extension::FragmentHeader::new(
+        let frag_header = FragmentHeader::new(
             next_header,
             offset,
             more_fragments,
@@ -462,7 +502,7 @@ pub fn create_fragments(
             per_fragment_unfragmentable + per_fragment_header + chunk_size
         );
         fragment_data.extend_from_slice(unfragmentable);
-        fragment_data.extend_from_slice(&frag_header.to_bytes());
+        fragment_data.extend_from_slice(&frag_header.as_bytes());
         fragment_data.extend_from_slice(&fragmentable[pos..pos + chunk_size]);
 
         fragments.push(FragmentPacket {

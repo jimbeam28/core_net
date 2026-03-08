@@ -97,6 +97,9 @@ pub enum OspfError {
         timer_name: String,
     },
 
+    /// 锁错误
+    LockError,
+
     /// 其他错误
     Other {
         reason: String,
@@ -188,6 +191,9 @@ impl fmt::Display for OspfError {
             }
             Self::TimeoutError { timer_name } => {
                 write!(f, "Timeout error: timer '{}'", timer_name)
+            }
+            Self::LockError => {
+                write!(f, "Lock error")
             }
             Self::Other { reason } => {
                 write!(f, "OSPF error: {}", reason)

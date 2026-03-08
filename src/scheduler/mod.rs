@@ -694,7 +694,7 @@ mod tests {
 
         // ARP 处理可能生成响应（需要全局缓存初始化）
         // 这里只验证不崩溃
-        let _txq_len = txq.len();
+        let _ = txq.len();
     }
 
     #[test]
@@ -1012,7 +1012,6 @@ mod tests {
 
         // 验证数据从 RxQ 流向处理器
         let packet = create_test_packet();
-        let _original_data = packet.as_slice().to_vec();
         rxq.enqueue(packet).unwrap();
 
         scheduler.run(&mut rxq, &mut txq).unwrap();

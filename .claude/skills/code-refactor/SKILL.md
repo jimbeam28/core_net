@@ -21,6 +21,7 @@ allowed-tools: Read, Write, Edit, AskUserQuestion, Glob, Grep, Bash, TodoWrite
    - 返回值说明
    - 函数内部关键流程添加必要的简短注释
 7. **消除编译错误和警告**：执行 `cargo build`/`cargo test`/`cargo clippy`，消除所有 error 和 warning。对于 unused 系列或 deprecated 等无用代码，直接删除，而不是加 `#[allow(...)]` 或 `#[deprecated]` 属性
+8. **删除未使用变量（不加下划线前缀）**：对于未使用的变量，直接删除整行代码，而不是添加 `_` 前缀。例如：`let _unused = xxx;` 应直接删除，而不是改为 `let _unused = xxx;`
 
 ## 执行流程
 

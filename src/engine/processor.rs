@@ -463,12 +463,12 @@ impl PacketProcessor {
             iface.ipv6_addr()
         };
 
-        // 处理 OSPFv3 报文，使用 SystemContext
+        // 处理 OSPFv3 报文（精简版）
         let result = ospf3::process_ospfv3_packet(
             &mut packet,
             ifindex,
-            ipv6_hdr.source_addr,
             &self.context,
+            self.verbose,
         ).map_err(|e| ProcessError::ParseError(format!("OSPFv3处理失败: {}", e)))?;
 
         match result {
@@ -488,33 +488,6 @@ impl PacketProcessor {
                 // 封装为以太网帧
                 let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IPV6, &ipv6_packet)?;
                 Ok(Some(pkt))
-            }
-            ospf3::Ospfv3ProcessResult::FloodLsa { .. } => {
-                // TODO: 实现 LSA 洪泛
-                if self.verbose {
-                    println!("OSPFv3: FloodLsa - 暂未实现");
-                }
-                Ok(None)
-            }
-            ospf3::Ospfv3ProcessResult::ScheduleSpfCalculation => {
-                if self.verbose {
-                    println!("OSPFv3: 触发 SPF 计算");
-                }
-                // OSPFv3 SPF 计算
-                // TODO: 实现 IPv6 路由同步
-                if let Ok(_ospf_mgr) = self.context.ospf_manager.lock() {
-                    // 运行 SPF 计算（IPv6 版本待实现）
-                    if self.verbose {
-                        println!("OSPFv3: SPF 计算暂未完整实现");
-                    }
-                }
-                Ok(None)
-            }
-            ospf3::Ospfv3ProcessResult::DatabaseSynced => {
-                if self.verbose {
-                    println!("OSPFv3: DatabaseSynced");
-                }
-                Ok(None)
             }
         }
     }
@@ -642,13 +615,9 @@ impl PacketProcessor {
                 let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
                 Ok(Some(pkt))
             }
-            udp::UdpProcessResult::Delivered(local_port, src_addr, src_port, data) => {
-                // 尝试将数据分发到 Socket
-                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
-                    let _ = socket_mgr.deliver_udp_data(local_port, data, src_addr, src_port);
-                }
+            udp::UdpProcessResult::Delivered(local_port, _src_addr, _src_port, data) => {
                 if self.verbose {
-                    println!("UDP: 数据已交付给应用层");
+                    println!("UDP: Data delivered to port {} ({} bytes)", local_port, data.len());
                 }
                 Ok(None)
             }
@@ -703,25 +672,20 @@ impl PacketProcessor {
                     ip_hdr.source_addr.bytes[2],
                     ip_hdr.source_addr.bytes[3],
                 ));
-                let local_addr = std::net::IpAddr::V4(std::net::Ipv4Addr::new(
-                    our_ip.bytes[0],
-                    our_ip.bytes[1],
-                    our_ip.bytes[2],
-                    our_ip.bytes[3],
-                ));
+                // 本地地址（当前未使用）
+                // let local_addr = std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                //     our_ip.bytes[0], our_ip.bytes[1], our_ip.bytes[2], our_ip.bytes[3],
+                // ));
 
-                match bgp::process_bgp_packet(bgp_data, source_addr, local_addr, &self.context) {
+                match bgp::process_bgp_packet(bgp_data, source_addr, &self.context, self.verbose) {
                     Ok(bgp_result) => {
                         // 根据 BGP 处理结果返回
                         match bgp_result {
                             bgp::BgpProcessResult::NoReply => {
                                 // BGP 处理完成，但无需响应
-                                // 仍然需要让 TCP 处理器处理连接状态
                             }
-                            bgp::BgpProcessResult::SendData(bgp_bytes) |
                             bgp::BgpProcessResult::Reply(bgp_bytes) => {
                                 // 需要发送 BGP 响应，通过 TCP 封装
-                                // 这里简化处理：直接返回 IP 数据包
                                 let ip_reply = ip::Ipv4Header::new(
                                     our_ip,
                                     ip_hdr.source_addr,
@@ -734,21 +698,16 @@ impl PacketProcessor {
                                 let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
                                 return Ok(Some(pkt));
                             }
-                            bgp::BgpProcessResult::CloseConnection(data) => {
-                                // 发送 NOTIFICATION 并关闭连接
-                                let ip_reply = ip::Ipv4Header::new(
-                                    our_ip,
-                                    ip_hdr.source_addr,
-                                    ip::IP_PROTO_TCP,
-                                    data.len(),
-                                );
-                                let mut ip_packet = ip_reply.to_bytes();
-                                ip_packet.extend_from_slice(&data);
-
-                                let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
-                                return Ok(Some(pkt));
+                            bgp::BgpProcessResult::ConnectionEstablished => {
+                                if self.verbose {
+                                    println!("BGP: 连接已建立");
+                                }
                             }
-                            _ => {}
+                            bgp::BgpProcessResult::ConnectionClosed => {
+                                if self.verbose {
+                                    println!("BGP: 连接已关闭");
+                                }
+                            }
                         }
                     }
                     Err(e) => {
@@ -788,24 +747,15 @@ impl PacketProcessor {
                 let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
                 Ok(Some(pkt))
             }
-            tcp::TcpProcessResult::Delivered(conn_id, data) => {
+            tcp::TcpProcessResult::Delivered(_conn_id, data) => {
                 if self.verbose {
-                    println!("TCP: 数据已交付给应用层");
-                }
-                // 尝试将数据分发到 Socket
-                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
-                    let _ = socket_mgr.deliver_tcp_data(&conn_id, data);
+                    println!("TCP: Data delivered ({} bytes)", data.len());
                 }
                 Ok(None)
             }
-            tcp::TcpProcessResult::ReplyAndDelivered(conn_id, tcp_bytes, data) => {
+            tcp::TcpProcessResult::ReplyAndDelivered(_conn_id, tcp_bytes, _data) => {
                 if self.verbose {
-                    println!("TCP: 发送响应并将数据交付给应用层");
-                }
-
-                // 尝试将数据分发到 Socket
-                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
-                    let _ = socket_mgr.deliver_tcp_data(&conn_id, data);
+                    println!("TCP: Send reply and deliver data");
                 }
 
                 // 封装为 IP 数据报
@@ -822,23 +772,15 @@ impl PacketProcessor {
                 let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
                 Ok(Some(pkt))
             }
-            tcp::TcpProcessResult::ConnectionEstablished(id) => {
+            tcp::TcpProcessResult::ConnectionEstablished(_id) => {
                 if self.verbose {
-                    println!("TCP: 连接已建立 {:?}", id);
-                }
-                // 通知 Socket 层连接已建立
-                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
-                    let _ = socket_mgr.notify_tcp_event(&id, "established");
+                    println!("TCP: Connection established");
                 }
                 Ok(None)
             }
-            tcp::TcpProcessResult::ConnectionClosed(id) => {
+            tcp::TcpProcessResult::ConnectionClosed(_id) => {
                 if self.verbose {
-                    println!("TCP: 连接已关闭 {:?}", id);
-                }
-                // 通知 Socket 层连接已关闭
-                if let Ok(mut socket_mgr) = self.context.socket_mgr.lock() {
-                    let _ = socket_mgr.notify_tcp_event(&id, "closed");
+                    println!("TCP: Connection closed");
                 }
                 Ok(None)
             }
@@ -859,12 +801,12 @@ impl PacketProcessor {
                 ip_hdr.source_addr, ip_hdr.dest_addr);
         }
 
-        // 处理 OSPF 报文，使用 SystemContext
+        // 处理 OSPF 报文（精简版）
         let result = ospf2::process_ospfv2_packet(
             &mut packet,
             ifindex,
-            ip_hdr.source_addr,
             &self.context,
+            self.verbose,
         ).map_err(|e| ProcessError::ParseError(format!("OSPF处理失败: {:?}", e)))?;
 
         // 根据处理结果返回
@@ -887,53 +829,6 @@ impl PacketProcessor {
                 // 封装为以太网帧
                 let pkt = self.build_ethernet_response(ifindex, eth_hdr.src_mac, crate::protocols::ETH_P_IP, &ip_packet)?;
                 Ok(Some(pkt))
-            }
-            ospf2::OspfProcessResult::ScheduleSpfCalculation => {
-                if self.verbose {
-                    println!("OSPF: 触发 SPF 计算");
-                }
-                // 运行 SPF 计算并同步到路由表
-                use crate::protocols::ospf;
-
-                // 获取 LSDB 并构建 LSA 描述符
-                let lsa_descriptors = {
-                    let ospf_mgr = self.context.ospf_manager.lock()
-                        .map_err(|e| ProcessError::ParseError(format!("锁定 OSPF 管理器失败: {}", e)))?;
-                    ospf_mgr.v2_lsdb.build_lsa_descriptors()
-                };
-
-                // 获取路由器 ID
-                let router_id = {
-                    let ospf_mgr = self.context.ospf_manager.lock()
-                        .map_err(|e| ProcessError::ParseError(format!("锁定 OSPF 管理器失败: {}", e)))?;
-                    Ipv4Addr::from_u32(ospf_mgr.router_id)
-                };
-
-                // 运行 SPF 计算
-                let spf_result = ospf::run_spf_calculation(router_id, &lsa_descriptors);
-
-                if spf_result.success {
-                    // 同步到路由表
-                    if let Ok(mut route_table) = self.context.route_table.lock() {
-                        let area_id = Ipv4Addr::new(0, 0, 0, 0); // 区域 0 (骨干区域)
-                        if let Err(e) = ospf::sync_spf_routes_to_route_table(
-                            &spf_result,
-                            &mut route_table,
-                            area_id,
-                        ) {
-                            if self.verbose {
-                                println!("OSPF: 同步路由表失败: {}", e);
-                            }
-                        } else if self.verbose {
-                            println!("OSPF: SPF 计算完成，已同步 {} 条路由", spf_result.routes.len());
-                        }
-                    }
-                }
-                Ok(None)
-            }
-            ospf2::OspfProcessResult::FloodLsa {..} | ospf2::OspfProcessResult::DatabaseSynced => {
-                // 这些结果类型不需要立即响应
-                Ok(None)
             }
         }
     }

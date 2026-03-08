@@ -126,11 +126,9 @@ pub fn is_vlan_tpid(ether_type: u16) -> bool {
 /// - 读取并返回内层 EtherType
 pub fn process_vlan_packet(packet: &mut Packet) -> Result<VlanProcessResult, VlanError> {
     // 检测外层 VLAN 标签
-    let tpid_opt = has_vlan_tag(packet);
-    if tpid_opt.is_none() {
+    if has_vlan_tag(packet).is_none() {
         return Err(VlanError::ParseError("No VLAN tag detected".to_string()));
     }
-    let _tpid = tpid_opt.unwrap();
 
     // 跳过 TPID (2字节)，然后读取 TCI
     if !packet.skip(2) {

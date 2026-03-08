@@ -90,12 +90,10 @@ impl EthernetHeader {
                 ETH_P_8021Q | ETH_P_8021AD => {
                     // VLAN 标签格式：TPCI (2字节) + TCI (2字节)
                     // TCI 包含：PCP (3位) + DEI (1位) + VID (12位)
-                    let vlan_tag_bytes = packet.read(4)
-                        .ok_or_else(|| CoreError::parse_error("读取VLAN标签失败"))?;
-
-                    // 提取 VLAN ID (低 12 位)
-                    // VLAN ID 的设置统一由 VLAN 模块处理
-                    let _vid = u16::from_be_bytes([vlan_tag_bytes[2], vlan_tag_bytes[3]]) & 0x0FFF;
+                    // 跳过 VLAN 标签 (4字节)，VID 由 VLAN 模块处理
+                    if !packet.skip(4) {
+                        return Err(CoreError::parse_error("读取VLAN标签失败"));
+                    }
 
                     // 读取实际的协议类型
                     let next_ether_type_bytes = packet.read(2)

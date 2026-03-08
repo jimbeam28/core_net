@@ -183,7 +183,7 @@ fn parse_capabilities(data: &[u8]) -> Result<Vec<BgpCapability>> {
                 // Multi-Protocol (MP-BGP)
                 if cap_len >= 4 {
                     let afi = u16::from_be_bytes([cap_data[0], cap_data[1]]);
-                    let _reserved = cap_data[2];
+                    // reserved 字段 (cap_data[2]) 被忽略
                     let safi = cap_data[3];
                     BgpCapability::MultiProtocol { afi, safi }
                 } else {

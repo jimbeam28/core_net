@@ -1,9 +1,8 @@
 // src/protocols/ospf/mod.rs
 //
-// OSPF (Open Shortest Path First) 协议核心共享模块
-// 包含 OSPFv2 和 OSPFv3 共享的核心逻辑
+// OSPF (Open Shortest Path First) 协议核心共享模块（精简版）
 
-// SPF 算法和路由计算
+// SPF 算法和路由计算（简化版）
 pub mod spf;
 
 // 共享类型定义
@@ -12,29 +11,10 @@ pub mod types;
 // 配置
 pub mod config;
 
-// OSPF 管理器
-pub mod manager;
-
-// LSA 洪泛机制
-pub mod flooding;
-
-// DR/BDR 选举算法
-pub mod election;
-
-// 邻居共享逻辑
-pub mod neighbor;
-
-// 接口共享逻辑
-pub mod interface;
-
 // 校验和计算
 pub mod checksum;
 
-pub use spf::{
-    SpfNode, SpfVertex, RouteEntry, RouteType,
-    run_spf_calculation, sync_spf_routes_to_route_table,
-};
-
+// 简化导出
 pub use types::{
     InterfaceState, NeighborState, InterfaceType,
     LsaSequenceNumber, OspfOptions,
@@ -46,25 +26,17 @@ pub use config::{
     RETRANSMIT_INTERVAL_DEFAULT, TRANSMIT_DELAY_DEFAULT,
 };
 
-pub use manager::{
-    OspfManager, OspfTimerManager, OspfTimer, OspfTimerType,
-    OspfTimerEvent, InterfaceTimers, NeighborTimers,
-};
+// 简化版 OSPF 管理器（仅包含基础信息）
+#[derive(Debug, Clone)]
+pub struct OspfManager {
+    pub router_id: u32,
+}
 
-pub use flooding::{LsaFlooder, FloodResult};
-
-pub use election::{DrBdrElection, ElectionResult};
-
-// 共享逻辑模块导出
-pub use neighbor::{
-    OspfNeighborCommon, SharedNeighborTimers, DdExchangeState,
-    LsaRequestManager, LsaKey,
-};
-
-pub use interface::{
-    OspfInterfaceConstants, SharedInterfaceTimers, DrBdrState,
-    HelloValidation, SharedInterfaceConfig, OspfInterfaceCommon,
-};
+impl OspfManager {
+    pub fn new(router_id: u32) -> Self {
+        Self { router_id }
+    }
+}
 
 pub use checksum::{
     calculate_fletcher_checksum, verify_fletcher_checksum, update_checksum,
@@ -77,20 +49,12 @@ pub use checksum::{
 pub const IP_PROTO_OSPF: u8 = 89;
 
 /// OSPF 组播地址 - AllSPFRouters
-pub const OSPF_ALL_SPF_ROUTERS: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 5);
+pub const OSPF_ALL_SPF_ROUTERS: crate::protocols::Ipv4Addr =
+    crate::protocols::Ipv4Addr::new(224, 0, 0, 5);
 
 /// OSPF 组播地址 - AllDRouters
-pub const OSPF_ALL_D_ROUTERS: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 6);
-
-/// OSPFv3 组播地址 - AllSPFRouters (IPv6)
-pub fn ospfv3_all_spf_routers() -> Ipv6Addr {
-    Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 5)
-}
-
-/// OSPFv3 组播地址 - AllDRouters (IPv6)
-pub fn ospfv3_all_d_routers() -> Ipv6Addr {
-    Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 6)
-}
+pub const OSPF_ALL_D_ROUTERS: crate::protocols::Ipv4Addr =
+    crate::protocols::Ipv4Addr::new(224, 0, 0, 6);
 
 /// OSPF 报文类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +101,3 @@ impl From<OspfType> for u8 {
         t as u8
     }
 }
-
-// 重新导出 common 类型
-use crate::common::{Ipv4Addr, Ipv6Addr};

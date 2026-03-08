@@ -435,8 +435,6 @@ mod tests {
 
     #[test]
     fn test_manager_queue_capacity() {
-        let _manager = InterfaceManager::new(512, 1024);
-
         // 验证队列容量设置（通过创建接口间接验证）
         let config = create_test_config("eth0", [192, 168, 1, 100]);
         let mut manager_with_iface = InterfaceManager::new(512, 1024);

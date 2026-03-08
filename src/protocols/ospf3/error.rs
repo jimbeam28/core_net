@@ -31,6 +31,9 @@ pub enum Ospfv3Error {
     /// 死亡间隔不匹配
     DeadIntervalMismatch { expected: u32, received: u32 },
 
+    /// 锁错误
+    LockError,
+
     /// 其他错误
     Other { reason: String },
 }
@@ -61,6 +64,9 @@ impl fmt::Display for Ospfv3Error {
             }
             Ospfv3Error::DeadIntervalMismatch { expected, received } => {
                 write!(f, "死亡间隔不匹配: 期望 {}, 收到 {}", expected, received)
+            }
+            Ospfv3Error::LockError => {
+                write!(f, "锁错误")
             }
             Ospfv3Error::Other { reason } => {
                 write!(f, "其他错误: {}", reason)

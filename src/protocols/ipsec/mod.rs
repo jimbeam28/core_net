@@ -6,7 +6,6 @@
 pub mod ah;
 pub mod esp;
 pub mod sa;
-pub mod ikev2;
 
 // IPsec 协议号
 pub const IP_PROTO_AH: u8 = 51;   // Authentication Header

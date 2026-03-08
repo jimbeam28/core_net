@@ -1,17 +1,15 @@
 // src/protocols/ipv6/mod.rs
 //
-// IPv6 协议模块
+// IPv6 协议模块（精简版）
 // 实现 IPv6 数据包解析、封装、验证
-// 支持扩展头、分片重组等功能
+// 不支持扩展头链处理
 
 mod header;
 mod protocol;
 mod error;
 mod config;
 mod packet;
-mod extension;
 mod fragment;
-mod options;
 
 pub use header::{
     Ipv6Header,
@@ -34,29 +32,7 @@ pub use packet::{
     encapsulate_ipv6_packet,
 };
 
-// 扩展头相关导出
-pub use extension::{
-    ExtensionHeader,
-    ExtensionHeaderType,
-    ExtensionChainResult,
-    ExtensionConfig,
-    // 逐跳选项
-    HopByHopHeader,
-    // 路由头
-    RoutingHeader,
-    RoutingHeaderType2,
-    // 分片头
-    FragmentHeader,
-    // 目的选项
-    DestinationOptionsHeader,
-    // 扩展头解析
-    parse_extension_chain,
-    EXTENSION_HEADER_MIN_LEN,
-    DEFAULT_MAX_EXTENSION_HEADERS,
-    DEFAULT_MAX_EXTENSION_HEADERS_LENGTH,
-};
-
-// 分片重组相关导出
+// 分片重组相关导出（保留基础功能）
 pub use fragment::{
     ReassemblyKey,
     FragmentInfo,
@@ -64,24 +40,7 @@ pub use fragment::{
     FragmentCache,
     ReassemblyError,
     FragmentPacket,
-    create_fragments,
     create_fragments_simple,
     DEFAULT_MAX_REASSEMBLY_ENTRIES,
     DEFAULT_REASSEMBLY_TIMEOUT,
-    DEFAULT_MAX_FRAGMENTS_PER_PACKET,
-};
-
-// 选项处理相关导出
-pub use options::{
-    OptionType,
-    Option as ExtensionOption,
-    OptionsParseResult,
-    RouterAlertOption,
-    JumboPayloadOption,
-    parse_options,
-    create_padn,
-    OPTION_TYPE_PAD1,
-    OPTION_TYPE_PADN,
-    OPTION_TYPE_ROUTER_ALERT,
-    OPTION_TYPE_JUMBO_PAYLOAD,
 };

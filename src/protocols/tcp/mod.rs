@@ -1,7 +1,6 @@
 // src/protocols/tcp/mod.rs
 //
-// TCP 协议模块
-// 实现 RFC 793 / RFC 9293 Transmission Control Protocol
+// TCP 协议模块（精简版）
 
 mod constant;
 mod config;
@@ -13,7 +12,6 @@ mod connection;
 mod process;
 mod socket;
 mod socket_manager;
-mod timers;
 
 pub use constant::*;
 pub use config::{TcpConfig, TCP_CONFIG_DEFAULT};
@@ -33,6 +31,3 @@ pub use process::{
 };
 pub use socket::{TcpSocket, TcpEvent, TcpCallback};
 pub use socket_manager::{TcpSocketManager, ConnectionTuple};
-pub use timers::{
-    TcpTimerManager, TimerType, TimerEvent, TcpTimerConfig,
-};

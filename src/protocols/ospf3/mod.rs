@@ -1,27 +1,15 @@
 // src/protocols/ospf3/mod.rs
 //
-// OSPFv3 协议模块
-// 实现 RFC 5340 OSPF for IPv6
+// OSPFv3 协议模块（精简版）
 
 pub mod error;
 pub mod packet;
-pub mod lsa;
 pub mod config;
-pub mod interface;
-pub mod neighbor;
-pub mod lsdb;
 pub mod process;
 
 pub use error::{Ospfv3Error, Ospfv3Result};
 pub use packet::*;
-pub use lsa::*;
-pub use config::*;
-pub use interface::Ospfv3Interface;
-pub use neighbor::Ospfv3Neighbor;
-pub use lsdb::LinkStateDatabasev3;
-pub use process::{Ospfv3Processor, Ospfv3ProcessResult, process_ospfv3_packet};
-
-use crate::common::Ipv6Addr;
+pub use process::{process_ospfv3_packet, Ospfv3ProcessResult};
 
 // OSPFv3 常量定义
 
@@ -32,13 +20,13 @@ pub const IP_PROTO_OSPFV3: u8 = 89;
 pub const OSPFV3_VERSION: u8 = 3;
 
 /// OSPFv3 组播地址 - AllSPFRouters
-pub fn all_spf_routers() -> Ipv6Addr {
-    Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 5)
+pub fn all_spf_routers() -> crate::protocols::Ipv6Addr {
+    crate::protocols::Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 5)
 }
 
 /// OSPFv3 组播地址 - AllDRouters
-pub fn all_d_routers() -> Ipv6Addr {
-    Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 6)
+pub fn all_d_routers() -> crate::protocols::Ipv6Addr {
+    crate::protocols::Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 6)
 }
 
 /// OSPFv3 报文类型

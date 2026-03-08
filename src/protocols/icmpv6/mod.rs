@@ -20,6 +20,3 @@ pub use config::*;
 pub use error::*;
 pub use process::*;
 pub use checksum::*;
-
-// 重新导出 ErrorRateLimiter
-pub use neighbor::ErrorRateLimiter;
